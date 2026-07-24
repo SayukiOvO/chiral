@@ -6,6 +6,6 @@ Core 在「新增节点」时渲染的 compose 模板，注入 `PANEL_URL` / `JO
 
 - [x] `docker-compose.yml.tmpl`（草案；与 `core/internal/api` 的 composeSnippet 保持同步）
 - [x] Agent Dockerfile（草案）
-- [ ] Xray-core 二进制：草案按**随镜像打包**（Dockerfile 里 pin 版本下载，可复现、离线可用）；如需运行时拉取 / 在线升级内核再议。
+- [x] Xray-core 二进制：**随镜像打包**，跟踪 **snapshot（prerelease）快照通道**——xhttp 上下行分离、后量子密钥交换等前沿特性只在快照版有，稳定版发布很稀疏。默认构建时拉最新快照；`--build-arg XRAY_VERSION=v26.7.11` 可 pin 具体版本以求可复现。运行时拉取 / 在线升级内核再议。
 
 **状态**：草案，随 M1 联调修订。

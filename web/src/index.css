@@ -1,34 +1,210 @@
 @import "tailwindcss";
 
-/* Restrained enterprise palette (AWS/GitLab-ish), light + dark via class. */
-@theme {
-  --color-bg: #f7f8fa;
-  --color-surface: #ffffff;
-  --color-border: #e3e6ea;
-  --color-fg: #1b1f24;
-  --color-muted: #656d76;
-  --color-accent: #1f6feb;
-}
+/* Class-based dark mode (html.dark), toggled by the theme control. */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/*
+  Chiral — "signal console"
+  Clean minimalism for a real-time proxy-fleet control plane.
+  Cool architectural neutrals + one cobalt signal accent; the running
+  kernel carries a cobalt→violet "live wire" glow (a nod to the name's
+  chirality — a handed, mirrored duality). Telemetry is set in mono.
+*/
 
 :root {
-  color-scheme: light;
+  /* neutrals — light ("paper") */
+  --paper: #fafbfc;
+  --surface: #ffffff;
+  --raised: #ffffff;
+  --ink: #0b0d12;
+  --muted: #656c7a;
+  --faint: #9aa1af;
+  --line: #ebedf1;
+  --line-strong: #dde0e6;
+
+  /* signal + tints */
+  --signal: #4457ff;
+  --signal-ink: #ffffff;
+  --signal-soft: #eef0ff;
+  --violet: #8b5cf6;
+
+  /* semantic */
+  --online: #10b981;
+  --warn: #d97706;
+  --danger: #e11d48;
+
+  /* elevation */
+  --shadow-card: 0 1px 2px rgba(16, 19, 28, 0.04), 0 1px 3px rgba(16, 19, 28, 0.06);
+  --shadow-lift: 0 6px 16px rgba(16, 19, 28, 0.08), 0 2px 6px rgba(16, 19, 28, 0.05);
+  --shadow-pop: 0 24px 60px rgba(16, 19, 28, 0.18);
+  --wire: 0 0 0 rgba(68, 87, 255, 0);
+  --wire-live: 0 0 10px rgba(68, 87, 255, 0.45);
 }
 
-html.dark {
-  color-scheme: dark;
-  --color-bg: #0d1117;
-  --color-surface: #161b22;
-  --color-border: #30363d;
-  --color-fg: #e6edf3;
-  --color-muted: #8b949e;
-  --color-accent: #4493f8;
+.dark {
+  --paper: #090a0e;
+  --surface: #101219;
+  --raised: #141722;
+  --ink: #f1f3f8;
+  --muted: #8b91a1;
+  --faint: #626878;
+  --line: #1c1f29;
+  --line-strong: #282c38;
+
+  --signal: #7d92ff;
+  --signal-ink: #0a0b12;
+  --signal-soft: #171b30;
+  --violet: #a586ff;
+
+  --online: #34d399;
+  --warn: #fbbf24;
+  --danger: #fb7185;
+
+  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.4), 0 1px 3px rgba(0, 0, 0, 0.3);
+  --shadow-lift: 0 8px 24px rgba(0, 0, 0, 0.5), 0 2px 8px rgba(0, 0, 0, 0.4);
+  --shadow-pop: 0 30px 70px rgba(0, 0, 0, 0.6);
+  --wire: 0 0 0 rgba(125, 146, 255, 0);
+  --wire-live: 0 0 12px rgba(125, 146, 255, 0.5);
 }
 
-body {
-  margin: 0;
-  background: var(--color-bg);
-  color: var(--color-fg);
-  font-family:
-    -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue",
-    Arial, "PingFang SC", "Microsoft YaHei", sans-serif;
+/* Map runtime vars into Tailwind's token system (inline = reference, not copy,
+   so utilities like bg-surface / text-ink follow the theme at runtime). */
+@theme inline {
+  --color-paper: var(--paper);
+  --color-surface: var(--surface);
+  --color-raised: var(--raised);
+  --color-ink: var(--ink);
+  --color-muted: var(--muted);
+  --color-faint: var(--faint);
+  --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
+  --color-signal: var(--signal);
+  --color-signal-ink: var(--signal-ink);
+  --color-signal-soft: var(--signal-soft);
+  --color-violet: var(--violet);
+  --color-online: var(--online);
+  --color-warn: var(--warn);
+  --color-danger: var(--danger);
+
+  --font-display: "Space Grotesk Variable", ui-sans-serif, system-ui, sans-serif;
+  --font-sans:
+    "Inter Variable", ui-sans-serif, system-ui, -apple-system, "PingFang SC",
+    "Microsoft YaHei", sans-serif;
+  --font-mono: "Space Mono", ui-monospace, "SFMono-Regular", monospace;
+}
+
+@layer base {
+  * {
+    border-color: var(--line);
+  }
+
+  html {
+    color-scheme: light;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+  html.dark {
+    color-scheme: dark;
+  }
+
+  body {
+    margin: 0;
+    background: var(--paper);
+    color: var(--ink);
+    font-family: var(--font-sans);
+    font-feature-settings: "cv05" 1, "ss01" 1;
+  }
+
+  /* Telemetry reads best with lining tabular figures. */
+  .font-mono,
+  .tnum {
+    font-variant-numeric: tabular-nums lining-nums;
+  }
+
+  ::selection {
+    background: color-mix(in srgb, var(--signal) 22%, transparent);
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--signal);
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+
+  /* Thin, unobtrusive scrollbars for the code block. */
+  .scroll-slim::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  .scroll-slim::-webkit-scrollbar-thumb {
+    background: var(--line-strong);
+    border-radius: 999px;
+  }
+}
+
+@layer utilities {
+  .live-wire {
+    box-shadow: var(--wire-live);
+  }
+
+  /* Slow breathing pulse for the "online" dot. */
+  @keyframes breathe {
+    0%, 100% {
+      opacity: 1;
+      transform: scale(1);
+    }
+    50% {
+      opacity: 0.55;
+      transform: scale(0.82);
+    }
+  }
+  .animate-breathe {
+    animation: breathe 2.6s ease-in-out infinite;
+  }
+
+  /* Expanding ring behind an active status dot. */
+  @keyframes ping-soft {
+    0% {
+      opacity: 0.5;
+      transform: scale(1);
+    }
+    70%, 100% {
+      opacity: 0;
+      transform: scale(2.6);
+    }
+  }
+  .animate-ping-soft {
+    animation: ping-soft 2.6s cubic-bezier(0, 0, 0.2, 1) infinite;
+  }
+
+  /* Quiet mount: content rises a few px and fades in. */
+  @keyframes rise-in {
+    from {
+      opacity: 0;
+      transform: translateY(8px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+  .animate-rise {
+    animation: rise-in 0.5s cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+
+  @keyframes dash-flow {
+    to {
+      stroke-dashoffset: -1000;
+    }
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
 }

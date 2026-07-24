@@ -58,7 +58,7 @@ Chiral 是一个 Xray 管理面板，定位类似 Remnawave：采用 **Panel + A
 - **配置安全**：config 下发前必须 `xray -test` 校验，通过才生效；每版 config 存版本号，支持一键回滚。
 - **流量统计**：Agent 上报增量而非绝对值，防 Xray-core 重启导致计数器归零。
 - **变量泄露防护**：客户端模板只能引用「可公开」变量，私钥类变量在客户端渲染上下文中不可见。
-- **前端**：日 / 夜 / 跟随系统 三态切换，移动端自适应；视觉参考新版 AWS / GitLab 的克制企业风。i18n 中 / 英。
+- **前端**：日 / 夜 / 跟随系统 三态切换，移动端自适应；i18n 中 / 英。视觉方向 **"信号控制台"（clean minimalism，参考 Revolut）**：冷中性色打底 + 单一钴蓝信号色（`--signal`），内核运行时用钴蓝→紫「活线」微光（呼应 chiral 手性双重性）；字体 Space Grotesk（标题）+ Inter（正文）+ Space Mono（遥测数据，自托管不依赖 CDN）；签名元素是每节点实时流量迷你折线。设计 token 在 `web/src/index.css`（`@theme inline` + CSS 变量运行时换肤）。
 
 ## 8. 开发里程碑
 

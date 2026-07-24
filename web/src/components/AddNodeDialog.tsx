@@ -1,5 +1,7 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { api, type CreateNodeResult } from "../api";
+import { Button } from "./ui";
+import { CheckIcon, CopyIcon } from "./icons";
 
 export function AddNodeDialog({
   onClose,
@@ -12,6 +14,12 @@ export function AddNodeDialog({
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<CreateNodeResult | null>(null);
   const [error, setError] = useState("");
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
 
   async function create(e: React.FormEvent) {
     e.preventDefault();
@@ -31,59 +39,48 @@ export function AddNodeDialog({
 
   return (
     <div
-      className="fixed inset-0 bg-black/40 grid place-items-center px-4 z-50"
+      className="fixed inset-0 z-50 grid place-items-center bg-black/40 px-4 backdrop-blur-sm"
       onClick={onClose}
     >
       <div
-        className="w-full max-w-lg rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-6 shadow-lg"
+        role="dialog"
+        aria-modal="true"
+        className="w-full max-w-lg animate-rise rounded-2xl border border-line bg-raised p-6 shadow-[var(--shadow-pop)]"
         onClick={(e) => e.stopPropagation()}
       >
         {!result ? (
           <form onSubmit={create}>
-            <h3 className="text-base font-semibold mb-1">新增节点</h3>
-            <p className="text-sm text-[var(--color-muted)] mb-4">
-              为节点起个名字，生成一次性加入命令。
-            </p>
+            <h3 className="font-display text-lg font-semibold tracking-tight">新增节点</h3>
+            <p className="mt-1 text-sm text-muted">为节点起个名字，生成一次性加入命令。</p>
             <input
               autoFocus
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder="例如 tokyo-1"
-              className="w-full rounded-lg border border-[var(--color-border)] bg-transparent px-3 py-2 text-sm outline-none focus:border-[var(--color-accent)]"
+              className="mt-4 w-full rounded-xl border border-line-strong bg-surface px-3.5 py-2.5 text-sm outline-none transition-colors placeholder:text-faint focus:border-signal"
             />
-            {error && <p className="mt-2 text-sm text-red-500">{error}</p>}
-            <div className="mt-4 flex justify-end gap-2">
-              <button
-                type="button"
-                onClick={onClose}
-                className="rounded-lg border border-[var(--color-border)] px-3 py-2 text-sm hover:border-[var(--color-accent)]"
-              >
+            {error && <p className="mt-2 text-sm text-danger">{error}</p>}
+            <div className="mt-5 flex justify-end gap-2">
+              <Button type="button" variant="ghost" onClick={onClose}>
                 取消
-              </button>
-              <button
-                type="submit"
-                disabled={busy || !name.trim()}
-                className="rounded-lg bg-[var(--color-accent)] px-3 py-2 text-sm font-medium text-white hover:opacity-90 disabled:opacity-50"
-              >
-                {busy ? "生成中…" : "生成"}
-              </button>
+              </Button>
+              <Button type="submit" variant="primary" disabled={busy || !name.trim()}>
+                {busy ? "生成中…" : "生成加入命令"}
+              </Button>
             </div>
           </form>
         ) : (
           <div>
-            <h3 className="text-base font-semibold mb-1">节点已创建</h3>
-            <p className="text-sm text-[var(--color-muted)] mb-4">
-              在节点机器上把下面的 compose 存为 <code>docker-compose.yml</code>{" "}
-              并运行 <code>docker compose up -d</code>。加入令牌一次性使用。
+            <h3 className="font-display text-lg font-semibold tracking-tight">节点已创建</h3>
+            <p className="mt-1 text-sm text-muted">
+              在目标主机保存为 <code className="font-mono text-ink">docker-compose.yml</code>，然后运行{" "}
+              <code className="font-mono text-ink">docker compose up -d</code>。加入令牌仅可使用一次。
             </p>
             <CopyBlock text={result.compose} />
-            <div className="mt-4 flex justify-end">
-              <button
-                onClick={onClose}
-                className="rounded-lg bg-[var(--color-accent)] px-3 py-2 text-sm font-medium text-white hover:opacity-90"
-              >
+            <div className="mt-5 flex justify-end">
+              <Button variant="primary" onClick={onClose}>
                 完成
-              </button>
+              </Button>
             </div>
           </div>
         )}
@@ -95,8 +92,8 @@ export function AddNodeDialog({
 function CopyBlock({ text }: { text: string }) {
   const [copied, setCopied] = useState(false);
   return (
-    <div className="relative">
-      <pre className="max-h-64 overflow-auto rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] p-3 text-xs leading-relaxed">
+    <div className="relative mt-4">
+      <pre className="scroll-slim max-h-64 overflow-auto rounded-xl border border-line bg-paper p-4 font-mono text-xs leading-relaxed text-ink">
         {text}
       </pre>
       <button
@@ -105,8 +102,9 @@ function CopyBlock({ text }: { text: string }) {
           setCopied(true);
           setTimeout(() => setCopied(false), 1500);
         }}
-        className="absolute top-2 right-2 rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-1 text-xs hover:border-[var(--color-accent)]"
+        className="absolute right-2.5 top-2.5 inline-flex items-center gap-1.5 rounded-lg border border-line-strong bg-surface px-2.5 py-1.5 text-xs font-medium text-muted transition-colors hover:border-signal hover:text-signal"
       >
+        {copied ? <CheckIcon size={13} className="text-online" /> : <CopyIcon size={13} />}
         {copied ? "已复制" : "复制"}
       </button>
     </div>
