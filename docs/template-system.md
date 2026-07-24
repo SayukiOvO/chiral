@@ -142,7 +142,12 @@ vless://{{user.uuid}}@{{node.address}}:{{port}}?security=reality&sni={{sni}}&pbk
 | 编排 | `core/internal/profile/` | 解析变量池 → 渲染 → 装配 → `xray -test` → 存版本 → 下发 |
 | REST API | `core/internal/api/template.go` | 变量、Profile、绑定、preview / apply |
 
-**关键行为**：`xray -test` 不通过的配置**既不存版本也不下发**（实测验证），错误直接把 Xray 的诊断原样返回给操作者。API 返回变量时**私钥分量一律遮蔽**为 `••••••••`。
+**关键行为**：
+
+- `xray -test` 不通过的配置**既不存版本也不下发**（实测验证），错误把 Xray 的诊断原样返回给操作者。
+- API 返回变量时**私钥分量一律遮蔽**为 `••••••••`。
+- **加密覆盖到渲染产物**：私钥分量、`node_configs.config`、`nodes.config_skeleton` 三者都加密。渲染后的 config 按设计含私钥明文，只加密变量表等于白做——拿到库文件就能 `select config from node_configs` 读出每个节点的密钥。
+- **面板侧校验环境是钉死的**：`xray -test` 子进程只拿到固定的 `XRAY_LOCATION_ASSET`（geo 资源必须随镜像走，否则 `geosite:` / `geoip:` 路由规则会被误拒），且不继承面板的其它环境变量——在这里能过的配置，到节点上必须是同一个意思。
 
 ### 部署所需环境变量
 

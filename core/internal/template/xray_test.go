@@ -105,3 +105,43 @@ func TestXrayVersion(t *testing.T) {
 		t.Error("expected a version string from the configured binary")
 	}
 }
+
+// Regression: routing rules using geosite:/geoip: need the .dat assets to
+// load. Validating without them false-rejects the most common routing
+// construct in Xray — a config that is perfectly valid on the node.
+func TestTestConfigAcceptsGeoRoutingRules(t *testing.T) {
+	x := testXray(t)
+	cfg := []byte(`{"log":{"loglevel":"warning"},
+	  "inbounds":[{"tag":"in","listen":"127.0.0.1","port":10800,"protocol":"socks","settings":{"udp":true}}],
+	  "outbounds":[{"protocol":"freedom","tag":"direct"},{"protocol":"blackhole","tag":"block"}],
+	  "routing":{"rules":[
+	    {"type":"field","domain":["geosite:google"],"outboundTag":"direct"},
+	    {"type":"field","ip":["geoip:cn"],"outboundTag":"direct"}]}}`)
+	if err := x.TestConfig(context.Background(), cfg); err != nil {
+		t.Errorf("geo routing rules rejected — are geoip.dat/geosite.dat next to the binary "+
+			"or XRAY_LOCATION_ASSET set? %v", err)
+	}
+}
+
+// The validation subprocess must not inherit ambient XRAY_LOCATION_* state:
+// a config that passes here has to mean the same thing on the node.
+func TestValidationEnvIsPinned(t *testing.T) {
+	x := testXray(t)
+	env := x.env()
+	var sawAsset bool
+	for _, kv := range env {
+		switch {
+		case strings.HasPrefix(kv, "XRAY_LOCATION_ASSET="):
+			sawAsset = true
+			if strings.TrimPrefix(kv, "XRAY_LOCATION_ASSET=") == "" {
+				t.Error("asset location resolved to empty")
+			}
+		case kv == "XRAY_LOCATION_CONFDIR=", kv == "XRAY_LOCATION_CONFIG=":
+		default:
+			t.Errorf("unexpected variable leaked into the validation env: %q", kv)
+		}
+	}
+	if !sawAsset {
+		t.Error("XRAY_LOCATION_ASSET was not pinned")
+	}
+}

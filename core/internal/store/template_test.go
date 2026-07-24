@@ -309,3 +309,135 @@ func TestProfileUpdateAndClientTemplates(t *testing.T) {
 		t.Errorf("client template not replaced: %v", tmpls)
 	}
 }
+
+// --- regressions from the M2 adversarial review ---
+
+// The whole at-rest threat model turns on this: a rendered config contains the
+// very private keys variable_components encrypts, so storing it in the clear
+// would hand every node's key material to anyone holding the database file.
+func TestRenderedConfigIsCiphertextOnDisk(t *testing.T) {
+	s := testStore(t, storeTestKey)
+	n, _ := s.CreateNode("tokyo-1", "hash")
+	const rendered = `{"inbounds":[{"privateKey":"REALITY-PRIVATE-KEY-HERE"}]}`
+	c, err := s.InsertConfig(n.ID, rendered)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var raw string
+	if err := s.db.QueryRow(`SELECT config FROM node_configs WHERE node_id = ? AND version = ?`,
+		n.ID, c.Version).Scan(&raw); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(raw, "REALITY-PRIVATE-KEY-HERE") {
+		t.Fatal("rendered config is stored in plaintext; a leaked database exposes every node's keys")
+	}
+	if !secret.IsEncrypted(raw) {
+		t.Errorf("stored config is not encrypted: %q", raw)
+	}
+
+	got, err := s.LatestConfig(n.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Config != rendered {
+		t.Errorf("config did not round-trip: %q", got.Config)
+	}
+	pushable, err := s.LatestPushableConfig(n.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pushable.Config != rendered {
+		t.Errorf("pushable config did not round-trip: %q", pushable.Config)
+	}
+}
+
+// A skeleton can hold credentials of its own (an outbound to an upstream
+// proxy), so it gets the same treatment.
+func TestSkeletonIsCiphertextOnDisk(t *testing.T) {
+	s := testStore(t, storeTestKey)
+	n, _ := s.CreateNode("tokyo-1", "hash")
+	const skeleton = `{"outbounds":[{"password":"UPSTREAM-PROXY-PASSWORD"}]}`
+	if err := s.SetConfigSkeleton(n.ID, skeleton); err != nil {
+		t.Fatal(err)
+	}
+	var raw string
+	if err := s.db.QueryRow(`SELECT config_skeleton FROM nodes WHERE id = ?`, n.ID).Scan(&raw); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(raw, "UPSTREAM-PROXY-PASSWORD") {
+		t.Fatal("skeleton is stored in plaintext")
+	}
+	got, err := s.GetNode(n.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.ConfigSkeleton != skeleton {
+		t.Errorf("skeleton did not round-trip: %q", got.ConfigSkeleton)
+	}
+}
+
+// A config sealed for one version must not open under another: the AAD binds
+// each ciphertext to its own row.
+func TestConfigCiphertextIsBoundToItsVersion(t *testing.T) {
+	s := testStore(t, storeTestKey)
+	n, _ := s.CreateNode("n", "h")
+	if _, err := s.InsertConfig(n.ID, `{"v":1}`); err != nil {
+		t.Fatal(err)
+	}
+	c2, err := s.InsertConfig(n.ID, `{"v":2}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var v1 string
+	if err := s.db.QueryRow(`SELECT config FROM node_configs WHERE node_id=? AND version=1`, n.ID).Scan(&v1); err != nil {
+		t.Fatal(err)
+	}
+	// Move v1's ciphertext onto v2's row, as an attacker with write access would.
+	if _, err := s.db.Exec(`UPDATE node_configs SET config=? WHERE node_id=? AND version=?`, v1, n.ID, c2.Version); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.LatestConfig(n.ID); err == nil {
+		t.Error("a relocated config ciphertext opened successfully")
+	}
+}
+
+// Enabling encryption on an existing panel must not break stored configs.
+func TestPlaintextConfigStillReadableAfterEnablingEncryption(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "t.db")
+	plain, _ := secret.NewBox("")
+	s1, err := Open(path, plain)
+	if err != nil {
+		t.Fatal(err)
+	}
+	n, _ := s1.CreateNode("n", "h")
+	if _, err := s1.InsertConfig(n.ID, `{"legacy":true}`); err != nil {
+		t.Fatal(err)
+	}
+	if err := s1.SetConfigSkeleton(n.ID, `{"legacy":"skeleton"}`); err != nil {
+		t.Fatal(err)
+	}
+	s1.Close()
+
+	box, _ := secret.NewBox(storeTestKey)
+	s2, err := Open(path, box)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s2.Close()
+	got, err := s2.LatestConfig(n.ID)
+	if err != nil {
+		t.Fatalf("previously-plaintext config became unreadable: %v", err)
+	}
+	if got.Config != `{"legacy":true}` {
+		t.Errorf("got %q", got.Config)
+	}
+	node, err := s2.GetNode(n.ID)
+	if err != nil {
+		t.Fatalf("previously-plaintext skeleton became unreadable: %v", err)
+	}
+	if node.ConfigSkeleton != `{"legacy":"skeleton"}` {
+		t.Errorf("got %q", node.ConfigSkeleton)
+	}
+}

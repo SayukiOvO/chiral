@@ -34,9 +34,14 @@ FROM alpine:3.20
 RUN adduser -D -H chiral
 COPY --from=build /out/chiral-core /usr/local/bin/chiral-core
 COPY --from=xray /opt/xray/xray /usr/local/bin/xray
+# The geo assets must ship too: routing rules using geosite:/geoip: fail to
+# load without them, so `xray -test` would reject configs that are perfectly
+# valid on the node.
+COPY --from=xray /opt/xray/geoip.dat /opt/xray/geosite.dat /usr/local/share/xray/
 USER chiral
 VOLUME /var/lib/chiral
 ENV CHIRAL_DB_PATH=/var/lib/chiral/chiral.db \
-    CHIRAL_XRAY_BIN=/usr/local/bin/xray
+    CHIRAL_XRAY_BIN=/usr/local/bin/xray \
+    XRAY_LOCATION_ASSET=/usr/local/share/xray
 EXPOSE 8080 8443
 ENTRYPOINT ["chiral-core"]

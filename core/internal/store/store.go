@@ -116,10 +116,28 @@ type Node struct {
 
 const nodeCols = `id, name, hostname, public_ip, agent_version, xray_version, created_at, registered_at, last_seen_at, config_skeleton`
 
-func scanNode(row interface{ Scan(...any) error }) (Node, error) {
+// skeletonAAD / configAAD bind a ciphertext to the exact row that holds it.
+func skeletonAAD(nodeID string) string { return "node-skeleton:" + nodeID }
+func configAAD(nodeID string, version int64) string {
+	return fmt.Sprintf("node-config:%s:%d", nodeID, version)
+}
+
+// scanNode is a method because a node's skeleton is encrypted at rest: it may
+// carry credentials of its own (an outbound to an upstream proxy, say).
+func (s *Store) scanNode(row interface{ Scan(...any) error }) (Node, error) {
 	var n Node
 	err := row.Scan(&n.ID, &n.Name, &n.Hostname, &n.PublicIP, &n.AgentVersion, &n.XrayVersion, &n.CreatedAt, &n.RegisteredAt, &n.LastSeenAt, &n.ConfigSkeleton)
-	return n, err
+	if err != nil {
+		return n, err
+	}
+	if n.ConfigSkeleton != "" {
+		plain, oerr := s.box.Open(skeletonAAD(n.ID), n.ConfigSkeleton)
+		if oerr != nil {
+			return n, fmt.Errorf("opening config skeleton for node %s: %w", n.ID, oerr)
+		}
+		n.ConfigSkeleton = plain
+	}
+	return n, nil
 }
 
 // CreateNode inserts a node awaiting registration via its join token.
@@ -138,7 +156,7 @@ func (s *Store) ListNodes() ([]Node, error) {
 	defer rows.Close()
 	var out []Node
 	for rows.Next() {
-		n, err := scanNode(rows)
+		n, err := s.scanNode(rows)
 		if err != nil {
 			return nil, err
 		}
@@ -148,7 +166,7 @@ func (s *Store) ListNodes() ([]Node, error) {
 }
 
 func (s *Store) GetNode(id string) (Node, error) {
-	return scanNode(s.db.QueryRow(`SELECT `+nodeCols+` FROM nodes WHERE id = ?`, id))
+	return s.scanNode(s.db.QueryRow(`SELECT `+nodeCols+` FROM nodes WHERE id = ?`, id))
 }
 
 func (s *Store) DeleteNode(id string) error {
@@ -165,11 +183,11 @@ func (s *Store) DeleteNode(id string) error {
 // FindNodeByJoinTokenHash resolves a pending join token; sql.ErrNoRows means
 // the token is unknown or already used.
 func (s *Store) FindNodeByJoinTokenHash(hash string) (Node, error) {
-	return scanNode(s.db.QueryRow(`SELECT `+nodeCols+` FROM nodes WHERE join_token_hash = ?`, hash))
+	return s.scanNode(s.db.QueryRow(`SELECT `+nodeCols+` FROM nodes WHERE join_token_hash = ?`, hash))
 }
 
 func (s *Store) FindNodeByCredentialHash(hash string) (Node, error) {
-	return scanNode(s.db.QueryRow(`SELECT `+nodeCols+` FROM nodes WHERE credential_hash = ?`, hash))
+	return s.scanNode(s.db.QueryRow(`SELECT `+nodeCols+` FROM nodes WHERE credential_hash = ?`, hash))
 }
 
 // RedeemJoinToken atomically exchanges a join token for the long-term
@@ -236,28 +254,45 @@ func (s *Store) InsertConfig(nodeID, config string) (NodeConfig, error) {
 		return NodeConfig{}, err
 	}
 	c := NodeConfig{NodeID: nodeID, Version: version, Config: config, CreatedAt: time.Now().Unix()}
+	// A rendered config contains the very private keys that variable_components
+	// encrypts — storing it in the clear would hand every node's key material
+	// to anyone holding a copy of the database, which is exactly the threat
+	// the secret package exists to stop.
+	sealed, err := s.box.Seal(configAAD(nodeID, version), config)
+	if err != nil {
+		return NodeConfig{}, err
+	}
 	if _, err := tx.Exec(`INSERT INTO node_configs (node_id, version, config, created_at) VALUES (?, ?, ?, ?)`,
-		c.NodeID, c.Version, c.Config, c.CreatedAt); err != nil {
+		c.NodeID, c.Version, sealed, c.CreatedAt); err != nil {
 		return NodeConfig{}, err
 	}
 	return c, tx.Commit()
 }
 
 func (s *Store) LatestConfig(nodeID string) (NodeConfig, error) {
+	return s.scanConfig(s.db.QueryRow(
+		`SELECT node_id, version, config, created_at, applied, error FROM node_configs WHERE node_id = ? ORDER BY version DESC LIMIT 1`, nodeID))
+}
+
+func (s *Store) scanConfig(row interface{ Scan(...any) error }) (NodeConfig, error) {
 	var c NodeConfig
-	err := s.db.QueryRow(`SELECT node_id, version, config, created_at, applied, error FROM node_configs WHERE node_id = ? ORDER BY version DESC LIMIT 1`, nodeID).
-		Scan(&c.NodeID, &c.Version, &c.Config, &c.CreatedAt, &c.Applied, &c.Error)
-	return c, err
+	if err := row.Scan(&c.NodeID, &c.Version, &c.Config, &c.CreatedAt, &c.Applied, &c.Error); err != nil {
+		return c, err
+	}
+	plain, err := s.box.Open(configAAD(c.NodeID, c.Version), c.Config)
+	if err != nil {
+		return c, fmt.Errorf("opening config v%d for node %s: %w", c.Version, c.NodeID, err)
+	}
+	c.Config = plain
+	return c, nil
 }
 
 // LatestPushableConfig returns the newest config that has not failed
 // agent-side validation (pending or applied). Re-push paths use this so a
 // config rejected by `xray -test` is never pushed again and again.
 func (s *Store) LatestPushableConfig(nodeID string) (NodeConfig, error) {
-	var c NodeConfig
-	err := s.db.QueryRow(`SELECT node_id, version, config, created_at, applied, error FROM node_configs WHERE node_id = ? AND applied >= 0 ORDER BY version DESC LIMIT 1`, nodeID).
-		Scan(&c.NodeID, &c.Version, &c.Config, &c.CreatedAt, &c.Applied, &c.Error)
-	return c, err
+	return s.scanConfig(s.db.QueryRow(
+		`SELECT node_id, version, config, created_at, applied, error FROM node_configs WHERE node_id = ? AND applied >= 0 ORDER BY version DESC LIMIT 1`, nodeID))
 }
 
 func (s *Store) SetConfigResult(nodeID string, version int64, applied bool, errMsg string) error {
@@ -270,9 +305,16 @@ func (s *Store) SetConfigResult(nodeID string, version int64, applied bool, errM
 	return err
 }
 
-// SetConfigSkeleton replaces a node's config skeleton.
+// SetConfigSkeleton replaces a node's config skeleton, encrypting it at rest.
 func (s *Store) SetConfigSkeleton(nodeID, skeleton string) error {
-	res, err := s.db.Exec(`UPDATE nodes SET config_skeleton = ? WHERE id = ?`, skeleton, nodeID)
+	sealed := skeleton
+	if skeleton != "" {
+		var err error
+		if sealed, err = s.box.Seal(skeletonAAD(nodeID), skeleton); err != nil {
+			return err
+		}
+	}
+	res, err := s.db.Exec(`UPDATE nodes SET config_skeleton = ? WHERE id = ?`, sealed, nodeID)
 	if err != nil {
 		return err
 	}

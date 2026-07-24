@@ -41,6 +41,11 @@ func AssembleNode(skeleton string, sources []InboundSource) ([]byte, error) {
 	if err := json.Unmarshal([]byte(skeleton), &cfg); err != nil {
 		return nil, fmt.Errorf("node config skeleton is not a JSON object: %w", err)
 	}
+	// JSON `null` unmarshals into a nil map without error; assigning to it
+	// later would panic. Reject it here with a message that names the cause.
+	if cfg == nil {
+		return nil, fmt.Errorf("node config skeleton must be a JSON object, got null")
+	}
 
 	var inbounds []json.RawMessage
 	if raw, ok := cfg["inbounds"]; ok && len(raw) > 0 {

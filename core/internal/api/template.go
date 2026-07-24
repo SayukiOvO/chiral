@@ -373,12 +373,23 @@ func (s *Server) applyProfile(w http.ResponseWriter, r *http.Request) {
 // --- node config assembly ---
 
 func (s *Server) putSkeleton(w http.ResponseWriter, r *http.Request) {
-	var skeleton json.RawMessage
+	// Decode into a map, not RawMessage: `null` is valid JSON but not a valid
+	// skeleton, and storing it would break every later assembly for this node.
+	var skeleton map[string]json.RawMessage
 	if err := json.NewDecoder(r.Body).Decode(&skeleton); err != nil {
-		writeErr(w, http.StatusBadRequest, "body must be the skeleton as JSON")
+		writeErr(w, http.StatusBadRequest, "body must be the config skeleton as a JSON object")
 		return
 	}
-	if err := s.st.SetConfigSkeleton(r.PathValue("id"), string(skeleton)); err != nil {
+	if skeleton == nil {
+		writeErr(w, http.StatusBadRequest, "config skeleton must be a JSON object, not null")
+		return
+	}
+	raw, err := json.Marshal(skeleton)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, "config skeleton could not be re-encoded")
+		return
+	}
+	if err := s.st.SetConfigSkeleton(r.PathValue("id"), string(raw)); err != nil {
 		if store.IsNotFound(err) {
 			writeErr(w, http.StatusNotFound, "no such node")
 			return

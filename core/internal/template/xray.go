@@ -87,11 +87,41 @@ func (x Xray) TestConfig(ctx context.Context, configJSON []byte) error {
 	}
 	ctx, cancel := context.WithTimeout(ctx, xrayTimeout)
 	defer cancel()
-	out, err := exec.CommandContext(ctx, x.Bin, "-test", "-c", path, "-format", "json").CombinedOutput()
+	cmd := exec.CommandContext(ctx, x.Bin, "-test", "-c", path, "-format", "json")
+	cmd.Env = x.env()
+	out, err := cmd.CombinedOutput()
 	if err != nil {
+		// Distinguish "Xray says the config is wrong" from "we never got an
+		// answer" — the second is our problem, not the operator's.
+		if ctx.Err() != nil {
+			return fmt.Errorf("xray -test did not finish: %w", ctx.Err())
+		}
 		return fmt.Errorf("xray -test rejected the config: %s", xrayDiagnostic(string(out)))
 	}
 	return nil
+}
+
+// env pins the environment the validation subprocess sees, rather than
+// inheriting the panel's.
+//
+// Routing rules using geosite:/geoip: need the .dat assets to resolve, so
+// without them the panel would false-reject the single most common routing
+// construct in Xray. And validation must not depend on ambient XRAY_LOCATION_*
+// state: a config that passes here has to mean the same thing on the node.
+func (x Xray) env() []string {
+	assets := os.Getenv("XRAY_LOCATION_ASSET")
+	if assets == "" {
+		// Alongside the binary, which is how the panel image ships them.
+		if p, err := exec.LookPath(x.Bin); err == nil {
+			assets = filepath.Dir(p)
+		}
+	}
+	return []string{
+		"XRAY_LOCATION_ASSET=" + assets,
+		// Never let a stray confdir/config from the environment join the test.
+		"XRAY_LOCATION_CONFDIR=",
+		"XRAY_LOCATION_CONFIG=",
+	}
 }
 
 // xrayDiagnostic pulls the useful line out of Xray's chatty output.

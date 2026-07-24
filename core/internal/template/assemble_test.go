@@ -138,3 +138,29 @@ func TestAssembleAllowsSecretsInServerTemplate(t *testing.T) {
 		t.Error("server-side render should include the private key")
 	}
 }
+
+// Regression: JSON `null` unmarshals into a nil map without error, and
+// assigning to a nil map panics. A stored `null` skeleton would have taken
+// down every later assembly for that node.
+func TestAssembleRejectsNullSkeleton(t *testing.T) {
+	out, err := AssembleNode(`null`, []InboundSource{
+		{ProfileName: "p", Template: `{"tag":"t"}`, Ctx: srcCtx(nil)},
+	})
+	if err == nil {
+		t.Fatal("expected a null skeleton to be rejected, not panic")
+	}
+	if out != nil {
+		t.Error("expected no output on error")
+	}
+	if !strings.Contains(err.Error(), "null") {
+		t.Errorf("error should name the cause, got: %v", err)
+	}
+}
+
+func TestAssembleRejectsNonObjectSkeletons(t *testing.T) {
+	for _, skeleton := range []string{`null`, `[]`, `"a string"`, `42`, `true`} {
+		if _, err := AssembleNode(skeleton, nil); err == nil {
+			t.Errorf("skeleton %q should be rejected", skeleton)
+		}
+	}
+}
