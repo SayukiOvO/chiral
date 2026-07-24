@@ -21,10 +21,13 @@ certs/
 node_modules/
 web/dist/
 web/.vite/
+web/*.tsbuildinfo
 
-# Xray runtime assets
-xray
-xray-core
+# Xray runtime assets (the downloaded/bundled kernel binary + geo data).
+# Anchored to repo root so they do NOT match the agent/internal/xray/ source
+# package (a bare "xray" would ignore that directory too).
+/xray
+/xray-core
 geoip.dat
 geosite.dat
 
