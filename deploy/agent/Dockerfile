@@ -1,0 +1,29 @@
+# Build stage
+FROM golang:1.23-alpine AS build
+WORKDIR /src
+COPY go.mod go.sum ./
+RUN go mod download
+COPY . .
+RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/chiral-agent ./agent/cmd/agent
+
+# Xray-core stage: bundled into the image, version pinned for reproducibility.
+FROM alpine:3.20 AS xray
+ARG XRAY_VERSION=25.6.8
+ARG TARGETARCH
+RUN apk add --no-cache curl unzip \
+    && case "$TARGETARCH" in \
+         amd64) XRAY_ARCH=64 ;; \
+         arm64) XRAY_ARCH=arm64-v8a ;; \
+         *) echo "unsupported arch: $TARGETARCH" && exit 1 ;; \
+       esac \
+    && curl -fsSL -o /tmp/xray.zip "https://github.com/XTLS/Xray-core/releases/download/v${XRAY_VERSION}/Xray-linux-${XRAY_ARCH}.zip" \
+    && unzip /tmp/xray.zip -d /opt/xray
+
+# Runtime stage
+FROM alpine:3.20
+COPY --from=build /out/chiral-agent /usr/local/bin/chiral-agent
+COPY --from=xray /opt/xray/xray /usr/local/bin/xray
+COPY --from=xray /opt/xray/geoip.dat /opt/xray/geosite.dat /usr/local/share/xray/
+ENV XRAY_LOCATION_ASSET=/usr/local/share/xray
+VOLUME /var/lib/chiral-agent
+ENTRYPOINT ["chiral-agent"]

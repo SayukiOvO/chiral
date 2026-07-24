@@ -1,0 +1,170 @@
+syntax = "proto3";
+
+package chiral.v1;
+
+option go_package = "github.com/SayukiOvO/chiral/proto/chiral/v1;chiralv1";
+
+// AgentService is served by Core. Agents dial out to Core (scheme A):
+// nodes only need outbound network access and never expose inbound ports.
+service AgentService {
+  // Register exchanges a one-time join token for this node's long-term
+  // credential. The join token is invalidated as soon as registration
+  // succeeds. Called once, before the first Channel.
+  rpc Register(RegisterRequest) returns (RegisterResponse);
+
+  // Channel is the persistent bidirectional stream that carries all frames.
+  // The node's long-term credential is presented via gRPC metadata key
+  // "x-chiral-credential". The first agent frame MUST be Hello.
+  rpc Channel(stream AgentFrame) returns (stream CoreFrame);
+}
+
+message RegisterRequest {
+  string join_token = 1;
+  string agent_version = 2;
+  string hostname = 3;
+}
+
+message RegisterResponse {
+  string node_id = 1;
+  // Long-term per-node credential. Core stores only a hash; the credential
+  // can be revoked individually without affecting other nodes.
+  string credential = 2;
+}
+
+// ---- Agent -> Core frames ----
+
+message AgentFrame {
+  oneof frame {
+    Hello hello = 1;
+    Heartbeat heartbeat = 2;
+    StatsReport stats = 3;
+    ConfigAck config_ack = 4;
+    Event event = 5;
+  }
+}
+
+// Hello is the first frame after the stream is established.
+message Hello {
+  string node_id = 1;
+  string agent_version = 2;
+  // Version of the managed Xray-core binary; empty if not installed yet.
+  string xray_version = 3;
+  string public_ip = 4;
+}
+
+// Heartbeat carries lightweight system metrics and liveness.
+message Heartbeat {
+  double cpu_percent = 1;
+  uint64 mem_used_bytes = 2;
+  uint64 mem_total_bytes = 3;
+  uint64 disk_used_bytes = 4;
+  uint64 disk_total_bytes = 5;
+  // Instantaneous network throughput, bytes per second.
+  uint64 net_tx_bps = 6;
+  uint64 net_rx_bps = 7;
+  XrayState xray_state = 8;
+  // Version of the currently applied config; 0 if none applied yet.
+  int64 config_version = 9;
+}
+
+enum XrayState {
+  XRAY_STATE_UNSPECIFIED = 0;
+  XRAY_STATE_RUNNING = 1;
+  XRAY_STATE_STOPPED = 2;
+  XRAY_STATE_ERROR = 3;
+}
+
+// StatsReport carries traffic deltas since the previous report, never
+// absolute counter values, so an Xray-core restart cannot skew totals.
+// Implemented in M3; shape is a draft until then.
+message StatsReport {
+  repeated StatEntry entries = 1;
+}
+
+message StatEntry {
+  StatScope scope = 1;
+  // Inbound/outbound tag, or the per-credential email for STAT_SCOPE_USER.
+  string name = 2;
+  uint64 uplink_bytes = 3;
+  uint64 downlink_bytes = 4;
+}
+
+enum StatScope {
+  STAT_SCOPE_UNSPECIFIED = 0;
+  STAT_SCOPE_INBOUND = 1;
+  STAT_SCOPE_OUTBOUND = 2;
+  STAT_SCOPE_USER = 3;
+}
+
+// ConfigAck reports the outcome of a ConfigPush.
+message ConfigAck {
+  int64 version = 1;
+  bool applied = 2;
+  // Failure detail (e.g. local `xray -test` output) when applied is false.
+  string error = 3;
+}
+
+message Event {
+  EventKind kind = 1;
+  string message = 2;
+  int64 at_unix = 3;
+}
+
+enum EventKind {
+  EVENT_KIND_UNSPECIFIED = 0;
+  EVENT_KIND_XRAY_CRASHED = 1;
+  EVENT_KIND_XRAY_RESTARTED = 2;
+  EVENT_KIND_ERROR = 3;
+}
+
+// ---- Core -> Agent frames ----
+
+message CoreFrame {
+  oneof frame {
+    ConfigPush config_push = 1;
+    UserOp user_op = 2;
+    Command command = 3;
+  }
+}
+
+// ConfigPush delivers a complete config.json. Core has already validated it
+// with `xray -test` before pushing. Rollback is expressed as a ConfigPush of
+// an older version's content (with a new version number); the agent keeps no
+// local history.
+message ConfigPush {
+  int64 version = 1;
+  bytes config_json = 2;
+}
+
+// UserOp adds/removes a client on a live inbound via Xray-core's
+// HandlerService, without restarting the core.
+// Implemented in M3; account payload shape is finalized then.
+message UserOp {
+  UserOpKind kind = 1;
+  string inbound_tag = 2;
+  // Per-credential stats key, e.g. "alice@tokyo-reality".
+  string email = 3;
+  // JSON-encoded account object (uuid/password/flow...), draft until M3.
+  bytes account_json = 4;
+}
+
+enum UserOpKind {
+  USER_OP_KIND_UNSPECIFIED = 0;
+  USER_OP_KIND_ADD = 1;
+  USER_OP_KIND_REMOVE = 2;
+}
+
+// Command is a small imperative from Core.
+message Command {
+  oneof cmd {
+    RestartXray restart_xray = 1;
+    ReportNow report_now = 2;
+  }
+}
+
+// RestartXray asks the agent to restart the Xray-core process.
+message RestartXray {}
+
+// ReportNow asks the agent to send a Heartbeat (and StatsReport once
+// implemented) immediately.
+message ReportNow {}

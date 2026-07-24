@@ -1,0 +1,28 @@
+# Panel-side deployment: Core (+ frontend, served by Core once web/ is built).
+# TLS termination for the HTTP API can sit behind caddy/nginx; the gRPC
+# endpoint's TLS is configured directly on Core (CHIRAL_TLS_CERT/KEY).
+services:
+  core:
+    build:
+      context: ../..
+      dockerfile: deploy/panel/Dockerfile.core
+    image: ghcr.io/sayukiovo/chiral-core:latest
+    restart: unless-stopped
+    ports:
+      - "8080:8080" # REST API / frontend
+      - "8443:8443" # agent gRPC
+    environment:
+      CHIRAL_DB_PATH: /var/lib/chiral/chiral.db
+      CHIRAL_HTTP_LISTEN: ":8080"
+      CHIRAL_GRPC_LISTEN: ":8443"
+      # Address agents dial; set to your panel's public host:port.
+      CHIRAL_GRPC_PUBLIC_ADDR: ${CHIRAL_GRPC_PUBLIC_ADDR:?set to public host:port for agents}
+      CHIRAL_ADMIN_TOKEN: ${CHIRAL_ADMIN_TOKEN:?set a strong admin token}
+      # CHIRAL_TLS_CERT: /certs/fullchain.pem
+      # CHIRAL_TLS_KEY: /certs/privkey.pem
+    volumes:
+      - chiral-data:/var/lib/chiral
+      # - ./certs:/certs:ro
+
+volumes:
+  chiral-data:

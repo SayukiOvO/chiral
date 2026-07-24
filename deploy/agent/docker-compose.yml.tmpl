@@ -1,0 +1,20 @@
+# Template rendered by Core when a node is added; {{PANEL_URL}} and
+# {{JOIN_TOKEN}} are substituted before the snippet is shown to the operator.
+# Keep in sync with composeSnippet in core/internal/api.
+services:
+  chiral-agent:
+    image: ghcr.io/sayukiovo/chiral-agent:latest
+    restart: unless-stopped
+    # Xray-core needs to bind inbound ports on the node; host networking
+    # avoids re-declaring every inbound port mapping on config changes.
+    network_mode: host
+    environment:
+      PANEL_URL: "{{PANEL_URL}}"
+      JOIN_TOKEN: "{{JOIN_TOKEN}}"
+      # Rendered in only when the panel's gRPC endpoint has no TLS (dev):
+      # CHIRAL_INSECURE: "1"
+    volumes:
+      - chiral-agent-data:/var/lib/chiral-agent
+
+volumes:
+  chiral-agent-data:
