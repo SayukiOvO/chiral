@@ -1,52 +1,140 @@
 # 模板与变量系统
 
-> **状态：参考稿，非定稿。** 本文的 **Profile 抽象**用户暂未采纳（"没看懂，先搁置"）。计划在实现模板系统时用一段真实的服务端 inbound + 对应客户端模板 + 变量表演示后，再决定采用本方案还是换组织方式。变量池（第 1 节）方向基本认可，Profile（第 2 节起）待议。
+> **状态：已定稿（M2）。** Profile 抽象已用真实例子（VLESS + Reality + Vision）演示并采纳，含两条决定：客户端凭证拆成独立的 **client-entry** 模板；模板引擎**只做 `{{变量}}` 替换**，遍历节点/用户由 Core 完成，不引入条件/循环。
 
 ## 需求背景
 
-两个诉求：服务端 config 要模板化 + 变量单独管理；客户端订阅也要模板化，两边能自动适配。难点在于用户的 Xray 配置很复杂（xhttp 上下行分离 + 后量子加密），没有现成订阅转换能胜任——所以**不能走「解析服务端 inbound 反推客户端配置」的转换路线**，那会有表达力上限。
+两个诉求：服务端 config 要模板化 + 变量单独管理；客户端订阅也要模板化，两边自动适配。难点在于用户的 Xray 配置很复杂（xhttp 上下行分离 + 后量子加密），没有现成订阅转换能胜任——所以**不走「解析服务端 inbound 反推客户端配置」的转换路线**，那有表达力上限。改用「共享变量 + 手写模板」：两边引用同一份变量，天然对齐，无转换器。
 
 ## 1. 变量池
 
-每个变量有：名字（用作 `{{name}}`）、作用域、取值方式。作用域四层，渲染时按 **用户 > 节点 > Profile > 全局** 就近取值：
+每个变量有：名字（用作 `{{name}}`）、作用域、取值方式、**是否可公开**。作用域四层，渲染时按 **用户 > 节点 > Profile > 全局** 就近取值：
 
-- **全局**：所有节点 / 模板共享，如 `{{panel_domain}}`。
+- **全局**：所有节点 / 模板共享，如 `{{panel.domain}}`。
 - **节点级**：随节点走，如 `{{node.address}}`、`{{node.region}}`（多来自节点元数据，也可手填覆盖，如给某节点指定 CDN 域名）。
-- **Profile 级**：一套接入配置内共享，如端口、SNI、xhttp 路径、Reality 密钥。
-- **用户级**：每用户独立且唯一，如 `{{user.uuid}}`、`{{user.password}}`、`{{user.flow}}`。
+- **Profile 级**：一套接入配置内共享，如端口、SNI、xhttp 路径、Reality / 后量子密钥。
+- **用户级**：每用户独立且唯一，如 `{{user.uuid}}`、`{{user.password}}`、`{{user.email}}`。
 
 **取值方式**：
 - **静态值**：直接填。
 - **算法生成**：内置生成器覆盖 Xray 常用密钥——UUID、X25519 密钥对（Reality，成对产出 `.private` / `.public`）、shortId、随机密码、ML-KEM 后量子密钥对等。成组产出，模板里用 `{{reality.private}}` / `{{reality.public}}` 分别引用，公私钥天然配对。
-- **引用 / 派生**：引用节点或其他变量，如 `{{node.ip}}`。
+- **引用 / 派生**：引用节点或其他变量。
 
-**核心机制**：同一个 Reality / PQ 密钥对，服务端和客户端引用的是**同一个变量的不同分量**——两边能对上靠的是共享同一份变量，而非转换。
+**核心机制**：同一个 Reality / PQ 密钥对，服务端和客户端引用的是**同一个变量的不同分量**——两边能对上靠共享同一份变量，而非转换。
 
-## 2. Profile：把服务端与客户端绑在一起（待议）
+**可公开子集（泄露防护）**：每个变量标记是否可公开。客户端渲染上下文**只暴露可公开变量**；私钥类（如 `{{reality.private}}`）在客户端模板中引用会直接报错，私钥永不出服务端。私钥类变量在 SQLite 中加密存储。
 
-一个 **Profile（接入配置）** 同时持有三样：
-1. **服务端 inbound 片段模板**（带 `{{}}`）——渲染后作为一个元素进节点 config.json 的 `inbounds` 数组。
-2. **共享参数**——Profile 级变量 + 该 Profile 为每个用户生成哪些唯一凭证的规格。
-3. **客户端渲染模板，每种客户端一份**——`clash` / `xray-json` / `vless-uri`(v2rayN) / `stash` 各一段自由文本模板。
+## 2. Profile：把服务端与客户端绑成一个单元（已定）
+
+一个 **Profile（接入配置）** 持有三样：
+
+1. **服务端 inbound 骨架模板**（带 `{{}}`）——渲染后作为一项进节点 config.json 的 `inbounds` 数组。**不含 `clients`**：clients 由 Core 按绑定用户注入。
+2. **每用户 client-entry 模板**——`clients` 数组里单个用户对象的模板（如 `{"id":"{{user.uuid}}","email":"{{user.email}}","flow":"{{flow}}"}`）。Core 为每个绑定用户渲染一条组装进 clients。**M3 的在线 `AddUser` / `RemoveUser` 增删的就是这一条**，所以从服务端骨架里拆出来。
+3. **各客户端渲染模板，每种客户端一份**——`clash` / `xray-json` / `vless-uri`(v2rayN) / `stash` 各一段自由文本模板。
 
 **绑定关系**：Profile → 一或多个节点；用户 → 一或多个 Profile。
 
-用户订阅时，遍历 `该用户的每个 Profile × 该 Profile 绑定的每个节点`，逐对渲染客户端片段，再按客户端类型组装成完整订阅。
+订阅时，Core 遍历 `该用户的每个 Profile × 该 Profile 绑定的每个节点`，逐对代入变量渲染客户端片段，再按客户端类型组装成完整订阅。
 
-## 3. 为什么能解决「无限组合」又高度自动化
+## 3. 完整例子（VLESS + Reality + Vision）
 
-- **不做转换**：客户端片段是你为每种客户端手写的模板，xhttp 分离、后量子这类写法怎么写就怎么输出，无转换器上限。
-- **自动化来源**：Profile 参数只定义一次（服务端用全集含私钥，客户端用公开子集 + 每用户凭证）；客户端模板每类只写一次，对所有绑定节点自动迭代。新增节点绑上 Profile，所有用户订阅自动多出该节点，无需手工改动。
-- **两档灵活度**：常规接入用参数化模板自动迭代（覆盖大多数）；极端 case 就在该 Profile 的客户端模板里写死，互不影响。
+### 变量表
 
-## 4. 渲染与安全保障
+| 变量 | 作用域 | 取值 | 可公开 |
+|---|---|---|---|
+| `{{node.address}}` | 节点 | 公网 IP/域名（元数据，可覆盖） | ✅ |
+| `{{node.region}}` | 节点 | 地区标签 | ✅ |
+| `{{port}}` | Profile | 静态 `443` | ✅ |
+| `{{sni}}` | Profile | 静态 `www.microsoft.com` | ✅ |
+| `{{flow}}` | Profile | 静态 `xtls-rprx-vision` | ✅ |
+| `{{reality.private}}` | Profile | 生成器 X25519 · 私钥分量 | ❌ 仅服务端 |
+| `{{reality.public}}` | Profile | 同一密钥对 · 公钥分量 | ✅ |
+| `{{reality.shortId}}` | Profile | 生成器 shortId | ✅ |
+| `{{user.uuid}}` | 用户 | 生成器 UUID（用户×Profile×节点唯一） | ✅ |
+| `{{user.email}}` | 用户 | 统计键 `用户名@接入标识` | ✅ |
 
-- **应用前校验**：渲染出 config.json 后，下发前 `xray -test` 校验，不过就拒绝，避免配崩节点。
-- **版本化与回滚**：每版生效 config 存版本号，一键回滚。
-- **变量泄露防护**：客户端模板只能引用标记为「可公开」的变量子集，私钥类变量在客户端上下文不可见。
+### ① 服务端 inbound 骨架（不含 clients）
+
+```json
+{
+  "tag": "reality-vision", "listen": "0.0.0.0", "port": {{port}},
+  "protocol": "vless",
+  "settings": { "clients": [], "decryption": "none" },
+  "streamSettings": { "network": "tcp", "security": "reality",
+    "realitySettings": {
+      "dest": "{{sni}}:443", "serverNames": ["{{sni}}"],
+      "privateKey": "{{reality.private}}", "shortIds": ["{{reality.shortId}}"]
+    } }
+}
+```
+
+### ② 每用户 client-entry
+
+```json
+{ "id": "{{user.uuid}}", "email": "{{user.email}}", "flow": "{{flow}}" }
+```
+
+### ③ 客户端模板
+
+`xray-json`（一个 outbound）：
+
+```json
+{ "protocol": "vless",
+  "settings": { "vnext": [ { "address": "{{node.address}}", "port": {{port}},
+    "users": [ { "id": "{{user.uuid}}", "flow": "{{flow}}", "encryption": "none" } ] } ] },
+  "streamSettings": { "network": "tcp", "security": "reality",
+    "realitySettings": { "serverName": "{{sni}}", "publicKey": "{{reality.public}}",
+      "shortId": "{{reality.shortId}}", "fingerprint": "chrome" } } }
+```
+
+`vless-uri`（分享链接）：
+
+```
+vless://{{user.uuid}}@{{node.address}}:{{port}}?security=reality&sni={{sni}}&pbk={{reality.public}}&sid={{reality.shortId}}&flow={{flow}}&fp=chrome&type=tcp#{{node.region}}
+```
+
+## 4. 为什么高度自动化
+
+- **不做转换**：客户端片段是手写模板，xhttp 分离、后量子这类写法怎么写就怎么输出，无转换器上限。
+- **参数只定义一次**：服务端用全集（含私钥），客户端用可公开子集 + 每用户凭证；客户端模板每类只写一次，对所有绑定节点自动迭代。
+- **加节点**：绑上 Profile，所有用户订阅自动多出该节点。**加用户**：自动在所有绑定节点拿到各自独立 uuid（强隔离凭证）。
+- **两档灵活度**：常规接入用参数化模板自动迭代；极端 case 在该 Profile 的客户端模板里写死，互不影响。
+
+## 5. 扩展到 xhttp 分离 + 后量子
+
+结构一模一样：inbound 骨架与客户端模板里多写 xhttp 上下行分离字段、`security` 换对应设置；后量子加一个 `{{pq.*}}`（ML-KEM）生成器变量，服务端引私钥、客户端引公钥，与 Reality 同理。没有任何转换器需要理解 xhttp 分离——这正是「模板而非转换」的意义。定稿具体字段时按线上真实配置逐字核对。
+
+## 6. 渲染与安全保障
+
+### `xray -test` 的能力边界（实测，快照版 v26.7.11）
+
+| 错误类型 | `xray -test` 能否发现 |
+|---|---|
+| JSON 语法错 | ✅ |
+| 字段**值**格式非法（如 seed 不是合法 base64） | ✅ |
+| **必填**字段名拼错（等价于缺字段） | ✅ 报 `empty "xxx"` |
+| **可选**字段名拼错 / 多余字段 | ❌ 静默忽略（无严格 schema） |
+| 服务端私钥与客户端公钥**不配对**（两边都是合法密钥，但不是一对） | ❌ **查不出**，只在运行时握手失败 |
+
+> 最后一行是**「同一变量的不同分量」机制的真正理由**：`xray -test` 根本无法发现配错的密钥对，靠人工核对必然出错。让两边引用同一个生成组的不同分量，是唯一能从机制上排除它的办法。
+>
+> 同理，Core 自己实现密钥派生时**必须与 xray 二进制交叉验证**（见 `core/internal/template/generator_test.go`：拿 Go 生成的私钥喂 `xray x25519 -i`，比对公钥是否逐字节一致）。这条测试在开发时立刻抓到过一个真实的派生不一致。
+
+- **应用前校验**：渲染出 config.json 后，下发前 `xray -test -format json` 校验，不过就拒绝——但要清楚上表的边界。
+- **版本化与回滚**：每版生效 config 存版本号，一键回滚（回滚 = 把旧版本作为新 `ConfigPush` 重推，见 CLAUDE.md 决策 7）。
+- **变量泄露防护**：见 §1「可公开子集」。
+
+## 7. 引擎边界（已定）
+
+- **只支持 `{{变量}}` 替换**，不支持条件 / 循环。遍历节点 × 用户、组装 clients 数组、按客户端类型拼装订阅——都由 Core 用代码完成，不进模板。心智负担最小、最难写错、无注入面。
+- 变量名合法字符 `[a-zA-Z0-9_.]`；`{{ name }}` 允许内部空白；未定义变量或客户端上下文引用私钥 → 渲染报错。
 
 ## 待办
 
-- [ ] 用真实例子演示 Profile（服务端 inbound + clash/xray 客户端模板 + 变量表），供用户判断抽象是否合适。
-- [ ] 定模板引擎语法边界（是否只支持 `{{var}}` 替换，还是要条件 / 循环）。
-- [ ] 定变量生成器清单与其在 SQLite 中的存储 / 加密方式。
+- [x] 模板引擎（`core/internal/template/engine.go`）：`{{变量}}` 替换、四作用域合并、未定义变量报错、客户端上下文剥离私钥分量。
+- [x] 生成器（`generator.go`）：uuid / x25519 / short_id / password / mlkem768，**与 xray 二进制交叉验证**。
+- [ ] **ML-DSA-65 生成器**（后量子 REALITY 签名）：Go 标准库无此算法。待定用可信第三方库实现，还是让 Core 调用 xray 二进制生成（Core 本就需要 xray 做 `-test`）。
+- [ ] ML-KEM-768 的 `Hash32` 分量：xray 会打印，但其派生方式未能复现，**暂不产出**（不发无法验证的值）。用到再补。
+- [ ] 定变量生成器在 SQLite 的存储 / 加密方式（私钥类加密）。
+- [ ] Profile / 变量 / 绑定的数据模型与 CRUD。
+- [ ] 节点 config 装配（骨架 + inbounds/outbounds 数组项）+ Monaco 编辑器。
