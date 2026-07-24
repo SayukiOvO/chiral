@@ -19,13 +19,13 @@ export function KernelState({ state, version }: { state?: string; version?: stri
       <span
         className={cn(
           "inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-medium",
-          running && "text-signal",
+          running && "text-online",
           !running && !error && "text-muted",
           error && "text-danger",
         )}
         style={{
           background: running
-            ? "var(--signal-soft)"
+            ? "color-mix(in srgb, var(--online) 13%, transparent)"
             : error
               ? "color-mix(in srgb, var(--danger) 12%, transparent)"
               : "color-mix(in srgb, var(--muted) 10%, transparent)",

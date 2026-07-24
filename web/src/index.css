@@ -5,66 +5,65 @@
 
 /*
   Chiral — "signal console"
-  Clean minimalism for a real-time proxy-fleet control plane.
-  Cool architectural neutrals + one cobalt signal accent; the running
-  kernel carries a cobalt→violet "live wire" glow (a nod to the name's
-  chirality — a handed, mirrored duality). Telemetry is set in mono.
+  Clean minimalism for a real-time proxy-fleet control plane, in a
+  traditional black-grey night palette. The chrome is monochrome; the one
+  accent is a restrained green reserved for what's alive — online nodes,
+  a running kernel, its live traffic line (the classic black-bg/green-line
+  monitoring look). Telemetry is set in mono.
 */
 
 :root {
   /* neutrals — light ("paper") */
-  --paper: #fafbfc;
+  --paper: #fafafa;
   --surface: #ffffff;
   --raised: #ffffff;
-  --ink: #0b0d12;
-  --muted: #656c7a;
-  --faint: #9aa1af;
-  --line: #ebedf1;
-  --line-strong: #dde0e6;
+  --ink: #18181b;
+  --muted: #6b6b73;
+  --faint: #9b9ba3;
+  --line: #eaeaec;
+  --line-strong: #dbdbdf;
 
-  /* signal + tints */
-  --signal: #4457ff;
+  /* accent = monochrome high-contrast (buttons, focus, mark) */
+  --signal: #1c1c20;
   --signal-ink: #ffffff;
-  --signal-soft: #eef0ff;
-  --violet: #8b5cf6;
+  --signal-soft: #f1f1f3;
 
-  /* semantic */
-  --online: #10b981;
-  --warn: #d97706;
-  --danger: #e11d48;
+  /* semantic — restrained, traditional */
+  --online: #1a7f37;
+  --warn: #b45309;
+  --danger: #cc3340;
 
   /* elevation */
-  --shadow-card: 0 1px 2px rgba(16, 19, 28, 0.04), 0 1px 3px rgba(16, 19, 28, 0.06);
-  --shadow-lift: 0 6px 16px rgba(16, 19, 28, 0.08), 0 2px 6px rgba(16, 19, 28, 0.05);
-  --shadow-pop: 0 24px 60px rgba(16, 19, 28, 0.18);
-  --wire: 0 0 0 rgba(68, 87, 255, 0);
-  --wire-live: 0 0 10px rgba(68, 87, 255, 0.45);
+  --shadow-card: 0 1px 2px rgba(16, 16, 20, 0.04), 0 1px 3px rgba(16, 16, 20, 0.06);
+  --shadow-lift: 0 6px 16px rgba(16, 16, 20, 0.08), 0 2px 6px rgba(16, 16, 20, 0.05);
+  --shadow-pop: 0 24px 60px rgba(16, 16, 20, 0.18);
+  --wire: 0 0 0 rgba(26, 127, 55, 0);
+  --wire-live: 0 0 8px rgba(26, 127, 55, 0.22);
 }
 
 .dark {
-  --paper: #090a0e;
-  --surface: #101219;
-  --raised: #141722;
-  --ink: #f1f3f8;
-  --muted: #8b91a1;
-  --faint: #626878;
-  --line: #1c1f29;
-  --line-strong: #282c38;
+  --paper: #0a0a0b;
+  --surface: #141416;
+  --raised: #1a1a1d;
+  --ink: #ededf0;
+  --muted: #9a9aa2;
+  --faint: #61616a;
+  --line: #262629;
+  --line-strong: #34343a;
 
-  --signal: #7d92ff;
-  --signal-ink: #0a0b12;
-  --signal-soft: #171b30;
-  --violet: #a586ff;
+  --signal: #ededf0;
+  --signal-ink: #0a0a0b;
+  --signal-soft: #202024;
 
-  --online: #34d399;
-  --warn: #fbbf24;
-  --danger: #fb7185;
+  --online: #3fb950;
+  --warn: #d29922;
+  --danger: #f47174;
 
-  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.4), 0 1px 3px rgba(0, 0, 0, 0.3);
-  --shadow-lift: 0 8px 24px rgba(0, 0, 0, 0.5), 0 2px 8px rgba(0, 0, 0, 0.4);
-  --shadow-pop: 0 30px 70px rgba(0, 0, 0, 0.6);
-  --wire: 0 0 0 rgba(125, 146, 255, 0);
-  --wire-live: 0 0 12px rgba(125, 146, 255, 0.5);
+  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.45), 0 1px 3px rgba(0, 0, 0, 0.35);
+  --shadow-lift: 0 8px 24px rgba(0, 0, 0, 0.55), 0 2px 8px rgba(0, 0, 0, 0.4);
+  --shadow-pop: 0 30px 70px rgba(0, 0, 0, 0.65);
+  --wire: 0 0 0 rgba(63, 185, 80, 0);
+  --wire-live: 0 0 10px rgba(63, 185, 80, 0.35);
 }
 
 /* Map runtime vars into Tailwind's token system (inline = reference, not copy,
@@ -81,7 +80,6 @@
   --color-signal: var(--signal);
   --color-signal-ink: var(--signal-ink);
   --color-signal-soft: var(--signal-soft);
-  --color-violet: var(--violet);
   --color-online: var(--online);
   --color-warn: var(--warn);
   --color-danger: var(--danger);

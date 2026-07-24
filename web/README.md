@@ -1,6 +1,6 @@
 # web — 前端（React）
 
-Panel 管理界面。**React + Vite + TailwindCSS v4**。视觉方向「信号控制台」：clean minimalism（参考 Revolut），冷中性色 + 单一钴蓝信号色，内核运行时的实时流量折线带钴蓝→紫「活线」微光。
+Panel 管理界面。**React + Vite + TailwindCSS v4**。视觉方向「信号控制台」：clean minimalism（参考 Revolut），**传统黑灰夜间基调** + 唯一克制绿色（只给在线 / 运行 / 实时流量线，黑底绿线的监控观感）；chrome 全走黑白灰高对比。
 
 - 日 / 夜 / 跟随系统 三态主题；移动端自适应；i18n（中 / 英，待接入）。
 - 字体自托管（`@fontsource`，不依赖 Google CDN）：Space Grotesk（标题）+ Inter（正文）+ Space Mono（遥测数据）。

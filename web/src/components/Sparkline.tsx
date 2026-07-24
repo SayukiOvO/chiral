@@ -4,7 +4,8 @@ import { useId } from "react";
  * The signature element: a node's recent throughput as a living line.
  * Fed by a client-side ring buffer of heartbeat samples (bytes/sec), so the
  * instantaneous telemetry the API returns accumulates into a real trace.
- * When the kernel is live the line carries the cobalt→violet signal glow.
+ * When the kernel is live the line goes green with a soft glow; idle recedes
+ * to a quiet grey.
  */
 export function Sparkline({
   data,
@@ -34,9 +35,9 @@ export function Sparkline({
   const area = `${line} L${points[points.length - 1][0].toFixed(1)},${h - pad} L${pad},${h - pad} Z`;
 
   const flat = max <= 1; // no meaningful traffic yet
-  // The signal color is reserved for a live kernel; an idle kernel's throughput
-  // recedes to a quiet neutral line.
-  const stroke = flat ? "var(--line-strong)" : live ? "var(--signal)" : "var(--muted)";
+  // Green is reserved for a live kernel (classic black-bg monitoring line);
+  // an idle kernel's throughput recedes to a quiet neutral grey.
+  const stroke = flat ? "var(--line-strong)" : live ? "var(--online)" : "var(--muted)";
 
   return (
     <svg
@@ -49,8 +50,8 @@ export function Sparkline({
     >
       <defs>
         <linearGradient id={`spark-${id}`} x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor="var(--signal)" stopOpacity="0.2" />
-          <stop offset="100%" stopColor="var(--signal)" stopOpacity="0" />
+          <stop offset="0%" stopColor="var(--online)" stopOpacity="0.18" />
+          <stop offset="100%" stopColor="var(--online)" stopOpacity="0" />
         </linearGradient>
       </defs>
       {live && !flat && <path d={area} fill={`url(#spark-${id})`} />}
@@ -68,7 +69,7 @@ export function Sparkline({
           cx={points[points.length - 1][0]}
           cy={points[points.length - 1][1]}
           r="1.9"
-          fill={live ? "var(--violet)" : "var(--muted)"}
+          fill={live ? "var(--online)" : "var(--muted)"}
         />
       )}
     </svg>
