@@ -4,7 +4,6 @@ import (
 	"os"
 	"os/exec"
 	"regexp"
-	"strings"
 	"testing"
 )
 
@@ -122,19 +121,6 @@ func xrayBin(t *testing.T) string {
 	return p
 }
 
-// parseXrayKV parses the "Label: value" lines the key commands print.
-func parseXrayKV(out string) map[string]string {
-	m := make(map[string]string)
-	for _, line := range strings.Split(out, "\n") {
-		k, v, ok := strings.Cut(line, ":")
-		if !ok {
-			continue
-		}
-		m[strings.TrimSpace(k)] = strings.TrimSpace(v)
-	}
-	return m
-}
-
 func TestX25519MatchesXrayDerivation(t *testing.T) {
 	bin := xrayBin(t)
 	g, err := Generate(GenX25519)
@@ -145,7 +131,7 @@ func TestX25519MatchesXrayDerivation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("xray x25519 -i failed: %v\n%s", err, out)
 	}
-	kv := parseXrayKV(string(out))
+	kv := parseKV(string(out))
 	// Xray labels the public half "Password (PublicKey)" in current builds and
 	// "PublicKey" in older ones; accept either.
 	want := kv["Password (PublicKey)"]
@@ -171,7 +157,7 @@ func TestMLKEM768MatchesXrayDerivation(t *testing.T) {
 	if err != nil {
 		t.Skipf("this xray build does not support `mlkem768 -i`: %v", err)
 	}
-	kv := parseXrayKV(string(out))
+	kv := parseKV(string(out))
 	if got, want := g.Components["client"], kv["Client"]; want != "" && got != want {
 		t.Errorf("encapsulation key mismatch:\n ours %s\nxray %s", got, want)
 	}

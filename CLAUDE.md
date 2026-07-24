@@ -33,6 +33,9 @@ Chiral 是一个 Xray 管理面板，定位类似 Remnawave：采用 **Panel + A
 5. **proto / 代码生成**：`Register` 为 unary RPC（token 换凭证），`Channel` 双向流承载所有帧（首帧 `Hello`）。工具链 buf（remote 插件），生成代码提交入库。定义见 `proto/chiral/v1/agent.proto`。
 6. **节点长期凭证**：每节点独立随机 opaque token（Core 只存哈希，走 metadata `x-chiral-credential`），不用 mTLS 客户端证书。开发期 Agent 支持 `--insecure`，生产强制 TLS。
 7. **回滚**：非独立指令。版本历史在 Core 侧，回滚 = 把旧版本内容作为新 `ConfigPush` 重推；Agent 无状态、不存历史。
+8. **Profile 抽象已采纳**（M2 定稿）：Profile = 服务端 inbound 骨架 + 每用户 client-entry 模板 + 各客户端渲染模板。模板引擎**只做 `{{变量}}` 替换**，不支持条件 / 循环——遍历节点 × 用户由 Core 用 Go 完成。详见 `docs/template-system.md`。
+9. **Xray 用快照（prerelease）通道**：xhttp 上下行分离、后量子等特性只在快照版有，稳定版发布很稀疏。Panel 与 Agent 镜像都打包 Xray 二进制（Panel 用它做下发前校验 + ML-DSA-65 派生）。
+10. **私钥类变量静态加密**：AES-GCM，密钥来自独立环境变量 `CHIRAL_SECRET_KEY`（不设则明文入库并告警）。威胁模型是「数据库文件外流」，不防已能在面板机执行代码的攻击者。
 
 ## 5. 搁置 / 待议
 
@@ -55,7 +58,8 @@ Chiral 是一个 Xray 管理面板，定位类似 Remnawave：采用 **Panel + A
 - **Go module**：单模块 monorepo，模块路径 `github.com/SayukiOvO/chiral`（以 go.mod 为准；大小写与 GitHub 用户名规范一致）。仓库远端 `git@github.com:SayukiOvO/chiral.git`，提交走 SSH + Bitwarden agent，签名需 Mai 批准。core 与 agent 共享 `proto/` 包，不跨组件互相 import 对方的 `internal/`。
 - **构建**：`go build -o bin/chiral-core ./core/cmd/core`；`go build -o bin/chiral-agent ./agent/cmd/agent`。
 - **代码风格**：`gofmt` + `go vet`；包按职责分（放在各自 `internal/` 下）。
-- **配置安全**：config 下发前必须 `xray -test` 校验，通过才生效；每版 config 存版本号，支持一键回滚。
+- **配置安全**：config 下发前必须 `xray -test` 校验，通过才生效（不过则**既不存版本也不下发**）；每版 config 存版本号，支持一键回滚。注意 `xray -test` 的能力边界：它**查不出配错的密钥对**，也会静默忽略可选字段的拼写错误——所以服务端 / 客户端必须引用**同一个变量组的不同分量**，这是唯一可靠的保证（详见 docs/template-system.md §6）。
+- **自实现密钥派生必须与 xray 二进制交叉验证**：格式差一点，`xray -test` 不会报警，只在运行时静默握手失败。见 `core/internal/template/generator_test.go`。无法验证的分量宁可不产出。
 - **流量统计**：Agent 上报增量而非绝对值，防 Xray-core 重启导致计数器归零。
 - **变量泄露防护**：客户端模板只能引用「可公开」变量，私钥类变量在客户端渲染上下文中不可见。
 - **前端**：日 / 夜 / 跟随系统 三态切换，移动端自适应；i18n 中 / 英。视觉方向 **"信号控制台"（clean minimalism，参考 Revolut）**，配色是**传统黑灰夜间基调**：灰阶打底，chrome 全走黑白灰高对比（主按钮 `--signal` = 黑/白反色），**唯一彩色是克制的绿色**（`--online`），只留给"活着的东西"——在线节点、运行中内核、其实时流量折线（黑底绿线的经典监控观感）。**忌用紫色 / 钴蓝**（Mai 明确讨厌，见记忆 mai-frontend-aesthetic）。字体 Space Grotesk（标题）+ Inter（正文）+ Space Mono（遥测数据，自托管不依赖 CDN）；签名元素是每节点实时流量迷你折线。设计 token 在 `web/src/index.css`（`@theme inline` + CSS 变量运行时换肤）。

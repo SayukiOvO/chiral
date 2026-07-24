@@ -9,10 +9,14 @@
 - 经 79 智能体对抗评审修复 + 真机端到端联调（真实 Xray-core 快照版跑通下发配置）。
 
 ## M2 — 模板 / 变量系统 + 配置下发
-- 变量池（四作用域 + 生成器）。
-- config 模板渲染 → `xray -test` → 下发生效 → 版本号 / 回滚。
-- 节点 inbounds / outbounds 数组编辑（Monaco 编辑器）。
-- Profile 抽象在此阶段用真实例子演示后定稿（见 template-system.md）。
+- [x] Profile 抽象定稿（真实例子演示后采纳，见 template-system.md）。
+- [x] 变量池（全局 / Profile / 节点 三作用域 + 生成器；用户级随 M3）。
+- [x] 生成器 uuid / x25519 / short_id / password / mlkem768 / mldsa65，**与 xray 二进制交叉验证**。
+- [x] 私钥类变量静态加密（AES-GCM，`CHIRAL_SECRET_KEY`）。
+- [x] config 模板渲染 → 装配 → `xray -test` → 存版本 → 下发（校验不过则拒绝落地）。
+- [x] REST API：变量 / Profile / 绑定 / preview / apply。
+- [ ] 节点 inbounds / outbounds 与 Profile 模板的前端编辑（Monaco）。
+- [ ] 回滚的 UI（后端能力 M1 已具备：旧版本作为新版本重推）。
 
 ## M3 — 用户 / 流量 / 订阅
 - 用户管理（强隔离凭证）、可访问 inbound 区分。

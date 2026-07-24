@@ -14,16 +14,21 @@ import (
 
 	_ "modernc.org/sqlite"
 
+	"github.com/SayukiOvO/chiral/core/internal/secret"
 	"github.com/SayukiOvO/chiral/core/migrations"
 )
 
 type Store struct {
 	db *sql.DB
+	// box encrypts secret variable components at rest. Never nil — a Box
+	// built from an empty key stores values in the clear.
+	box *secret.Box
 }
 
 // Open opens (creating if needed) the SQLite database at path and applies any
-// pending migrations.
-func Open(path string) (*Store, error) {
+// pending migrations. box encrypts secret variable components; pass a Box
+// built from an empty key to store them in the clear.
+func Open(path string, box *secret.Box) (*Store, error) {
 	dsn := fmt.Sprintf("file:%s?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)&_pragma=foreign_keys(1)", path)
 	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
@@ -32,7 +37,10 @@ func Open(path string) (*Store, error) {
 	// SQLite handles one writer at a time; a single connection avoids
 	// SQLITE_BUSY churn under concurrent writes.
 	db.SetMaxOpenConns(1)
-	s := &Store{db: db}
+	if box == nil {
+		box, _ = secret.NewBox("")
+	}
+	s := &Store{db: db, box: box}
 	if err := s.migrate(); err != nil {
 		db.Close()
 		return nil, err
@@ -101,13 +109,16 @@ type Node struct {
 	CreatedAt    int64
 	RegisteredAt sql.NullInt64
 	LastSeenAt   sql.NullInt64
+	// ConfigSkeleton is the node's config.json minus its inbounds, which are
+	// rendered from the profiles bound to the node. Empty means the default.
+	ConfigSkeleton string
 }
 
-const nodeCols = `id, name, hostname, public_ip, agent_version, xray_version, created_at, registered_at, last_seen_at`
+const nodeCols = `id, name, hostname, public_ip, agent_version, xray_version, created_at, registered_at, last_seen_at, config_skeleton`
 
 func scanNode(row interface{ Scan(...any) error }) (Node, error) {
 	var n Node
-	err := row.Scan(&n.ID, &n.Name, &n.Hostname, &n.PublicIP, &n.AgentVersion, &n.XrayVersion, &n.CreatedAt, &n.RegisteredAt, &n.LastSeenAt)
+	err := row.Scan(&n.ID, &n.Name, &n.Hostname, &n.PublicIP, &n.AgentVersion, &n.XrayVersion, &n.CreatedAt, &n.RegisteredAt, &n.LastSeenAt, &n.ConfigSkeleton)
 	return n, err
 }
 
@@ -257,6 +268,18 @@ func (s *Store) SetConfigResult(nodeID string, version int64, applied bool, errM
 	_, err := s.db.Exec(`UPDATE node_configs SET applied = ?, error = ? WHERE node_id = ? AND version = ?`,
 		state, errMsg, nodeID, version)
 	return err
+}
+
+// SetConfigSkeleton replaces a node's config skeleton.
+func (s *Store) SetConfigSkeleton(nodeID, skeleton string) error {
+	res, err := s.db.Exec(`UPDATE nodes SET config_skeleton = ? WHERE id = ?`, skeleton, nodeID)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
 }
 
 // IsNotFound reports whether err means "row does not exist".

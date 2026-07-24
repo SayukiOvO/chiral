@@ -12,6 +12,7 @@ import (
 
 	"github.com/SayukiOvO/chiral/core/internal/auth"
 	"github.com/SayukiOvO/chiral/core/internal/node"
+	"github.com/SayukiOvO/chiral/core/internal/profile"
 	"github.com/SayukiOvO/chiral/core/internal/store"
 	chiralv1 "github.com/SayukiOvO/chiral/proto/chiral/v1"
 )
@@ -28,11 +29,19 @@ type Server struct {
 	// grpcTLS mirrors whether the gRPC endpoint serves TLS; plaintext panels
 	// need CHIRAL_INSECURE in the generated agent compose.
 	grpcTLS bool
-	logger  *slog.Logger
+	// profiles owns template rendering, config assembly and delivery.
+	profiles *profile.Service
+	// xrayAvailable reports whether the panel has a binary for `xray -test`
+	// and for generators Go cannot implement.
+	xrayAvailable bool
+	logger        *slog.Logger
 }
 
-func NewServer(st *store.Store, mgr *node.Manager, adminToken, grpcPublicAddr string, grpcTLS bool, logger *slog.Logger) *Server {
-	return &Server{st: st, mgr: mgr, adminToken: adminToken, grpcPublicAddr: grpcPublicAddr, grpcTLS: grpcTLS, logger: logger}
+func NewServer(st *store.Store, mgr *node.Manager, profiles *profile.Service, adminToken, grpcPublicAddr string, grpcTLS, xrayAvailable bool, logger *slog.Logger) *Server {
+	return &Server{
+		st: st, mgr: mgr, profiles: profiles, adminToken: adminToken,
+		grpcPublicAddr: grpcPublicAddr, grpcTLS: grpcTLS, xrayAvailable: xrayAvailable, logger: logger,
+	}
 }
 
 func (s *Server) Handler() http.Handler {
@@ -47,6 +56,7 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("POST /api/nodes/{id}/join-token", s.requireAdmin(s.resetJoinToken))
 	mux.Handle("PUT /api/nodes/{id}/config", s.requireAdmin(s.putConfig))
 	mux.Handle("POST /api/nodes/{id}/restart-xray", s.requireAdmin(s.restartXray))
+	s.routeTemplates(mux)
 	return mux
 }
 

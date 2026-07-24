@@ -9,7 +9,18 @@
 - 前端静态资源：由 core 一并伺服，或独立静态容器。
 - 可选 `caddy` / `nginx`：TLS 终止（建议 ACME 自动签发证书）。
 
-关键环境变量（草案）：`CHIRAL_DB_PATH`、`CHIRAL_LISTEN`、`CHIRAL_PUBLIC_URL`、TLS 相关。
+关键环境变量：
+
+| 变量 | 说明 |
+|---|---|
+| `CHIRAL_ADMIN_TOKEN` | 管理 API 的 bearer token（必需） |
+| `CHIRAL_SECRET_KEY` | 私钥类变量的静态加密密钥；**不设则私钥明文入库**（启动告警）。`openssl rand -base64 32` |
+| `CHIRAL_GRPC_PUBLIC_ADDR` | Agent 拨回的 `host:port`，写进「新增节点」生成的 compose |
+| `CHIRAL_XRAY_BIN` | 面板侧 Xray 二进制（镜像内已打包）。下发前 `xray -test` 校验、ML-DSA-65 生成都靠它 |
+| `CHIRAL_DB_PATH` / `CHIRAL_HTTP_LISTEN` / `CHIRAL_GRPC_LISTEN` | 路径与监听地址 |
+| `CHIRAL_TLS_CERT` / `CHIRAL_TLS_KEY` | gRPC 端 TLS（生产必需） |
+
+> **Panel 镜像里也带 Xray 二进制**：不是用来跑代理，而是用来在下发前校验渲染出的 config，以及派生 Go 标准库没有的后量子密钥。
 
 ## 节点侧
 

@@ -23,7 +23,10 @@ import (
 
 	"github.com/SayukiOvO/chiral/core/internal/api"
 	"github.com/SayukiOvO/chiral/core/internal/node"
+	"github.com/SayukiOvO/chiral/core/internal/profile"
+	"github.com/SayukiOvO/chiral/core/internal/secret"
 	"github.com/SayukiOvO/chiral/core/internal/store"
+	"github.com/SayukiOvO/chiral/core/internal/template"
 	chiralv1 "github.com/SayukiOvO/chiral/proto/chiral/v1"
 )
 
@@ -55,7 +58,18 @@ func run(logger *slog.Logger, dbPath, grpcListen, httpListen, grpcPublic, tlsCer
 	if err := os.MkdirAll(filepath.Dir(dbPath), 0o755); err != nil {
 		return err
 	}
-	st, err := store.Open(dbPath)
+	// Secret variable components (REALITY private keys, post-quantum seeds)
+	// are encrypted at rest with this key. Without it the database alone is
+	// enough to impersonate every node, so say so plainly.
+	box, err := secret.NewBox(os.Getenv("CHIRAL_SECRET_KEY"))
+	if err != nil {
+		return err
+	}
+	if !box.Enabled() {
+		logger.Warn("CHIRAL_SECRET_KEY not set; private key material is stored UNENCRYPTED. Generate one with `openssl rand -base64 32`")
+	}
+
+	st, err := store.Open(dbPath, box)
 	if err != nil {
 		return err
 	}
@@ -72,6 +86,14 @@ func run(logger *slog.Logger, dbPath, grpcListen, httpListen, grpcPublic, tlsCer
 
 	mgr := node.NewManager(hbTimeout, logger)
 	svc := node.NewService(st, mgr, logger)
+
+	// The panel keeps its own Xray binary to validate a rendered config
+	// before pushing it, and for key generators Go cannot implement.
+	xray := template.Xray{Bin: os.Getenv("CHIRAL_XRAY_BIN")}
+	if !xray.Available() {
+		logger.Warn("no Xray binary (CHIRAL_XRAY_BIN); configs are pushed without panel-side validation and ML-DSA-65 is unavailable")
+	}
+	profiles := profile.NewService(st, xray, mgr, logger)
 
 	tlsEnabled := tlsCert != "" || tlsKey != ""
 	// Keepalive so both sides detect dead connections in ~40s instead of the
@@ -98,7 +120,7 @@ func run(logger *slog.Logger, dbPath, grpcListen, httpListen, grpcPublic, tlsCer
 	}
 	httpSrv := &http.Server{
 		Addr:    httpListen,
-		Handler: api.NewServer(st, mgr, adminToken, grpcPublic, tlsEnabled, logger).Handler(),
+		Handler: api.NewServer(st, mgr, profiles, adminToken, grpcPublic, tlsEnabled, xray.Available(), logger).Handler(),
 	}
 
 	errCh := make(chan error, 2)

@@ -1,5 +1,5 @@
 # Build stage
-FROM golang:1.23-alpine AS build
+FROM golang:1.25-alpine AS build
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
@@ -7,12 +7,36 @@ COPY . .
 # modernc.org/sqlite is pure Go, so the binary can be fully static.
 RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/chiral-core ./core/cmd/core
 
+# Xray stage: the PANEL needs its own Xray binary too — it validates every
+# rendered config with `xray -test` before storing or pushing it, and derives
+# ML-DSA-65 key material that Go's standard library cannot. Same snapshot
+# channel as the agent image; pin with --build-arg XRAY_VERSION for
+# reproducibility.
+FROM alpine:3.20 AS xray
+ARG XRAY_VERSION=
+ARG TARGETARCH
+RUN apk add --no-cache curl unzip jq \
+    && case "$TARGETARCH" in \
+         amd64) XRAY_ARCH=64 ;; \
+         arm64) XRAY_ARCH=arm64-v8a ;; \
+         *) echo "unsupported arch: $TARGETARCH" && exit 1 ;; \
+       esac \
+    && VERSION="$XRAY_VERSION" \
+    && if [ -z "$VERSION" ]; then \
+         VERSION=$(curl -fsSL "https://api.github.com/repos/XTLS/Xray-core/releases?per_page=1" | jq -r '.[0].tag_name'); \
+       fi \
+    && case "$VERSION" in v*) ;; *) VERSION="v$VERSION" ;; esac \
+    && curl -fsSL -o /tmp/xray.zip "https://github.com/XTLS/Xray-core/releases/download/${VERSION}/Xray-linux-${XRAY_ARCH}.zip" \
+    && unzip /tmp/xray.zip -d /opt/xray
+
 # Runtime stage
 FROM alpine:3.20
 RUN adduser -D -H chiral
-USER chiral
 COPY --from=build /out/chiral-core /usr/local/bin/chiral-core
+COPY --from=xray /opt/xray/xray /usr/local/bin/xray
+USER chiral
 VOLUME /var/lib/chiral
-ENV CHIRAL_DB_PATH=/var/lib/chiral/chiral.db
+ENV CHIRAL_DB_PATH=/var/lib/chiral/chiral.db \
+    CHIRAL_XRAY_BIN=/usr/local/bin/xray
 EXPOSE 8080 8443
 ENTRYPOINT ["chiral-core"]

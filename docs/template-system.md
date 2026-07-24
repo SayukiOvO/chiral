@@ -129,12 +129,29 @@ vless://{{user.uuid}}@{{node.address}}:{{port}}?security=reality&sni={{sni}}&pbk
 - **只支持 `{{变量}}` 替换**，不支持条件 / 循环。遍历节点 × 用户、组装 clients 数组、按客户端类型拼装订阅——都由 Core 用代码完成，不进模板。心智负担最小、最难写错、无注入面。
 - 变量名合法字符 `[a-zA-Z0-9_.]`；`{{ name }}` 允许内部空白；未定义变量或客户端上下文引用私钥 → 渲染报错。
 
+## 7. 实现现状（M2）
+
+| 部件 | 位置 | 说明 |
+|---|---|---|
+| 模板引擎 | `core/internal/template/engine.go` | `{{变量}}` 替换、四作用域合并、未定义变量报错且**不返回半渲染结果**、`ForClient()` 剥离私钥 |
+| 生成器 | `template/generator.go` | uuid / x25519 / short_id / password / mlkem768，**与 xray 交叉验证** |
+| ML-DSA-65 + 校验器 | `template/xray.go` | 种子自生成、派生交给 xray 二进制；`TestConfig` 跑 `xray -test` |
+| config 装配 | `template/assemble.go` | 骨架 + 各 Profile 渲染出的 inbound 追加进 `inbounds`；手写 inbound 保留 |
+| 私钥加密 | `core/internal/secret/` | AES-GCM，密钥来自 `CHIRAL_SECRET_KEY`，AAD 绑定到具体行 |
+| 数据模型 | `core/migrations/0002_template.sql` | profiles / profile_client_templates / profile_nodes / variables / variable_components |
+| 编排 | `core/internal/profile/` | 解析变量池 → 渲染 → 装配 → `xray -test` → 存版本 → 下发 |
+| REST API | `core/internal/api/template.go` | 变量、Profile、绑定、preview / apply |
+
+**关键行为**：`xray -test` 不通过的配置**既不存版本也不下发**（实测验证），错误直接把 Xray 的诊断原样返回给操作者。API 返回变量时**私钥分量一律遮蔽**为 `••••••••`。
+
+### 部署所需环境变量
+
+- `CHIRAL_SECRET_KEY`：私钥加密密钥。**不设则私钥明文入库**，启动时会告警。`openssl rand -base64 32` 生成。
+- `CHIRAL_XRAY_BIN`：面板侧 Xray 二进制。不设则跳过下发前校验（Agent 侧仍会校验），且 ML-DSA-65 不可用。
+
 ## 待办
 
-- [x] 模板引擎（`core/internal/template/engine.go`）：`{{变量}}` 替换、四作用域合并、未定义变量报错、客户端上下文剥离私钥分量。
-- [x] 生成器（`generator.go`）：uuid / x25519 / short_id / password / mlkem768，**与 xray 二进制交叉验证**。
-- [ ] **ML-DSA-65 生成器**（后量子 REALITY 签名）：Go 标准库无此算法。待定用可信第三方库实现，还是让 Core 调用 xray 二进制生成（Core 本就需要 xray 做 `-test`）。
 - [ ] ML-KEM-768 的 `Hash32` 分量：xray 会打印，但其派生方式未能复现，**暂不产出**（不发无法验证的值）。用到再补。
-- [ ] 定变量生成器在 SQLite 的存储 / 加密方式（私钥类加密）。
-- [ ] Profile / 变量 / 绑定的数据模型与 CRUD。
-- [ ] 节点 config 装配（骨架 + inbounds/outbounds 数组项）+ Monaco 编辑器。
+- [ ] 节点 config 骨架的 Monaco 编辑器（`{{变量}}` 高亮 + 校验提示）与 Profile 编辑界面。
+- [ ] 密钥轮换流程（换 `CHIRAL_SECRET_KEY` 后批量重新封装）。
+- [ ] 客户端模板渲染与订阅（M3）。

@@ -18,6 +18,13 @@ services:
       # Address agents dial; set to your panel's public host:port.
       CHIRAL_GRPC_PUBLIC_ADDR: ${CHIRAL_GRPC_PUBLIC_ADDR:?set to public host:port for agents}
       CHIRAL_ADMIN_TOKEN: ${CHIRAL_ADMIN_TOKEN:?set a strong admin token}
+      # Encrypts private key material (REALITY keys, post-quantum seeds) at
+      # rest. Without it they are stored in the clear.
+      # Generate with: openssl rand -base64 32
+      CHIRAL_SECRET_KEY: ${CHIRAL_SECRET_KEY:?set a secret key, e.g. `openssl rand -base64 32`}
+      # Bundled in the image; the panel validates every rendered config with
+      # `xray -test` before storing or pushing it.
+      CHIRAL_XRAY_BIN: /usr/local/bin/xray
       # CHIRAL_TLS_CERT: /certs/fullchain.pem
       # CHIRAL_TLS_KEY: /certs/privkey.pem
     volumes:

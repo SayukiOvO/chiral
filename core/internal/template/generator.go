@@ -28,7 +28,13 @@ const (
 	GenShortID  Generator = "short_id" // REALITY shortId
 	GenPassword Generator = "password" // trojan / shadowsocks style secret
 	GenMLKEM768 Generator = "mlkem768" // VLESS Encryption, post-quantum KEX
+	GenMLDSA65  Generator = "mldsa65"  // REALITY post-quantum signature
 )
+
+// NeedsXray reports whether a generator can only run with the Xray binary
+// available. ML-DSA-65 has no standard-library implementation, so the panel
+// delegates its derivation to Xray (see Xray.GenerateMLDSA65).
+func NeedsXray(g Generator) bool { return g == GenMLDSA65 }
 
 // Group is one generated variable group: named components plus which of them
 // are secret (server-only).
@@ -60,6 +66,12 @@ func (g Group) ComponentNames() []string {
 // (`base64.RawURLEncoding`, per `xray help x25519`).
 var b64 = base64.RawURLEncoding
 
+// randRead fills b with cryptographic randomness.
+func randRead(b []byte) error {
+	_, err := rand.Read(b)
+	return err
+}
+
 // Generate produces a fresh group for the given generator.
 func Generate(g Generator) (Group, error) {
 	switch g {
@@ -73,14 +85,17 @@ func Generate(g Generator) (Group, error) {
 		return genPassword()
 	case GenMLKEM768:
 		return genMLKEM768()
+	case GenMLDSA65:
+		return Group{}, fmt.Errorf("generator %q requires the Xray binary; use Xray.GenerateMLDSA65", g)
 	default:
 		return Group{}, fmt.Errorf("unknown generator %q", g)
 	}
 }
 
-// Generators lists the available generators, for the UI's picker.
+// Generators lists the available generators, for the UI's picker. Those for
+// which NeedsXray reports true are only usable when a binary is configured.
 func Generators() []Generator {
-	return []Generator{GenUUID, GenX25519, GenShortID, GenPassword, GenMLKEM768}
+	return []Generator{GenUUID, GenX25519, GenShortID, GenPassword, GenMLKEM768, GenMLDSA65}
 }
 
 func genUUID() (Group, error) {
