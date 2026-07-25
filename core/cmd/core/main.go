@@ -26,6 +26,7 @@ import (
 	"github.com/SayukiOvO/chiral/core/internal/profile"
 	"github.com/SayukiOvO/chiral/core/internal/secret"
 	"github.com/SayukiOvO/chiral/core/internal/store"
+	"github.com/SayukiOvO/chiral/core/internal/subscription"
 	"github.com/SayukiOvO/chiral/core/internal/template"
 	"github.com/SayukiOvO/chiral/core/internal/user"
 	chiralv1 "github.com/SayukiOvO/chiral/proto/chiral/v1"
@@ -33,12 +34,17 @@ import (
 
 const version = "0.1.0-dev"
 
+// enforceInterval is how often quota, expiry and renewal are reconciled onto
+// the nodes. It bounds how far a user can run past their quota.
+const enforceInterval = 60 * time.Second
+
 func main() {
 	var (
 		dbPath     = flag.String("db", envOr("CHIRAL_DB_PATH", "data/chiral.db"), "path to the SQLite database")
 		grpcListen = flag.String("grpc-listen", envOr("CHIRAL_GRPC_LISTEN", ":8443"), "listen address for agent gRPC")
 		httpListen = flag.String("http-listen", envOr("CHIRAL_HTTP_LISTEN", ":8080"), "listen address for the REST API")
 		grpcPublic = flag.String("grpc-public-addr", envOr("CHIRAL_GRPC_PUBLIC_ADDR", "localhost:8443"), "address agents dial, used in generated compose snippets")
+		publicURL  = flag.String("public-url", envOr("CHIRAL_PUBLIC_URL", ""), "the panel's own base URL, used to build subscription links")
 		tlsCert    = flag.String("tls-cert", os.Getenv("CHIRAL_TLS_CERT"), "TLS certificate for the gRPC endpoint (plaintext if empty; dev only)")
 		tlsKey     = flag.String("tls-key", os.Getenv("CHIRAL_TLS_KEY"), "TLS key for the gRPC endpoint")
 		hbTimeout  = flag.Duration("heartbeat-timeout", 30*time.Second, "a node with no frames for this long counts as offline")
@@ -49,13 +55,13 @@ func main() {
 	// Env only, never a flag: command lines leak via `ps` and shell history.
 	adminToken := os.Getenv("CHIRAL_ADMIN_TOKEN")
 
-	if err := run(logger, *dbPath, *grpcListen, *httpListen, *grpcPublic, *tlsCert, *tlsKey, adminToken, *hbTimeout); err != nil {
+	if err := run(logger, *dbPath, *grpcListen, *httpListen, *grpcPublic, *publicURL, *tlsCert, *tlsKey, adminToken, *hbTimeout); err != nil {
 		logger.Error("fatal", "err", err)
 		os.Exit(1)
 	}
 }
 
-func run(logger *slog.Logger, dbPath, grpcListen, httpListen, grpcPublic, tlsCert, tlsKey, adminToken string, hbTimeout time.Duration) error {
+func run(logger *slog.Logger, dbPath, grpcListen, httpListen, grpcPublic, publicURL, tlsCert, tlsKey, adminToken string, hbTimeout time.Duration) error {
 	if err := os.MkdirAll(filepath.Dir(dbPath), 0o755); err != nil {
 		return err
 	}
@@ -95,7 +101,8 @@ func run(logger *slog.Logger, dbPath, grpcListen, httpListen, grpcPublic, tlsCer
 		logger.Warn("no Xray binary (CHIRAL_XRAY_BIN); configs are pushed without panel-side validation and ML-DSA-65 is unavailable")
 	}
 	users := user.NewService(st, logger)
-	profiles := profile.NewService(st, xray, mgr, users, logger)
+	profiles := profile.NewService(st, xray, mgr, mgr, users, logger)
+	subs := subscription.NewService(st, profiles)
 
 	tlsEnabled := tlsCert != "" || tlsKey != ""
 	// Keepalive so both sides detect dead connections in ~40s instead of the
@@ -122,7 +129,7 @@ func run(logger *slog.Logger, dbPath, grpcListen, httpListen, grpcPublic, tlsCer
 	}
 	httpSrv := &http.Server{
 		Addr:    httpListen,
-		Handler: api.NewServer(st, mgr, profiles, adminToken, grpcPublic, tlsEnabled, xray.Available(), logger).Handler(),
+		Handler: api.NewServer(st, mgr, profiles, subs, adminToken, grpcPublic, publicURL, tlsEnabled, xray.Available(), logger).Handler(),
 	}
 
 	errCh := make(chan error, 2)
@@ -139,6 +146,27 @@ func run(logger *slog.Logger, dbPath, grpcListen, httpListen, grpcPublic, tlsCer
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
+
+	// Quota and expiry are enforced by sweep rather than on the traffic path:
+	// usage arrives between passes, so a user goes over quietly and is cut off
+	// at the next one instead of mid-request.
+	go func() {
+		t := time.NewTicker(enforceInterval)
+		defer t.Stop()
+		for {
+			select {
+			case <-t.C:
+				if n, err := profiles.EnforceQuotas(ctx); err != nil {
+					logger.Error("quota sweep failed", "err", err)
+				} else if n > 0 {
+					logger.Info("quota sweep changed user access", "users", n)
+				}
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
+
 	select {
 	case <-ctx.Done():
 		logger.Info("shutting down")

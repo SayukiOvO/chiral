@@ -120,6 +120,14 @@ func (m *Manager) PushConfig(nodeID string, version int64, configJSON []byte) er
 	})
 }
 
+// SendUserOp queues an online user add/remove to the node's live session.
+// Fails when the node is offline; the caller reconciles on reconnect.
+func (m *Manager) SendUserOp(nodeID string, op *chiralv1.UserOp) error {
+	return m.enqueue(nodeID, &chiralv1.CoreFrame{
+		Frame: &chiralv1.CoreFrame_UserOp{UserOp: op},
+	})
+}
+
 // SendCommand queues a Command frame to the node's live session.
 func (m *Manager) SendCommand(nodeID string, cmd *chiralv1.Command) error {
 	return m.enqueue(nodeID, &chiralv1.CoreFrame{

@@ -25,15 +25,16 @@ type Pusher interface {
 }
 
 type Service struct {
-	st     *store.Store
-	xray   template.Xray
-	push   Pusher
-	users  *user.Service
-	logger *slog.Logger
+	st      *store.Store
+	xray    template.Xray
+	push    Pusher
+	userOps UserOpPusher
+	users   *user.Service
+	logger  *slog.Logger
 }
 
-func NewService(st *store.Store, xray template.Xray, push Pusher, users *user.Service, logger *slog.Logger) *Service {
-	return &Service{st: st, xray: xray, push: push, users: users, logger: logger}
+func NewService(st *store.Store, xray template.Xray, push Pusher, userOps UserOpPusher, users *user.Service, logger *slog.Logger) *Service {
+	return &Service{st: st, xray: xray, push: push, userOps: userOps, users: users, logger: logger}
 }
 
 // contextFor builds the render context for one profile on one node, merging
@@ -87,6 +88,18 @@ func (s *Service) contextFor(profileID, nodeID string) (*template.Context, error
 	merged["node.hostname"] = n.Hostname
 
 	return template.NewContext(merged, secrets), nil
+}
+
+// ClientContext is the render context for a client-side template: the same
+// variables as the server side, minus every secret component. A client
+// template that references a private key fails to render rather than leaking
+// it into somebody's subscription.
+func (s *Service) ClientContext(profileID, nodeID string) (*template.Context, error) {
+	ctx, err := s.contextFor(profileID, nodeID)
+	if err != nil {
+		return nil, err
+	}
+	return ctx.ForClient(), nil
 }
 
 // AssembleNode renders the node's full config.json from the profiles bound to

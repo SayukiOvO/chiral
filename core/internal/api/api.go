@@ -14,6 +14,7 @@ import (
 	"github.com/SayukiOvO/chiral/core/internal/node"
 	"github.com/SayukiOvO/chiral/core/internal/profile"
 	"github.com/SayukiOvO/chiral/core/internal/store"
+	"github.com/SayukiOvO/chiral/core/internal/subscription"
 	chiralv1 "github.com/SayukiOvO/chiral/proto/chiral/v1"
 )
 
@@ -34,14 +35,31 @@ type Server struct {
 	// xrayAvailable reports whether the panel has a binary for `xray -test`
 	// and for generators Go cannot implement.
 	xrayAvailable bool
-	logger        *slog.Logger
+	// subs renders subscriptions for end users.
+	subs *subscription.Service
+	// publicURL is the panel's own base URL, used to build subscription links
+	// an operator can hand out.
+	publicURL string
+	logger    *slog.Logger
 }
 
-func NewServer(st *store.Store, mgr *node.Manager, profiles *profile.Service, adminToken, grpcPublicAddr string, grpcTLS, xrayAvailable bool, logger *slog.Logger) *Server {
+func NewServer(st *store.Store, mgr *node.Manager, profiles *profile.Service, subs *subscription.Service,
+	adminToken, grpcPublicAddr, publicURL string, grpcTLS, xrayAvailable bool, logger *slog.Logger) *Server {
 	return &Server{
-		st: st, mgr: mgr, profiles: profiles, adminToken: adminToken,
-		grpcPublicAddr: grpcPublicAddr, grpcTLS: grpcTLS, xrayAvailable: xrayAvailable, logger: logger,
+		st: st, mgr: mgr, profiles: profiles, subs: subs, adminToken: adminToken,
+		grpcPublicAddr: grpcPublicAddr, publicURL: publicURL,
+		grpcTLS: grpcTLS, xrayAvailable: xrayAvailable, logger: logger,
 	}
+}
+
+// notFoundOr answers 404 for a missing row and 500 for anything else, so a
+// handler does not have to spell the distinction out every time.
+func (s *Server) notFoundOr(w http.ResponseWriter, what string, err error, msg string) {
+	if store.IsNotFound(err) {
+		writeErr(w, http.StatusNotFound, msg)
+		return
+	}
+	s.internalErr(w, what, err)
 }
 
 func (s *Server) Handler() http.Handler {
@@ -57,6 +75,18 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("PUT /api/nodes/{id}/config", s.requireAdmin(s.putConfig))
 	mux.Handle("POST /api/nodes/{id}/restart-xray", s.requireAdmin(s.restartXray))
 	s.routeTemplates(mux)
+
+	mux.Handle("POST /api/users", s.requireAdmin(s.createUser))
+	mux.Handle("GET /api/users", s.requireAdmin(s.listUsers))
+	mux.Handle("GET /api/users/{id}", s.requireAdmin(s.getUser))
+	mux.Handle("PUT /api/users/{id}", s.requireAdmin(s.updateUser))
+	mux.Handle("DELETE /api/users/{id}", s.requireAdmin(s.deleteUser))
+	mux.Handle("POST /api/users/{id}/sub-token", s.requireAdmin(s.resetSubToken))
+	mux.Handle("POST /api/users/{id}/profiles/{profileID}", s.requireAdmin(s.bindUserProfile))
+	mux.Handle("DELETE /api/users/{id}/profiles/{profileID}", s.requireAdmin(s.unbindUserProfile))
+
+	// The one route end users reach, authenticated by the token in the path.
+	mux.HandleFunc("GET /sub/{token}", s.serveSubscription)
 	return mux
 }
 

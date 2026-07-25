@@ -15,11 +15,35 @@ import (
 	"github.com/SayukiOvO/chiral/core/internal/store"
 	"github.com/SayukiOvO/chiral/core/internal/template"
 	"github.com/SayukiOvO/chiral/core/internal/user"
+	chiralv1 "github.com/SayukiOvO/chiral/proto/chiral/v1"
 )
 
 type fakePusher struct {
 	pushed  map[string]int64
 	failNow bool
+	// userOps records the online add/remove frames Core sent, in order.
+	userOps []*chiralv1.UserOp
+	// offline nodes reject user ops, as a disconnected agent would.
+	offline map[string]bool
+}
+
+func (f *fakePusher) SendUserOp(nodeID string, op *chiralv1.UserOp) error {
+	if f.offline[nodeID] {
+		return io.ErrClosedPipe
+	}
+	f.userOps = append(f.userOps, op)
+	return nil
+}
+
+// opsFor returns the ops sent for one stats email.
+func (f *fakePusher) opsFor(email string) []*chiralv1.UserOp {
+	var out []*chiralv1.UserOp
+	for _, op := range f.userOps {
+		if op.GetEmail() == email {
+			out = append(out, op)
+		}
+	}
+	return out
 }
 
 func (f *fakePusher) PushConfig(nodeID string, version int64, _ []byte) error {
@@ -56,7 +80,7 @@ func newFixture(t *testing.T) (*Service, *store.Store, *fakePusher) {
 	t.Cleanup(func() { st.Close() })
 	push := &fakePusher{}
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	return NewService(st, template.Xray{Bin: xrayBin()}, push, user.NewService(st, logger), logger), st, push
+	return NewService(st, template.Xray{Bin: xrayBin()}, push, push, user.NewService(st, logger), logger), st, push
 }
 
 // realityProfile wires up a profile whose inbound is a genuine VLESS+REALITY
