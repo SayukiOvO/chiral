@@ -38,34 +38,48 @@ func Allowed(u store.User, now int64) bool {
 	return true
 }
 
-// StatsEmail builds the key Xray reports traffic under. It must be unique
-// across the whole fleet — two credentials sharing one would silently merge
-// two users' usage — so it carries the node id, whose uniqueness is
-// guaranteed, rather than the node name, whose is not.
+// StatsEmail builds the key Xray reports traffic under.
 //
-// It is fixed when the credential is minted: renaming a user afterwards keeps
-// their traffic history intact, which matters more than the cosmetics.
-func StatsEmail(userName, profileName, nodeID string) string {
-	return fmt.Sprintf("%s@%s.%s", sanitize(userName), sanitize(profileName), nodeID)
+// Uniqueness comes from the three ids, never from names. Names are mutable,
+// are not unique once one is freed and reused, and cannot survive
+// sanitisation: a purely non-ASCII name (Chinese, say) leaves nothing behind,
+// so deriving the key from names alone would collide two users onto one key
+// and silently merge their traffic — and, because credentials.email is
+// UNIQUE, break assembly for the whole node.
+//
+// The name is kept only as a readable prefix, and dropped entirely when
+// sanitising leaves nothing usable.
+//
+// The key is fixed at mint time, so renaming a user later keeps their traffic
+// history intact.
+func StatsEmail(userName, userID, profileID, nodeID string) string {
+	prefix := sanitize(userName)
+	if prefix != "" {
+		prefix += "."
+	}
+	return fmt.Sprintf("%s%s@%s.%s", prefix, userID, profileID, nodeID)
 }
 
-// sanitize keeps the stats key parseable: Xray separates the fields of a stat
-// name with ">>>", so a name containing it would corrupt the reported key.
+// sanitize reduces a display name to characters that are safe in a stats key.
+//
+// Two hazards it exists for: Xray separates the fields of a stat name with
+// ">>>", and `xray api rmu` takes the email as a positional argument, so a
+// leading '-' would be parsed as a flag and the user could never be removed.
+// Anything unsuitable is dropped rather than replaced, so a name that reduces
+// to nothing returns "" and the caller omits the prefix.
 func sanitize(s string) string {
 	var b strings.Builder
 	for _, r := range s {
 		switch {
 		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9',
-			r == '-', r == '_':
+			r == '_':
 			b.WriteRune(r)
-		default:
-			b.WriteRune('-')
+		case r == '-' && b.Len() > 0:
+			// Never leading: `xray api rmu` would read it as a flag.
+			b.WriteRune(r)
 		}
 	}
-	if b.Len() == 0 {
-		return "x"
-	}
-	return b.String()
+	return strings.TrimRight(b.String(), "-")
 }
 
 // EnsureCredentials mints any missing credentials for the users entitled to
@@ -79,11 +93,6 @@ func (s *Service) EnsureCredentials(profileID, nodeID string) ([]store.Credentia
 	if err != nil {
 		return nil, err
 	}
-	p, err := s.st.GetProfile(profileID)
-	if err != nil {
-		return nil, err
-	}
-
 	now := time.Now().Unix()
 	out := make([]store.Credential, 0, len(userIDs))
 	for _, uid := range userIDs {
@@ -104,7 +113,7 @@ func (s *Service) EnsureCredentials(profileID, nodeID string) ([]store.Credentia
 			UserID:    u.ID,
 			ProfileID: profileID,
 			NodeID:    nodeID,
-			Email:     StatsEmail(u.Name, p.Name, nodeID),
+			Email:     StatsEmail(u.Name, u.ID, profileID, nodeID),
 			Secret:    secret.Components[""],
 		})
 		if err != nil {

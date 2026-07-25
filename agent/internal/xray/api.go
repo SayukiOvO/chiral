@@ -89,13 +89,21 @@ func apiAddressOf(configJSON []byte) string {
 // AddUser installs one client on a live inbound without restarting the kernel.
 // accountJSON is the rendered clients[] entry Core sends.
 func (m *Manager) AddUser(ctx context.Context, inboundTag, email string, accountJSON []byte) error {
-	addr := m.APIAddress()
+	applied, err := os.ReadFile(m.configPath)
+	if err != nil {
+		return fmt.Errorf("reading the applied config: %w", err)
+	}
+	addr := apiAddressOf(applied)
 	if addr == "" {
 		return fmt.Errorf("no Xray API endpoint in the applied config")
 	}
 	var account map[string]json.RawMessage
 	if err := json.Unmarshal(accountJSON, &account); err != nil {
 		return fmt.Errorf("account is not a JSON object: %w", err)
+	}
+	protocol := inboundProtocol(applied, inboundTag)
+	if protocol == "" {
+		return fmt.Errorf("inbound %q is not in the applied config", inboundTag)
 	}
 
 	// `xray api adu` takes config fragments, and it needs an inbound complete
@@ -107,7 +115,7 @@ func (m *Manager) AddUser(ctx context.Context, inboundTag, email string, account
 			"tag":      inboundTag,
 			"listen":   "127.0.0.1",
 			"port":     1,
-			"protocol": protocolFor(account),
+			"protocol": protocol,
 			"settings": map[string]any{
 				"clients":    []json.RawMessage{accountJSON},
 				"decryption": "none",
@@ -309,20 +317,27 @@ func countFrom(re *regexp.Regexp, out string) (int, bool) {
 	return n, true
 }
 
-// protocolFor guesses the inbound protocol from the shape of the account
-// object, since `xray api adu` needs one to build its config fragment.
-func protocolFor(account map[string]json.RawMessage) string {
-	switch {
-	case hasKey(account, "id"):
-		return "vless"
-	case hasKey(account, "password"):
-		return "trojan"
-	default:
-		return "vless"
+// inboundProtocol reports the protocol of an inbound in the applied config.
+//
+// `xray api adu` needs a protocol to build its config fragment, and guessing
+// it from the account's shape is not safe: shadowsocks and trojan accounts
+// both carry a "password", so a guess would hand the wrong protocol to the
+// running kernel. The applied config is authoritative — it is what the kernel
+// was started from.
+func inboundProtocol(configJSON []byte, tag string) string {
+	var cfg struct {
+		Inbounds []struct {
+			Tag      string `json:"tag"`
+			Protocol string `json:"protocol"`
+		} `json:"inbounds"`
 	}
-}
-
-func hasKey(m map[string]json.RawMessage, k string) bool {
-	_, ok := m[k]
-	return ok
+	if err := json.Unmarshal(configJSON, &cfg); err != nil {
+		return ""
+	}
+	for _, in := range cfg.Inbounds {
+		if in.Tag == tag {
+			return in.Protocol
+		}
+	}
+	return ""
 }

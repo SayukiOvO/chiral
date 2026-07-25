@@ -25,6 +25,109 @@ type UserOpPusher interface {
 	SendUserOp(nodeID string, op *chiralv1.UserOp) error
 }
 
+// ApplyUserNodes re-assembles and delivers every node listed, so the STORED
+// config matches who is currently entitled.
+//
+// This is what makes a membership change durable. The online add/remove that
+// SyncUser sends only edits the running kernel: an agent restart, an Xray
+// restart, or a reconnect re-applies the last stored config, which would
+// otherwise resurrect a banned user or drop a newly granted one. Correctness
+// lives in the stored config; the online op is what avoids waiting for it.
+//
+// Errors are collected per node rather than aborting: one unreachable node
+// must not stop the others from converging.
+func (s *Service) ApplyUserNodes(ctx context.Context, nodeIDs []string) map[string]error {
+	errs := map[string]error{}
+	for _, id := range unique(nodeIDs) {
+		if _, err := s.Apply(ctx, id); err != nil {
+			errs[id] = err
+			s.logger.Error("re-assembling node after a membership change failed",
+				"node", id, "err", err)
+		}
+	}
+	return errs
+}
+
+// RemoveUserFromProfile takes a user off the running kernels of every node
+// serving one profile, without touching their other entitlements.
+//
+// Called before the credentials are dropped, since the email and inbound tag
+// an online removal needs live on those rows. A node that is offline is not an
+// error: the caller rewrites the stored config afterwards, which is what that
+// node will pick up.
+func (s *Service) RemoveUserFromProfile(ctx context.Context, userID, profileID string) error {
+	if s.userOps == nil {
+		return nil
+	}
+	creds, err := s.st.UserCredentials(userID)
+	if err != nil {
+		return err
+	}
+	for _, c := range creds {
+		if c.ProfileID != profileID {
+			continue
+		}
+		tag, err := s.InboundTagFor(c.ProfileID, c.NodeID)
+		if err != nil {
+			s.logger.Info("cannot name the inbound to remove from",
+				"user", userID, "node", c.NodeID, "reason", err)
+			continue
+		}
+		if err := s.userOps.SendUserOp(c.NodeID, &chiralv1.UserOp{
+			Kind:       chiralv1.UserOpKind_USER_OP_KIND_REMOVE,
+			InboundTag: tag,
+			Email:      c.Email,
+		}); err != nil {
+			s.logger.Info("online removal not delivered", "user", userID,
+				"node", c.NodeID, "reason", err)
+		}
+	}
+	return nil
+}
+
+// NodesForUser lists the nodes a user currently holds a credential on. Call it
+// BEFORE deleting anything: the credentials are what say where they are
+// installed, and dropping them first would leave nothing to reconcile.
+func (s *Service) NodesForUser(userID string) ([]string, error) {
+	creds, err := s.st.UserCredentials(userID)
+	if err != nil {
+		return nil, err
+	}
+	ids := make([]string, 0, len(creds))
+	for _, c := range creds {
+		ids = append(ids, c.NodeID)
+	}
+	return unique(ids), nil
+}
+
+// NodesForUserProfile narrows that to one entitlement.
+func (s *Service) NodesForUserProfile(userID, profileID string) ([]string, error) {
+	creds, err := s.st.UserCredentials(userID)
+	if err != nil {
+		return nil, err
+	}
+	ids := make([]string, 0, len(creds))
+	for _, c := range creds {
+		if c.ProfileID == profileID {
+			ids = append(ids, c.NodeID)
+		}
+	}
+	return unique(ids), nil
+}
+
+func unique(ids []string) []string {
+	seen := make(map[string]struct{}, len(ids))
+	out := make([]string, 0, len(ids))
+	for _, id := range ids {
+		if _, dup := seen[id]; dup {
+			continue
+		}
+		seen[id] = struct{}{}
+		out = append(out, id)
+	}
+	return out
+}
+
 // InboundTagFor reports the inbound tag a profile renders to on a node, which
 // is what an online user operation has to name.
 func (s *Service) InboundTagFor(profileID, nodeID string) (string, error) {

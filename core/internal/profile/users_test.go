@@ -67,7 +67,9 @@ func TestEntitledUsersAppearInTheConfig(t *testing.T) {
 	if len(emails) != 2 {
 		t.Fatalf("expected both users in clients[], got %v", emails)
 	}
-	for _, want := range []string{"alice@", "bob@"} {
+	// The key is "{name}.{userID}@{profileID}.{nodeID}" — the name is only a
+	// readable prefix; uniqueness comes from the ids.
+	for _, want := range []string{"alice.", "bob."} {
 		found := false
 		for _, e := range emails {
 			if strings.HasPrefix(e, want) {
@@ -160,7 +162,7 @@ func TestDisallowedUsersAreLeftOutOfTheConfig(t *testing.T) {
 				}
 				creds, _ := st.NodeCredentials(n.ID)
 				for _, c := range creds {
-					if strings.HasPrefix(c.Email, "alice@") {
+					if strings.HasPrefix(c.Email, "alice.") {
 						if err := st.AddCredentialTraffic(c.Email, 100, 100); err != nil {
 							t.Fatal(err)
 						}
@@ -174,11 +176,11 @@ func TestDisallowedUsersAreLeftOutOfTheConfig(t *testing.T) {
 			}
 			emails := clientEmails(t, cfg)
 			for _, e := range emails {
-				if strings.HasPrefix(e, "alice@") {
+				if strings.HasPrefix(e, "alice.") {
 					t.Errorf("a %s user is still in the config: %v", tc.name, emails)
 				}
 			}
-			if len(emails) != 1 || !strings.HasPrefix(emails[0], "bob@") {
+			if len(emails) != 1 || !strings.HasPrefix(emails[0], "bob.") {
 				t.Errorf("the allowed user should remain, got %v", emails)
 			}
 		})
@@ -263,17 +265,57 @@ func TestConfigWithUsersPassesXrayTest(t *testing.T) {
 	}
 }
 
-func TestStatsEmailIsStableAndSanitised(t *testing.T) {
+func TestStatsEmailCannotCollide(t *testing.T) {
+	// Names are mutable and need not survive sanitising; uniqueness must come
+	// from the ids. Two Chinese names reduce to nothing, and deriving the key
+	// from names alone would merge two users' traffic onto one key — and,
+	// since credentials.email is UNIQUE, break assembly for the whole node.
+	a := user.StatsEmail("张三", "user1", "prof1", "node1")
+	b := user.StatsEmail("李四", "user2", "prof1", "node1")
+	if a == b {
+		t.Fatalf("two users collided on one stats email: %q", a)
+	}
+	// Same user, same node, different profile: still distinct.
+	c := user.StatsEmail("alice", "user1", "prof2", "node1")
+	d := user.StatsEmail("alice", "user1", "prof1", "node1")
+	if c == d {
+		t.Errorf("two access points collided: %q", c)
+	}
+
 	// ">>>" is Xray's stat-name separator; a name carrying it would corrupt
 	// every reported key.
-	got := user.StatsEmail("a>>>b", "pro file", "abc123")
-	if strings.Contains(got, ">>>") {
+	if got := user.StatsEmail("a>>>b", "u", "p", "n"); strings.Contains(got, ">>>") {
 		t.Errorf("separator survived sanitising: %q", got)
 	}
-	if strings.Contains(got, " ") {
+	if got := user.StatsEmail("pro file", "u", "p", "n"); strings.Contains(got, " ") {
 		t.Errorf("whitespace survived sanitising: %q", got)
 	}
-	if !strings.HasSuffix(got, ".abc123") {
-		t.Errorf("node id should make the key unique fleet-wide: %q", got)
+	// `xray api rmu` takes the email as a positional argument, so a leading
+	// '-' would be read as a flag and the user could never be removed.
+	if got := user.StatsEmail("-alice", "u", "p", "n"); strings.HasPrefix(got, "-") {
+		t.Errorf("stats email starts with a dash: %q", got)
+	}
+}
+
+// Renaming must not change the key, or the user's traffic history splits.
+func TestStatsEmailIsFixedAtMintTime(t *testing.T) {
+	svc, st, _ := newFixture(t)
+	p, n := realityProfile(t, svc, st)
+	u := entitle(t, st, "alice", p.ID, nil)
+	if _, err := svc.AssembleNode(n.ID); err != nil {
+		t.Fatal(err)
+	}
+	before, _ := st.UserCredentials(u.ID)
+
+	u.Name = "alice-renamed"
+	if err := st.UpdateUser(u); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.AssembleNode(n.ID); err != nil {
+		t.Fatal(err)
+	}
+	after, _ := st.UserCredentials(u.ID)
+	if after[0].Email != before[0].Email {
+		t.Errorf("rename changed the stats key: %q -> %q", before[0].Email, after[0].Email)
 	}
 }

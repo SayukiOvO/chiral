@@ -2,6 +2,7 @@ package profile
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -282,5 +283,154 @@ func TestInboundTagForReportsAMissingTag(t *testing.T) {
 	}
 	if _, err := svc.InboundTagFor(p.ID, n.ID); err == nil {
 		t.Error("an inbound with no tag cannot be targeted by a user op and should be reported")
+	}
+}
+
+// --- regressions from the M3 adversarial review ---
+
+// The stored config is what a reconnecting agent replays, so it — not just the
+// running kernel — has to reflect who is entitled. Otherwise an online ban is
+// undone by the next restart, and a deleted user comes back with no row left
+// to revoke them.
+func TestStoredConfigDropsARevokedUser(t *testing.T) {
+	svc, st, _ := newFixture(t)
+	p, n := realityProfile(t, svc, st)
+	u := entitle(t, st, "alice", p.ID, nil)
+
+	if _, err := svc.Apply(context.Background(), n.ID); err != nil {
+		t.Fatal(err)
+	}
+	stored, err := st.LatestConfig(n.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(stored.Config, "alice.") {
+		t.Fatal("setup: the user should be in the stored config")
+	}
+
+	// Revoke and re-apply, the way the API handlers now do.
+	u.Enabled = false
+	if err := st.UpdateUser(u); err != nil {
+		t.Fatal(err)
+	}
+	if errs := svc.ApplyUserNodes(context.Background(), []string{n.ID}); len(errs) != 0 {
+		t.Fatalf("re-assembly failed: %v", errs)
+	}
+	stored, err = st.LatestConfig(n.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(stored.Config, "alice.") {
+		t.Error("a revoked user is still in the stored config; a restart would restore their access")
+	}
+}
+
+// The credentials record where a user is installed, so the nodes must be read
+// before those rows are dropped.
+func TestNodesForUserIsReadableBeforeDeletion(t *testing.T) {
+	svc, st, _ := newFixture(t)
+	p, n1 := realityProfile(t, svc, st)
+	n2, err := st.CreateNode("frankfurt-1", "h2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.BindProfileNode(p.ID, n2.ID); err != nil {
+		t.Fatal(err)
+	}
+	u := entitle(t, st, "alice", p.ID, nil)
+	for _, id := range []string{n1.ID, n2.ID} {
+		if _, err := svc.AssembleNode(id); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	ids, err := svc.NodesForUser(u.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(ids) != 2 {
+		t.Fatalf("expected both nodes, got %v", ids)
+	}
+
+	// After deletion there is nothing left to read — which is exactly why the
+	// caller must capture it first.
+	if err := st.DeleteUser(u.ID); err != nil {
+		t.Fatal(err)
+	}
+	if after, _ := svc.NodesForUser(u.ID); len(after) != 0 {
+		t.Errorf("credentials outlived the user: %v", after)
+	}
+}
+
+func TestNodesForUserProfileNarrowsToOneEntitlement(t *testing.T) {
+	svc, st, _ := newFixture(t)
+	p1, n1 := realityProfile(t, svc, st)
+	p2, err := st.CreateProfile("second")
+	if err != nil {
+		t.Fatal(err)
+	}
+	p2.InboundTemplate = `{"tag":"second-in","listen":"0.0.0.0","port":8443,"protocol":"vless","settings":{"clients":[],"decryption":"none"}}`
+	p2.ClientEntry = `{"id":"{{user.uuid}}","email":"{{user.email}}"}`
+	if err := st.UpdateProfile(p2); err != nil {
+		t.Fatal(err)
+	}
+	n2, err := st.CreateNode("frankfurt-1", "h2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.BindProfileNode(p2.ID, n2.ID); err != nil {
+		t.Fatal(err)
+	}
+	u := entitle(t, st, "alice", p1.ID, nil)
+	if err := st.BindUserProfile(u.ID, p2.ID); err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{n1.ID, n2.ID} {
+		if _, err := svc.AssembleNode(id); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	ids, err := svc.NodesForUserProfile(u.ID, p2.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(ids) != 1 || ids[0] != n2.ID {
+		t.Errorf("expected only the second profile's node, got %v", ids)
+	}
+}
+
+// Removing one entitlement must not disturb the user's other access points.
+func TestRemoveUserFromProfileTargetsOnlyThatProfile(t *testing.T) {
+	svc, st, push := newFixture(t)
+	p1, n1 := realityProfile(t, svc, st)
+	u := entitle(t, st, "alice", p1.ID, nil)
+	if _, err := svc.AssembleNode(n1.ID); err != nil {
+		t.Fatal(err)
+	}
+	creds, _ := st.UserCredentials(u.ID)
+
+	if err := svc.RemoveUserFromProfile(context.Background(), u.ID, p1.ID); err != nil {
+		t.Fatal(err)
+	}
+	ops := push.opsFor(creds[0].Email)
+	if len(ops) != 1 || ops[0].GetKind() != chiralv1.UserOpKind_USER_OP_KIND_REMOVE {
+		t.Fatalf("expected one REMOVE, got %+v", ops)
+	}
+
+	// A profile the user is not in yields nothing.
+	push.userOps = nil
+	if err := svc.RemoveUserFromProfile(context.Background(), u.ID, "some-other-profile"); err != nil {
+		t.Fatal(err)
+	}
+	if len(push.userOps) != 0 {
+		t.Errorf("touched an unrelated profile: %+v", push.userOps)
+	}
+}
+
+func TestUniqueDropsDuplicateNodes(t *testing.T) {
+	got := unique([]string{"a", "b", "a", "c", "b"})
+	if len(got) != 3 || got[0] != "a" || got[1] != "b" || got[2] != "c" {
+		t.Errorf("got %v", got)
 	}
 }

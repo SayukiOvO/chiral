@@ -260,3 +260,107 @@ func TestAssembledConfigWithUsersPassesXrayTest(t *testing.T) {
 		t.Fatalf("assembled config rejected by xray: %v\n%s", err, out)
 	}
 }
+
+// --- regressions from the M3 adversarial review ---
+
+// An operator's own api block must not cost them per-user counters: without
+// them quota enforcement measures nothing and every quota is silently
+// infinite.
+func TestOperatorAPIBlockStillGetsPerUserStats(t *testing.T) {
+	skeleton := `{"log":{"loglevel":"warning"},
+	  "api":{"tag":"myapi","services":["HandlerService","StatsService"]},
+	  "inbounds":[{"tag":"my-api-in","listen":"127.0.0.1","port":9999,"protocol":"dokodemo-door","settings":{"address":"127.0.0.1"}}],
+	  "outbounds":[{"protocol":"freedom","tag":"direct"}],
+	  "routing":{"rules":[{"type":"field","inboundTag":["my-api-in"],"outboundTag":"myapi"}]}}`
+	assertPerUserStats(t, assemble(t, skeleton, nil))
+}
+
+// A hand-written policy must be merged into, not skipped.
+func TestExistingPolicyIsMergedNotSkipped(t *testing.T) {
+	skeleton := `{"log":{"loglevel":"warning"},
+	  "policy":{"levels":{"0":{"handshake":8,"connIdle":300}}},
+	  "outbounds":[{"protocol":"freedom","tag":"direct"}]}`
+	out := assemble(t, skeleton, nil)
+	assertPerUserStats(t, out)
+
+	// The operator's own settings must survive.
+	var cfg struct {
+		Policy struct {
+			Levels map[string]struct {
+				Handshake int `json:"handshake"`
+				ConnIdle  int `json:"connIdle"`
+			} `json:"levels"`
+		} `json:"policy"`
+	}
+	if err := json.Unmarshal(out, &cfg); err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Policy.Levels["0"].Handshake != 8 || cfg.Policy.Levels["0"].ConnIdle != 300 {
+		t.Errorf("operator policy settings were dropped: %+v", cfg.Policy.Levels["0"])
+	}
+}
+
+// Another policy level must not be disturbed.
+func TestOtherPolicyLevelsAreUntouched(t *testing.T) {
+	skeleton := `{"policy":{"levels":{"1":{"connIdle":60}}},
+	  "outbounds":[{"protocol":"freedom","tag":"direct"}]}`
+	out := assemble(t, skeleton, nil)
+	assertPerUserStats(t, out)
+	var cfg struct {
+		Policy struct {
+			Levels map[string]struct {
+				ConnIdle int `json:"connIdle"`
+			} `json:"levels"`
+		} `json:"policy"`
+	}
+	json.Unmarshal(out, &cfg)
+	if cfg.Policy.Levels["1"].ConnIdle != 60 {
+		t.Errorf("level 1 was disturbed: %+v", cfg.Policy.Levels)
+	}
+}
+
+// An operator who explicitly turned a counter off has said something; we do
+// not override it, even though it costs them enforcement.
+func TestExplicitlyDisabledStatsAreRespected(t *testing.T) {
+	skeleton := `{"policy":{"levels":{"0":{"statsUserUplink":false}}},
+	  "outbounds":[{"protocol":"freedom","tag":"direct"}]}`
+	out := assemble(t, skeleton, nil)
+	var cfg struct {
+		Policy struct {
+			Levels map[string]struct {
+				Up   *bool `json:"statsUserUplink"`
+				Down *bool `json:"statsUserDownlink"`
+			} `json:"levels"`
+		} `json:"policy"`
+	}
+	json.Unmarshal(out, &cfg)
+	if cfg.Policy.Levels["0"].Up == nil || *cfg.Policy.Levels["0"].Up {
+		t.Error("an explicit false was overridden")
+	}
+	if cfg.Policy.Levels["0"].Down == nil || !*cfg.Policy.Levels["0"].Down {
+		t.Error("the unset direction should still be filled in")
+	}
+}
+
+func assertPerUserStats(t *testing.T, out []byte) {
+	t.Helper()
+	var cfg struct {
+		Stats  *map[string]any `json:"stats"`
+		Policy struct {
+			Levels map[string]struct {
+				Up   bool `json:"statsUserUplink"`
+				Down bool `json:"statsUserDownlink"`
+			} `json:"levels"`
+		} `json:"policy"`
+	}
+	if err := json.Unmarshal(out, &cfg); err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Stats == nil {
+		t.Error("no stats block; counters stay off entirely")
+	}
+	lvl, ok := cfg.Policy.Levels["0"]
+	if !ok || !lvl.Up || !lvl.Down {
+		t.Errorf("per-user counters not enabled for level 0: %+v", cfg.Policy.Levels)
+	}
+}

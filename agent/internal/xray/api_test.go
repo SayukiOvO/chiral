@@ -287,14 +287,39 @@ func TestCountFrom(t *testing.T) {
 	}
 }
 
-func TestProtocolForAccountShape(t *testing.T) {
-	vless := map[string]json.RawMessage{"id": json.RawMessage(`"x"`)}
-	if got := protocolFor(vless); got != "vless" {
-		t.Errorf("got %q", got)
+// Shadowsocks and trojan accounts both carry a "password", so guessing the
+// protocol from the account's shape would hand the wrong one to the kernel.
+// The applied config is authoritative.
+func TestInboundProtocolComesFromTheAppliedConfig(t *testing.T) {
+	cfg := []byte(`{"inbounds":[
+	  {"tag":"vless-in","protocol":"vless"},
+	  {"tag":"ss-in","protocol":"shadowsocks"},
+	  {"tag":"trojan-in","protocol":"trojan"}]}`)
+	for tag, want := range map[string]string{
+		"vless-in": "vless", "ss-in": "shadowsocks", "trojan-in": "trojan",
+	} {
+		if got := inboundProtocol(cfg, tag); got != want {
+			t.Errorf("%s -> %q, want %q", tag, got, want)
+		}
 	}
-	trojan := map[string]json.RawMessage{"password": json.RawMessage(`"x"`)}
-	if got := protocolFor(trojan); got != "trojan" {
-		t.Errorf("got %q", got)
+	if got := inboundProtocol(cfg, "absent"); got != "" {
+		t.Errorf("an unknown tag should report no protocol, got %q", got)
+	}
+	if got := inboundProtocol([]byte("not json"), "x"); got != "" {
+		t.Errorf("malformed config should report no protocol, got %q", got)
+	}
+}
+
+// A user op naming an inbound the node does not run must fail loudly rather
+// than being sent with a guessed protocol.
+func TestAddUserRejectsAnUnknownInbound(t *testing.T) {
+	m := liveXray(t)
+	err := m.AddUser(context.Background(), "no-such-inbound", "a@b", []byte(`{"id":"x"}`))
+	if err == nil {
+		t.Fatal("expected an error for an inbound that is not in the config")
+	}
+	if !strings.Contains(err.Error(), "no-such-inbound") {
+		t.Errorf("error should name the inbound, got: %v", err)
 	}
 }
 

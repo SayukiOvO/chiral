@@ -28,37 +28,104 @@ const (
 	APIListen = "127.0.0.1"
 )
 
-// EnsureAPI adds the api / stats / policy block and its routing rule to a node
-// config unless the config already declares "api". Reports whether it changed
-// anything.
+// EnsureAPI makes sure a node config carries everything user management needs:
+// Xray's gRPC API, the counters, and the per-user policy that turns those
+// counters on. Reports whether it changed anything.
+//
+// Each piece is checked independently. An operator who wrote their own "api"
+// block keeps it — but their config must still get per-user stats, or quota
+// enforcement silently measures nothing and every quota becomes infinite.
+// Likewise a hand-written "policy" is merged into rather than skipped.
 func EnsureAPI(cfg map[string]json.RawMessage) (bool, error) {
-	if _, present := cfg["api"]; present {
-		return false, nil
-	}
+	changed := false
 
-	cfg["api"] = json.RawMessage(fmt.Sprintf(
-		`{"tag":%q,"services":["HandlerService","StatsService"]}`, APIHandlerTag))
+	if _, present := cfg["api"]; !present {
+		cfg["api"] = json.RawMessage(fmt.Sprintf(
+			`{"tag":%q,"services":["HandlerService","StatsService"]}`, APIHandlerTag))
+		if err := ensureAPIInbound(cfg); err != nil {
+			return false, err
+		}
+		if err := ensureAPIRoute(cfg); err != nil {
+			return false, err
+		}
+		changed = true
+	}
 
 	// An empty stats object is what turns counters on at all.
 	if _, present := cfg["stats"]; !present {
 		cfg["stats"] = json.RawMessage(`{}`)
+		changed = true
 	}
 
-	// Per-user counters only exist if the user's policy level asks for them;
-	// level 0 is what an inbound's clients get unless told otherwise.
-	if _, present := cfg["policy"]; !present {
-		cfg["policy"] = json.RawMessage(`{
-			"levels": {"0": {"statsUserUplink": true, "statsUserDownlink": true}},
-			"system": {"statsInboundUplink": true, "statsInboundDownlink": true}
-		}`)
+	statsChanged, err := ensureStatsPolicy(cfg)
+	if err != nil {
+		return false, err
+	}
+	return changed || statsChanged, nil
+}
+
+// ensureStatsPolicy turns on per-user counters for policy level 0, which is
+// what an inbound's clients get unless told otherwise, without disturbing any
+// other policy the operator set.
+func ensureStatsPolicy(cfg map[string]json.RawMessage) (bool, error) {
+	var policy map[string]json.RawMessage
+	if raw, ok := cfg["policy"]; ok && len(raw) > 0 {
+		if err := json.Unmarshal(raw, &policy); err != nil {
+			return false, fmt.Errorf(`"policy" is not an object: %w`, err)
+		}
+	}
+	if policy == nil {
+		policy = map[string]json.RawMessage{}
 	}
 
-	if err := ensureAPIInbound(cfg); err != nil {
+	var levels map[string]json.RawMessage
+	if raw, ok := policy["levels"]; ok && len(raw) > 0 {
+		if err := json.Unmarshal(raw, &levels); err != nil {
+			return false, fmt.Errorf(`"policy.levels" is not an object: %w`, err)
+		}
+	}
+	if levels == nil {
+		levels = map[string]json.RawMessage{}
+	}
+
+	var level0 map[string]json.RawMessage
+	if raw, ok := levels["0"]; ok && len(raw) > 0 {
+		if err := json.Unmarshal(raw, &level0); err != nil {
+			return false, fmt.Errorf(`"policy.levels.0" is not an object: %w`, err)
+		}
+	}
+	if level0 == nil {
+		level0 = map[string]json.RawMessage{}
+	}
+
+	changed := false
+	for _, key := range []string{"statsUserUplink", "statsUserDownlink"} {
+		// Only fill in what is missing: an operator who deliberately set one
+		// to false has said something, even if it costs them enforcement.
+		if _, present := level0[key]; !present {
+			level0[key] = json.RawMessage(`true`)
+			changed = true
+		}
+	}
+	if !changed {
+		return false, nil
+	}
+
+	l0, err := json.Marshal(level0)
+	if err != nil {
 		return false, err
 	}
-	if err := ensureAPIRoute(cfg); err != nil {
+	levels["0"] = l0
+	lv, err := json.Marshal(levels)
+	if err != nil {
 		return false, err
 	}
+	policy["levels"] = lv
+	out, err := json.Marshal(policy)
+	if err != nil {
+		return false, err
+	}
+	cfg["policy"] = out
 	return true, nil
 }
 

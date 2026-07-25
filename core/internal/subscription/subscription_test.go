@@ -167,3 +167,67 @@ func TestClientContextRefusesSecrets(t *testing.T) {
 func jsonUnmarshal(s string, v any) error {
 	return json.Unmarshal([]byte(s), v)
 }
+
+// --- regressions from the M3 adversarial review ---
+
+// A clash proxy entry routinely nests (reality-opts, ws-opts). Flattening
+// every line to one depth reparents those keys onto the proxy itself: still
+// valid YAML, but a different and broken config.
+func TestNestedProxyOptionsKeepTheirStructure(t *testing.T) {
+	fragment := strings.Join([]string{
+		"name: tokyo-1",
+		"type: vless",
+		"server: 203.0.113.9",
+		"port: 443",
+		"reality-opts:",
+		"  public-key: PUBKEY",
+		"  short-id: a1fcb027",
+		"client-fingerprint: chrome",
+	}, "\n")
+	body := assemble(ClientClash, []string{fragment}).Body
+
+	// The nested keys must stay deeper than the key that introduces them.
+	depth := func(needle string) int {
+		for _, l := range strings.Split(body, "\n") {
+			if strings.HasPrefix(strings.TrimSpace(l), needle) {
+				return len(l) - len(strings.TrimLeft(l, " "))
+			}
+		}
+		return -1
+	}
+	opts, pub := depth("reality-opts:"), depth("public-key:")
+	if opts < 0 || pub < 0 {
+		t.Fatalf("keys missing from output:\n%s", body)
+	}
+	if pub <= opts {
+		t.Errorf("nested key was flattened to the parent's depth (reality-opts=%d public-key=%d):\n%s",
+			opts, pub, body)
+	}
+	// A sibling of reality-opts must not be swallowed into it.
+	if fp := depth("client-fingerprint:"); fp != opts {
+		t.Errorf("sibling key ended up at the wrong depth (%d, want %d):\n%s", fp, opts, body)
+	}
+}
+
+// Templates may be written with their own leading indentation; the entry
+// should still be anchored correctly under the list item.
+func TestIndentedFragmentIsReanchored(t *testing.T) {
+	fragment := "    name: tokyo-1\n    type: vless\n    reality-opts:\n      public-key: K"
+	body := assemble(ClientClash, []string{fragment}).Body
+	if !strings.Contains(body, "  - name: tokyo-1\n") {
+		t.Errorf("entry not anchored as a list item:\n%s", body)
+	}
+	if !strings.Contains(body, "    type: vless\n") {
+		t.Errorf("sibling key at the wrong depth:\n%s", body)
+	}
+	if !strings.Contains(body, "      public-key: K\n") {
+		t.Errorf("nested key at the wrong depth:\n%s", body)
+	}
+}
+
+func TestBlankLinesInFragmentsAreDropped(t *testing.T) {
+	body := assemble(ClientClash, []string{"name: a\n\ntype: vless\n"}).Body
+	if strings.Contains(body, "\n\n") {
+		t.Errorf("blank line survived into the document:\n%s", body)
+	}
+}

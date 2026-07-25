@@ -166,18 +166,45 @@ func assemble(client string, fragments []string) Result {
 }
 
 // indentAsListItem renders one YAML mapping as an item of the proxies list.
+//
+// Relative indentation is preserved, not flattened: a proxy entry routinely
+// nests (reality-opts, ws-opts, headers), and trimming every line to the same
+// depth would silently reparent those keys onto the proxy itself — still
+// valid YAML, but a different and broken config.
 func indentAsListItem(fragment string) string {
 	lines := strings.Split(fragment, "\n")
-	var b strings.Builder
-	for i, l := range lines {
+
+	// The base indent is the first non-blank line's; everything else is
+	// re-anchored relative to it.
+	base := -1
+	for _, l := range lines {
 		if strings.TrimSpace(l) == "" {
 			continue
 		}
-		if i == 0 {
-			b.WriteString("  - " + strings.TrimSpace(l) + "\n")
+		base = len(l) - len(strings.TrimLeft(l, " \t"))
+		break
+	}
+	if base < 0 {
+		return ""
+	}
+
+	var b strings.Builder
+	first := true
+	for _, l := range lines {
+		if strings.TrimSpace(l) == "" {
 			continue
 		}
-		b.WriteString("    " + strings.TrimSpace(l) + "\n")
+		indent := len(l) - len(strings.TrimLeft(l, " \t"))
+		rel := indent - base
+		if rel < 0 {
+			rel = 0
+		}
+		if first {
+			b.WriteString("  - " + strings.TrimSpace(l) + "\n")
+			first = false
+			continue
+		}
+		b.WriteString("    " + strings.Repeat(" ", rel) + strings.TrimSpace(l) + "\n")
 	}
 	return b.String()
 }

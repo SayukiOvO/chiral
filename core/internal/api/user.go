@@ -183,9 +183,11 @@ func (s *Server) updateUser(w http.ResponseWriter, r *http.Request) {
 		s.internalErr(w, "update user", err)
 		return
 	}
-	// Apply the change to the live nodes immediately rather than waiting for
-	// the next sweep — an operator who clicks "disable" expects it to bite.
+	// Two steps, both needed. The online op makes the change bite now; the
+	// re-assembly makes it survive a restart, since a reconnecting agent
+	// replays the stored config.
 	s.syncUserNow(r.Context(), id)
+	s.reassembleForUser(r.Context(), id)
 	s.getUser(w, r)
 }
 
@@ -196,9 +198,12 @@ func (s *Server) deleteUser(w http.ResponseWriter, r *http.Request) {
 		s.notFoundOr(w, "load user", err, "no such user")
 		return
 	}
-	// Take the credentials off the nodes before dropping the rows, or the
-	// clients array keeps serving a user who no longer exists until the next
-	// config push.
+	// Where they are installed has to be read BEFORE the delete: the
+	// credentials are the record of that, and they cascade away with the user.
+	nodeIDs := s.nodesForUser(id)
+
+	// Take them off the running kernels first, while the rows the operation
+	// needs still exist.
 	u.Enabled = false
 	if err := s.st.UpdateUser(u); err == nil {
 		s.syncUserNow(r.Context(), id)
@@ -207,6 +212,10 @@ func (s *Server) deleteUser(w http.ResponseWriter, r *http.Request) {
 		s.internalErr(w, "delete user", err)
 		return
 	}
+	// Then rewrite those nodes' stored configs without them. Skipping this
+	// would leave a deleted user in the last stored config, and a reconnect
+	// would hand them access back with no row left to revoke.
+	s.reassemble(r.Context(), nodeIDs)
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -234,22 +243,41 @@ func (s *Server) bindUserProfile(w http.ResponseWriter, r *http.Request) {
 		s.internalErr(w, "bind user to profile", err)
 		return
 	}
+	// Granting access has to reach the nodes to mean anything: assembly is
+	// what mints the credential for each bound node and writes it into the
+	// inbound. Without this the entitlement would sit in the database doing
+	// nothing until an operator happened to apply the node by hand.
+	nodeIDs, err := s.st.ProfileNodeIDs(profileID)
+	if err != nil {
+		s.internalErr(w, "list profile nodes", err)
+		return
+	}
+	s.reassemble(r.Context(), nodeIDs)
+	// The credentials exist now, so the user can be installed online too.
+	s.syncUserNow(r.Context(), userID)
 	w.WriteHeader(http.StatusNoContent)
 }
 
 func (s *Server) unbindUserProfile(w http.ResponseWriter, r *http.Request) {
 	userID, profileID := r.PathValue("id"), r.PathValue("profileID")
+
+	// Same ordering as deletion, for the same reason: the credentials record
+	// where the user is installed and what an online removal needs to name, so
+	// read the nodes and take them off the kernels before dropping the rows.
+	nodeIDs := s.nodesForUserProfile(userID, profileID)
+	s.removeUserFromNodes(r.Context(), userID, profileID)
+
 	if err := s.st.UnbindUserProfile(userID, profileID); err != nil {
 		s.internalErr(w, "unbind user from profile", err)
 		return
 	}
-	// Revoking the entitlement drops the credentials with it; leaving them
-	// would keep the user working on nodes they are no longer entitled to
-	// until the next config push.
 	if err := s.st.DeleteCredentialsForBinding(userID, profileID); err != nil {
 		s.internalErr(w, "drop credentials", err)
 		return
 	}
+	// Rewrite the stored configs so a reconnect does not restore the access
+	// that was just revoked.
+	s.reassemble(r.Context(), nodeIDs)
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -262,6 +290,62 @@ func (s *Server) syncUserNow(ctx context.Context, userID string) {
 	if _, err := s.profiles.SyncUser(ctx, userID); err != nil {
 		s.logger.Error("syncing user after change failed", "user", userID, "err", err)
 	}
+}
+
+// reassemble rewrites the stored config of each node so it matches current
+// membership. Failures are logged, not returned: the membership change itself
+// succeeded, and a node that could not be reached converges on its next apply.
+func (s *Server) reassemble(ctx context.Context, nodeIDs []string) {
+	if s.profiles == nil || len(nodeIDs) == 0 {
+		return
+	}
+	for id, err := range s.profiles.ApplyUserNodes(ctx, nodeIDs) {
+		s.logger.Error("node did not converge after a membership change",
+			"node", id, "err", err)
+	}
+}
+
+// removeUserFromNodes takes a user off the running kernels for one profile,
+// before the rows that describe the operation are dropped.
+func (s *Server) removeUserFromNodes(ctx context.Context, userID, profileID string) {
+	if s.profiles == nil {
+		return
+	}
+	if err := s.profiles.RemoveUserFromProfile(ctx, userID, profileID); err != nil {
+		s.logger.Error("removing user from profile's nodes failed",
+			"user", userID, "profile", profileID, "err", err)
+	}
+}
+
+func (s *Server) nodesForUser(userID string) []string {
+	if s.profiles == nil {
+		return nil
+	}
+	ids, err := s.profiles.NodesForUser(userID)
+	if err != nil {
+		s.logger.Error("listing a user's nodes failed", "user", userID, "err", err)
+		return nil
+	}
+	return ids
+}
+
+func (s *Server) nodesForUserProfile(userID, profileID string) []string {
+	if s.profiles == nil {
+		return nil
+	}
+	ids, err := s.profiles.NodesForUserProfile(userID, profileID)
+	if err != nil {
+		s.logger.Error("listing a user's nodes for a profile failed",
+			"user", userID, "profile", profileID, "err", err)
+		return nil
+	}
+	return ids
+}
+
+// reassembleForUser rewrites the stored configs of the nodes a user is
+// installed on.
+func (s *Server) reassembleForUser(ctx context.Context, userID string) {
+	s.reassemble(ctx, s.nodesForUser(userID))
 }
 
 func (s *Server) subscriptionURL(token string) string {
