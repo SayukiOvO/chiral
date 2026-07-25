@@ -15,23 +15,23 @@ func (s *Server) routeTemplates(mux *http.ServeMux) {
 	mux.Handle("GET /api/generators", s.requireAdmin(s.listGenerators))
 
 	mux.Handle("GET /api/variables", s.requireAdmin(s.listVariables))
-	mux.Handle("POST /api/variables", s.requireAdmin(s.createVariable))
-	mux.Handle("DELETE /api/variables/{id}", s.requireAdmin(s.deleteVariable))
+	mux.Handle("POST /api/variables", s.requireWrite(s.createVariable))
+	mux.Handle("DELETE /api/variables/{id}", s.requireWrite(s.deleteVariable))
 
 	mux.Handle("GET /api/profiles", s.requireAdmin(s.listProfiles))
-	mux.Handle("POST /api/profiles", s.requireAdmin(s.createProfile))
+	mux.Handle("POST /api/profiles", s.requireWrite(s.createProfile))
 	mux.Handle("GET /api/profiles/{id}", s.requireAdmin(s.getProfile))
-	mux.Handle("PUT /api/profiles/{id}", s.requireAdmin(s.updateProfile))
-	mux.Handle("DELETE /api/profiles/{id}", s.requireAdmin(s.deleteProfile))
-	mux.Handle("PUT /api/profiles/{id}/clients/{client}", s.requireAdmin(s.putClientTemplate))
-	mux.Handle("DELETE /api/profiles/{id}/clients/{client}", s.requireAdmin(s.deleteClientTemplate))
-	mux.Handle("POST /api/profiles/{id}/nodes/{nodeId}", s.requireAdmin(s.bindNode))
-	mux.Handle("DELETE /api/profiles/{id}/nodes/{nodeId}", s.requireAdmin(s.unbindNode))
-	mux.Handle("POST /api/profiles/{id}/apply", s.requireAdmin(s.applyProfile))
+	mux.Handle("PUT /api/profiles/{id}", s.requireWrite(s.updateProfile))
+	mux.Handle("DELETE /api/profiles/{id}", s.requireWrite(s.deleteProfile))
+	mux.Handle("PUT /api/profiles/{id}/clients/{client}", s.requireWrite(s.putClientTemplate))
+	mux.Handle("DELETE /api/profiles/{id}/clients/{client}", s.requireWrite(s.deleteClientTemplate))
+	mux.Handle("POST /api/profiles/{id}/nodes/{nodeId}", s.requireWrite(s.bindNode))
+	mux.Handle("DELETE /api/profiles/{id}/nodes/{nodeId}", s.requireWrite(s.unbindNode))
+	mux.Handle("POST /api/profiles/{id}/apply", s.requireWrite(s.applyProfile))
 
-	mux.Handle("PUT /api/nodes/{id}/skeleton", s.requireAdmin(s.putSkeleton))
+	mux.Handle("PUT /api/nodes/{id}/skeleton", s.requireWrite(s.putSkeleton))
 	mux.Handle("GET /api/nodes/{id}/config/preview", s.requireAdmin(s.previewNodeConfig))
-	mux.Handle("POST /api/nodes/{id}/config/apply", s.requireAdmin(s.applyNodeConfig))
+	mux.Handle("POST /api/nodes/{id}/config/apply", s.requireWrite(s.applyNodeConfig))
 }
 
 // --- variables ---

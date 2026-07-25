@@ -68,40 +68,44 @@ func (s *Server) Handler() http.Handler {
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte("ok"))
 	})
-	mux.Handle("POST /api/nodes", s.requireAdmin(s.createNode))
+	mux.Handle("POST /api/nodes", s.requireWrite(s.createNode))
 	mux.Handle("GET /api/nodes", s.requireAdmin(s.listNodes))
-	mux.Handle("DELETE /api/nodes/{id}", s.requireAdmin(s.deleteNode))
-	mux.Handle("POST /api/nodes/{id}/join-token", s.requireAdmin(s.resetJoinToken))
-	mux.Handle("PUT /api/nodes/{id}/config", s.requireAdmin(s.putConfig))
-	mux.Handle("POST /api/nodes/{id}/restart-xray", s.requireAdmin(s.restartXray))
+	mux.Handle("DELETE /api/nodes/{id}", s.requireWrite(s.deleteNode))
+	mux.Handle("POST /api/nodes/{id}/join-token", s.requireWrite(s.resetJoinToken))
+	mux.Handle("PUT /api/nodes/{id}/config", s.requireWrite(s.putConfig))
+	mux.Handle("POST /api/nodes/{id}/restart-xray", s.requireWrite(s.restartXray))
 	s.routeTemplates(mux)
 
-	mux.Handle("POST /api/users", s.requireAdmin(s.createUser))
+	mux.Handle("POST /api/users", s.requireWrite(s.createUser))
 	mux.Handle("GET /api/users", s.requireAdmin(s.listUsers))
 	mux.Handle("GET /api/users/{id}", s.requireAdmin(s.getUser))
-	mux.Handle("PUT /api/users/{id}", s.requireAdmin(s.updateUser))
-	mux.Handle("DELETE /api/users/{id}", s.requireAdmin(s.deleteUser))
-	mux.Handle("POST /api/users/{id}/sub-token", s.requireAdmin(s.resetSubToken))
-	mux.Handle("POST /api/users/{id}/profiles/{profileID}", s.requireAdmin(s.bindUserProfile))
-	mux.Handle("DELETE /api/users/{id}/profiles/{profileID}", s.requireAdmin(s.unbindUserProfile))
+	mux.Handle("PUT /api/users/{id}", s.requireWrite(s.updateUser))
+	mux.Handle("DELETE /api/users/{id}", s.requireWrite(s.deleteUser))
+	mux.Handle("POST /api/users/{id}/sub-token", s.requireWrite(s.resetSubToken))
+	mux.Handle("POST /api/users/{id}/profiles/{profileID}", s.requireWrite(s.bindUserProfile))
+	mux.Handle("DELETE /api/users/{id}/profiles/{profileID}", s.requireWrite(s.unbindUserProfile))
 
 	mux.Handle("GET /api/nodes/{id}/samples", s.requireAdmin(s.nodeSamples))
 	mux.Handle("GET /api/traffic", s.requireAdmin(s.trafficSeries))
 
+	// Authentication. Login is the only unauthenticated /api route.
+	mux.HandleFunc("POST /api/login", s.login)
+	mux.Handle("POST /api/logout", s.requireAdmin(s.logout))
+	mux.Handle("GET /api/whoami", s.requireAdmin(s.whoami))
+
+	mux.Handle("GET /api/admins", s.requireSuperadmin(s.listAdmins))
+	mux.Handle("POST /api/admins", s.requireSuperadmin(s.createAdmin))
+	mux.Handle("PUT /api/admins/{id}", s.requireSuperadmin(s.updateAdmin))
+	mux.Handle("DELETE /api/admins/{id}", s.requireSuperadmin(s.deleteAdmin))
+	// Changing your own password only needs to be logged in; the handler
+	// checks that it is your own account or that you are a superadmin.
+	mux.Handle("POST /api/admins/{id}/password", s.requireAdmin(s.changePassword))
+
+	mux.Handle("GET /api/audit", s.requireAdmin(s.auditLog))
+
 	// The one route end users reach, authenticated by the token in the path.
 	mux.HandleFunc("GET /sub/{token}", s.serveSubscription)
 	return mux
-}
-
-func (s *Server) requireAdmin(h http.HandlerFunc) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		got := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
-		if got == "" || got != s.adminToken {
-			writeErr(w, http.StatusUnauthorized, "missing or invalid admin token")
-			return
-		}
-		h(w, r)
-	})
 }
 
 type nodeView struct {

@@ -5,6 +5,7 @@ package main
 import (
 	"context"
 	"crypto/rand"
+	"encoding/base64"
 	"encoding/hex"
 	"errors"
 	"flag"
@@ -22,6 +23,7 @@ import (
 	"google.golang.org/grpc/keepalive"
 
 	"github.com/SayukiOvO/chiral/core/internal/api"
+	"github.com/SayukiOvO/chiral/core/internal/auth"
 	"github.com/SayukiOvO/chiral/core/internal/node"
 	"github.com/SayukiOvO/chiral/core/internal/profile"
 	"github.com/SayukiOvO/chiral/core/internal/secret"
@@ -89,6 +91,13 @@ func run(logger *slog.Logger, dbPath, grpcListen, httpListen, grpcPublic, public
 		}
 		adminToken = hex.EncodeToString(b)
 		logger.Warn("CHIRAL_ADMIN_TOKEN not set; generated a temporary admin token for this run", "token", adminToken)
+	}
+
+	// Bootstrap the first account. Doing it here rather than in a setup wizard
+	// keeps a fresh deployment usable from its compose file alone, and the
+	// generated password is printed once so it cannot sit in an env file.
+	if err := bootstrapAdmin(logger, st); err != nil {
+		return err
 	}
 
 	mgr := node.NewManager(hbTimeout, logger)
@@ -168,6 +177,12 @@ func run(logger *slog.Logger, dbPath, grpcListen, httpListen, grpcPublic, public
 				} else if n > 0 {
 					logger.Info("pruned expired history", "rows", n)
 				}
+				if _, err := st.PruneSessions(time.Now()); err != nil {
+					logger.Error("pruning sessions failed", "err", err)
+				}
+				if _, err := st.PruneAudit(time.Now()); err != nil {
+					logger.Error("pruning audit log failed", "err", err)
+				}
 			case <-ctx.Done():
 				return
 			}
@@ -197,6 +212,46 @@ func run(logger *slog.Logger, dbPath, grpcListen, httpListen, grpcPublic, public
 	case <-time.After(10 * time.Second):
 		logger.Warn("graceful stop timed out; forcing")
 		grpcSrv.Stop()
+	}
+	return nil
+}
+
+// bootstrapAdmin creates the first superadmin when the panel has no accounts
+// yet. CHIRAL_ADMIN_USER / CHIRAL_ADMIN_PASSWORD seed it for an automated
+// deployment; otherwise a password is generated and printed once.
+//
+// The environment token keeps working alongside accounts as a break-glass
+// path, so this can never be the reason someone is locked out.
+func bootstrapAdmin(logger *slog.Logger, st *store.Store) error {
+	n, err := st.CountAdmins()
+	if err != nil {
+		return err
+	}
+	if n > 0 {
+		return nil
+	}
+	username := envOr("CHIRAL_ADMIN_USER", "admin")
+	password := os.Getenv("CHIRAL_ADMIN_PASSWORD")
+	generated := password == ""
+	if generated {
+		b := make([]byte, 12)
+		if _, err := rand.Read(b); err != nil {
+			return err
+		}
+		password = base64.RawURLEncoding.EncodeToString(b)
+	}
+	hash, err := auth.HashPassword(password)
+	if err != nil {
+		return err
+	}
+	if _, err := st.CreateAdmin(username, hash, auth.RoleSuperadmin); err != nil {
+		return err
+	}
+	if generated {
+		logger.Warn("created the first admin account; this password is shown once",
+			"username", username, "password", password)
+	} else {
+		logger.Info("created the first admin account from the environment", "username", username)
 	}
 	return nil
 }
