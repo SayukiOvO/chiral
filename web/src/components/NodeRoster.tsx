@@ -6,22 +6,30 @@ import { KernelState } from "./KernelState";
 import { Sparkline } from "./Sparkline";
 import { StatusDot } from "./StatusDot";
 import { IconButton } from "./ui";
-import { CheckIcon, RestartIcon, TrashIcon } from "./icons";
+import { CheckIcon, RestartIcon, SlidersIcon, TrashIcon } from "./icons";
 
 export function NodeRoster({
   nodes,
   history,
   onChanged,
+  onConfigure,
 }: {
   nodes: Node[];
   history: Map<string, number[]>;
   onChanged: () => void;
+  onConfigure: (n: Node) => void;
 }) {
   if (nodes.length === 0) return <EmptyState />;
   return (
     <div className="flex flex-col gap-2.5">
       {nodes.map((n) => (
-        <NodeCard key={n.id} node={n} history={history.get(n.id) ?? []} onChanged={onChanged} />
+        <NodeCard
+          key={n.id}
+          node={n}
+          history={history.get(n.id) ?? []}
+          onChanged={onChanged}
+          onConfigure={() => onConfigure(n)}
+        />
       ))}
     </div>
   );
@@ -31,10 +39,12 @@ function NodeCard({
   node,
   history,
   onChanged,
+  onConfigure,
 }: {
   node: Node;
   history: number[];
   onChanged: () => void;
+  onConfigure: () => void;
 }) {
   const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -108,6 +118,9 @@ function NodeCard({
           </div>
         ) : (
           <div className="flex items-center gap-1 opacity-70 transition-opacity group-hover:opacity-100">
+            <IconButton label="配置" onClick={onConfigure}>
+              <SlidersIcon size={16} />
+            </IconButton>
             <IconButton
               label={restarted ? "已发送重启" : "重启内核"}
               onClick={restart}

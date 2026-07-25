@@ -138,6 +138,19 @@ func (s *Store) scanVariables(rows *sql.Rows) ([]Variable, error) {
 	return out, nil
 }
 
+// AllVariables returns every variable across all scopes, ordered so the
+// broadest scope comes first. The management UI shows one table of the whole
+// pool, and paying one query per profile and node to rebuild it would be
+// worse for both the panel and the reader.
+func (s *Store) AllVariables() ([]Variable, error) {
+	rows, err := s.db.Query(`SELECT ` + variableCols + ` FROM variables
+		ORDER BY CASE scope WHEN 'global' THEN 0 WHEN 'profile' THEN 1 ELSE 2 END, name`)
+	if err != nil {
+		return nil, err
+	}
+	return s.scanVariables(rows)
+}
+
 // GlobalVariables returns the global scope.
 func (s *Store) GlobalVariables() ([]Variable, error) {
 	rows, err := s.db.Query(`SELECT ` + variableCols + ` FROM variables WHERE scope = 'global' ORDER BY name`)
@@ -274,6 +287,26 @@ func (s *Store) PutClientTemplate(profileID, client, tmpl string) error {
 }
 
 // ClientTemplates returns every client template of a profile, keyed by client.
+// ClientTemplateKinds lists which client kinds a profile has a template for,
+// without loading the template bodies — the profile list only needs to show
+// coverage, and the bodies can be large.
+func (s *Store) ClientTemplateKinds(profileID string) ([]string, error) {
+	rows, err := s.db.Query(`SELECT client FROM profile_client_templates WHERE profile_id = ? ORDER BY client`, profileID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []string{}
+	for rows.Next() {
+		var c string
+		if err := rows.Scan(&c); err != nil {
+			return nil, err
+		}
+		out = append(out, c)
+	}
+	return out, rows.Err()
+}
+
 func (s *Store) ClientTemplates(profileID string) (map[string]string, error) {
 	rows, err := s.db.Query(`SELECT client, template FROM profile_client_templates WHERE profile_id = ?`, profileID)
 	if err != nil {

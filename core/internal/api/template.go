@@ -72,8 +72,8 @@ func toVariableView(v store.Variable) variableView {
 	return out
 }
 
-// listVariables returns one scope at a time: ?scope=global, ?profile_id=…, or
-// ?node_id=….
+// listVariables returns the whole pool by default, or one scope when filtered
+// with ?scope=global, ?profile_id=… or ?node_id=….
 func (s *Server) listVariables(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	var (
@@ -85,8 +85,10 @@ func (s *Server) listVariables(w http.ResponseWriter, r *http.Request) {
 		vars, err = s.st.ProfileVariables(q.Get("profile_id"))
 	case q.Get("node_id") != "":
 		vars, err = s.st.NodeVariables(q.Get("node_id"))
-	default:
+	case q.Get("scope") == "global":
 		vars, err = s.st.GlobalVariables()
+	default:
+		vars, err = s.st.AllVariables()
 	}
 	if err != nil {
 		s.internalErr(w, "list variables", err)
@@ -180,15 +182,18 @@ type profileView struct {
 	InboundTemplate string            `json:"inbound_template"`
 	ClientEntry     string            `json:"client_entry"`
 	ClientTemplates map[string]string `json:"client_templates,omitempty"`
-	NodeIDs         []string          `json:"node_ids"`
-	CreatedAt       int64             `json:"created_at"`
-	UpdatedAt       int64             `json:"updated_at"`
+	// ClientKinds lists which clients have a template, so the profile list can
+	// show coverage without shipping every template body.
+	ClientKinds []string `json:"client_kinds"`
+	NodeIDs     []string `json:"node_ids"`
+	CreatedAt   int64    `json:"created_at"`
+	UpdatedAt   int64    `json:"updated_at"`
 }
 
 func (s *Server) profileView(p store.Profile, withTemplates bool) (profileView, error) {
 	v := profileView{
 		ID: p.ID, Name: p.Name, InboundTemplate: p.InboundTemplate, ClientEntry: p.ClientEntry,
-		CreatedAt: p.CreatedAt, UpdatedAt: p.UpdatedAt, NodeIDs: []string{},
+		CreatedAt: p.CreatedAt, UpdatedAt: p.UpdatedAt, NodeIDs: []string{}, ClientKinds: []string{},
 	}
 	ids, err := s.st.ProfileNodeIDs(p.ID)
 	if err != nil {
@@ -197,6 +202,11 @@ func (s *Server) profileView(p store.Profile, withTemplates bool) (profileView, 
 	if ids != nil {
 		v.NodeIDs = ids
 	}
+	kinds, err := s.st.ClientTemplateKinds(p.ID)
+	if err != nil {
+		return v, err
+	}
+	v.ClientKinds = kinds
 	if withTemplates {
 		t, err := s.st.ClientTemplates(p.ID)
 		if err != nil {

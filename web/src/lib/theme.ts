@@ -32,5 +32,31 @@ export function useTheme() {
   return { mode, setMode };
 }
 
+/**
+ * Whether the resolved theme is currently dark. Components that cannot use
+ * CSS variables — Monaco picks a theme by name — need the resolved value, not
+ * the mode, and must re-render when the OS preference flips under "system".
+ */
+export function useIsDark(): boolean {
+  const [dark, setDark] = useState(() =>
+    document.documentElement.classList.contains("dark"),
+  );
+  useEffect(() => {
+    const sync = () => setDark(document.documentElement.classList.contains("dark"));
+    const observer = new MutationObserver(sync);
+    observer.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ["class"],
+    });
+    const mq = window.matchMedia("(prefers-color-scheme: dark)");
+    mq.addEventListener("change", sync);
+    return () => {
+      observer.disconnect();
+      mq.removeEventListener("change", sync);
+    };
+  }, []);
+  return dark;
+}
+
 // Paint before React mounts to avoid a flash of the wrong theme.
 paint((localStorage.getItem(KEY) as ThemeMode) ?? "system");

@@ -1,0 +1,435 @@
+import { useEffect, useMemo, useState } from "react";
+import { api, type Node, type Profile, type Variable } from "../api";
+import { Button, IconButton } from "../components/ui";
+import { CheckIcon, PlusIcon, TrashIcon } from "../components/icons";
+import { TemplateEditor } from "../components/TemplateEditor";
+import { cn } from "../lib/cn";
+import { href, navigate } from "../lib/router";
+import { useIsDark } from "../lib/theme";
+import { Empty, ErrorBar, Field, Modal, inputCls } from "./VariablesPage";
+
+/** Injected by the Core for every render; see profile.contextFor. */
+const BUILTIN_NODE_VARS = ["node.name", "node.address", "node.hostname"];
+
+const CLIENT_KINDS = ["xray-json", "clash", "vless-uri", "stash"] as const;
+
+export function ProfilesPage({ id }: { id?: string }) {
+  const [profiles, setProfiles] = useState<Profile[]>([]);
+  const [error, setError] = useState("");
+
+  async function refresh() {
+    try {
+      const { profiles } = await api.listProfiles();
+      setProfiles(profiles);
+      setError("");
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  }
+  useEffect(() => {
+    refresh();
+  }, []);
+
+  if (id) return <ProfileEditor id={id} onChanged={refresh} />;
+
+  return (
+    <ProfileList profiles={profiles} error={error} onChanged={refresh} />
+  );
+}
+
+function ProfileList({
+  profiles,
+  error,
+  onChanged,
+}: {
+  profiles: Profile[];
+  error: string;
+  onChanged: () => void;
+}) {
+  const [adding, setAdding] = useState(false);
+  const [name, setName] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [addError, setAddError] = useState("");
+
+  async function create(e: React.FormEvent) {
+    e.preventDefault();
+    setBusy(true);
+    setAddError("");
+    try {
+      const p = await api.createProfile(name.trim());
+      onChanged();
+      setAdding(false);
+      setName("");
+      navigate({ view: "profiles", id: p.id });
+    } catch (e) {
+      setAddError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div>
+      <div className="mb-6 flex items-end justify-between gap-4">
+        <div>
+          <h1 className="font-display text-[26px] font-semibold tracking-tight">接入配置</h1>
+          <p className="mt-1 text-sm text-muted">
+            一套接入方式：服务端 inbound 骨架 + 每用户凭证 + 各客户端模板。
+          </p>
+        </div>
+        <Button variant="primary" onClick={() => setAdding(true)}>
+          <PlusIcon size={16} />
+          新增
+        </Button>
+      </div>
+
+      {error && <ErrorBar text={error} />}
+
+      {profiles.length === 0 ? (
+        <Empty>还没有接入配置。新建一个，再把它绑定到节点上。</Empty>
+      ) : (
+        <div className="flex flex-col gap-2.5">
+          {profiles.map((p) => (
+            <a
+              key={p.id}
+              href={href({ view: "profiles", id: p.id })}
+              className="group flex items-center justify-between rounded-2xl border border-line bg-surface px-5 py-4 shadow-[var(--shadow-card)] transition-all hover:border-line-strong hover:shadow-[var(--shadow-lift)]"
+            >
+              <div>
+                <div className="font-display text-[15px] font-semibold tracking-tight">
+                  {p.name}
+                </div>
+                <div className="mt-0.5 text-xs text-muted">
+                  {p.node_ids.length} 个节点
+                  <span className="mx-1.5 text-faint">·</span>
+                  {(p.client_kinds ?? []).length} 份客户端模板
+                  {!p.inbound_template && (
+                    <>
+                      <span className="mx-1.5 text-faint">·</span>
+                      <span className="text-warn">未填 inbound 骨架</span>
+                    </>
+                  )}
+                </div>
+              </div>
+              <span className="text-faint transition-colors group-hover:text-ink">→</span>
+            </a>
+          ))}
+        </div>
+      )}
+
+      {adding && (
+        <Modal onClose={() => setAdding(false)}>
+          <form onSubmit={create}>
+            <h3 className="font-display text-lg font-semibold tracking-tight">新增接入配置</h3>
+            <Field label="名字">
+              <input
+                autoFocus
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="tokyo-reality"
+                className={inputCls}
+              />
+            </Field>
+            {addError && <p className="mt-3 text-sm text-danger">{addError}</p>}
+            <div className="mt-5 flex justify-end gap-2">
+              <Button type="button" variant="ghost" onClick={() => setAdding(false)}>
+                取消
+              </Button>
+              <Button type="submit" variant="primary" disabled={busy || !name.trim()}>
+                创建
+              </Button>
+            </div>
+          </form>
+        </Modal>
+      )}
+    </div>
+  );
+}
+
+function ProfileEditor({ id, onChanged }: { id: string; onChanged: () => void }) {
+  const dark = useIsDark();
+  const [profile, setProfile] = useState<Profile | null>(null);
+  const [vars, setVars] = useState<Variable[]>([]);
+  const [nodes, setNodes] = useState<Node[]>([]);
+  const [error, setError] = useState("");
+  const [saved, setSaved] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [applyResult, setApplyResult] = useState<string>("");
+
+  const [inbound, setInbound] = useState("");
+  const [clientEntry, setClientEntry] = useState("");
+  const [clientTemplates, setClientTemplates] = useState<Record<string, string>>({});
+  const [activeClient, setActiveClient] = useState<string>(CLIENT_KINDS[0]);
+
+  async function load() {
+    try {
+      const [p, v, n] = await Promise.all([
+        api.getProfile(id),
+        api.listVariables(),
+        api.listNodes(),
+      ]);
+      setProfile(p);
+      setInbound(p.inbound_template);
+      setClientEntry(p.client_entry);
+      setClientTemplates(p.client_templates ?? {});
+      setVars(v.variables);
+      setNodes(n.nodes);
+      setError("");
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  }
+  useEffect(() => {
+    load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id]);
+
+  // What a template may reference: global variables, this profile's own, the
+  // built-in node metadata, and (for client templates) the per-user entries.
+  const { known, secrets } = useMemo(() => {
+    const known = new Set<string>(BUILTIN_NODE_VARS);
+    const secrets = new Set<string>();
+    for (const v of vars) {
+      if (v.scope === "global" || (v.scope === "profile" && v.profile_id === id)) {
+        for (const c of v.components) {
+          const name = c.name ? `${v.name}.${c.name}` : v.name;
+          known.add(name);
+          if (c.secret) secrets.add(name);
+        }
+      }
+    }
+    return { known, secrets };
+  }, [vars, id]);
+
+  // The client-entry template is rendered per user, so it may also use the
+  // user-scope names the Core fills in at subscription time (M3).
+  const clientEntryKnown = useMemo(() => {
+    const s = new Set(known);
+    s.add("user.uuid");
+    s.add("user.email");
+    return s;
+  }, [known]);
+
+  async function save() {
+    if (!profile) return;
+    setBusy(true);
+    setError("");
+    try {
+      await api.updateProfile(id, {
+        inbound_template: inbound,
+        client_entry: clientEntry,
+      });
+      for (const [kind, tmpl] of Object.entries(clientTemplates)) {
+        if (tmpl.trim()) await api.putClientTemplate(id, kind, tmpl);
+      }
+      setSaved(true);
+      setTimeout(() => setSaved(false), 1800);
+      onChanged();
+      load();
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function apply() {
+    setBusy(true);
+    setError("");
+    setApplyResult("");
+    try {
+      const r = await api.applyProfile(id);
+      setApplyResult(
+        r.failed === 0
+          ? `已下发到 ${r.applied} 个节点`
+          : `${r.applied} 个成功，${r.failed} 个失败：` +
+              Object.entries(r.nodes)
+                .filter(([, v]) => v !== "ok")
+                .map(([k, v]) => `${nodes.find((n) => n.id === k)?.name ?? k}: ${v}`)
+                .join("；"),
+      );
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (!profile) {
+    return error ? <ErrorBar text={error} /> : <p className="text-sm text-muted">载入中…</p>;
+  }
+
+  const bound = new Set(profile.node_ids);
+
+  return (
+    <div>
+      <a
+        href={href({ view: "profiles" })}
+        className="text-sm text-muted transition-colors hover:text-ink"
+      >
+        ← 接入配置
+      </a>
+      <div className="mt-3 mb-6 flex flex-wrap items-end justify-between gap-4">
+        <div>
+          <h1 className="font-display text-[26px] font-semibold tracking-tight">
+            {profile.name}
+          </h1>
+          <p className="mt-1 text-sm text-muted">
+            服务端与客户端引用同一组变量的不同分量，因此不可能配错。
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          <Button variant="outline" onClick={apply} disabled={busy || bound.size === 0}>
+            下发到 {bound.size} 个节点
+          </Button>
+          <Button variant="primary" onClick={save} disabled={busy}>
+            {saved ? (
+              <>
+                <CheckIcon size={15} /> 已保存
+              </>
+            ) : busy ? (
+              "保存中…"
+            ) : (
+              "保存"
+            )}
+          </Button>
+        </div>
+      </div>
+
+      {error && <ErrorBar text={error} />}
+      {applyResult && (
+        <div className="mb-5 rounded-xl border border-line bg-surface px-4 py-3 text-sm">
+          {applyResult}
+        </div>
+      )}
+
+      <Section
+        title="服务端 inbound 骨架"
+        hint="渲染后作为一项进节点 config.json 的 inbounds。clients 留空，由 Core 按绑定用户注入。"
+      >
+        <TemplateEditor
+          value={inbound}
+          onChange={setInbound}
+          known={known}
+          secrets={secrets}
+          dark={dark}
+          height={300}
+        />
+      </Section>
+
+      <Section
+        title="每用户 client-entry"
+        hint="clients 数组里单个用户对象的模板。M3 的在线增删用户改的就是这一条。"
+      >
+        <TemplateEditor
+          value={clientEntry}
+          onChange={setClientEntry}
+          known={clientEntryKnown}
+          secrets={secrets}
+          dark={dark}
+          height={110}
+        />
+      </Section>
+
+      <Section
+        title="客户端模板"
+        hint="每种客户端手写一份，避开订阅转换的表达力上限。私钥变量在这里不可用。"
+      >
+        <div className="mb-2.5 flex flex-wrap gap-1.5">
+          {CLIENT_KINDS.map((k) => (
+            <button
+              key={k}
+              onClick={() => setActiveClient(k)}
+              className={cn(
+                "rounded-lg border px-2.5 py-1.5 font-mono text-[12px] transition-colors",
+                activeClient === k
+                  ? "border-signal bg-signal-soft text-ink"
+                  : "border-line-strong text-muted hover:border-signal",
+                clientTemplates[k]?.trim() ? "" : "opacity-60",
+              )}
+            >
+              {k}
+              {clientTemplates[k]?.trim() ? "" : " ·未填"}
+            </button>
+          ))}
+        </div>
+        <TemplateEditor
+          value={clientTemplates[activeClient] ?? ""}
+          onChange={(v) => setClientTemplates((t) => ({ ...t, [activeClient]: v }))}
+          known={clientEntryKnown}
+          secrets={secrets}
+          clientSide
+          dark={dark}
+          height={260}
+        />
+      </Section>
+
+      <Section title="绑定节点" hint="绑上以后，下发即把这套 inbound 装配进该节点的 config。">
+        {nodes.length === 0 ? (
+          <p className="text-sm text-muted">还没有节点。</p>
+        ) : (
+          <div className="flex flex-wrap gap-2">
+            {nodes.map((n) => {
+              const on = bound.has(n.id);
+              return (
+                <button
+                  key={n.id}
+                  onClick={async () => {
+                    on ? await api.unbindNode(id, n.id) : await api.bindNode(id, n.id);
+                    load();
+                    onChanged();
+                  }}
+                  className={cn(
+                    "inline-flex items-center gap-2 rounded-lg border px-3 py-1.5 text-sm transition-colors",
+                    on
+                      ? "border-online text-online"
+                      : "border-line-strong text-muted hover:border-signal hover:text-ink",
+                  )}
+                  style={on ? { background: "color-mix(in srgb, var(--online) 10%, transparent)" } : undefined}
+                >
+                  {on && <CheckIcon size={14} />}
+                  {n.name}
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </Section>
+
+      <div className="mt-8 flex justify-end">
+        <Button
+          variant="danger"
+          onClick={async () => {
+            if (!confirm(`删除接入配置「${profile.name}」？绑定关系与其变量会一并删除。`)) return;
+            await api.deleteProfile(id);
+            onChanged();
+            navigate({ view: "profiles" });
+          }}
+        >
+          <TrashIcon size={15} />
+          删除此接入配置
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+function Section({
+  title,
+  hint,
+  children,
+}: {
+  title: string;
+  hint?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <section className="mb-7">
+      <h2 className="font-display text-[15px] font-semibold tracking-tight">{title}</h2>
+      {hint && <p className="mb-2.5 mt-0.5 text-xs text-muted">{hint}</p>}
+      {children}
+    </section>
+  );
+}
+
+export { IconButton };

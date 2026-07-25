@@ -61,6 +61,51 @@ async function req<T>(method: string, path: string, body?: unknown): Promise<T> 
   return res.json() as Promise<T>;
 }
 
+export type Scope = "global" | "profile" | "node";
+
+export interface Component {
+  name: string;
+  /** Secret components come back masked; the panel never serves their value. */
+  value: string;
+  secret: boolean;
+}
+
+export interface Variable {
+  id: string;
+  name: string;
+  scope: Scope;
+  profile_id?: string;
+  node_id?: string;
+  generator?: string;
+  components: Component[];
+}
+
+export interface GeneratorInfo {
+  name: string;
+  needs_xray: boolean;
+  available: boolean;
+}
+
+export interface Profile {
+  id: string;
+  name: string;
+  inbound_template: string;
+  client_entry: string;
+  client_templates?: Record<string, string>;
+  /** Which clients have a template; present on list responses too. */
+  client_kinds: string[];
+  node_ids: string[];
+  created_at: number;
+  updated_at: number;
+}
+
+export interface ConfigPreview {
+  config: unknown;
+  inbound_tags: string[];
+  tested: boolean;
+  test_error: string;
+}
+
 export const api = {
   listNodes: () => req<{ nodes: Node[] }>("GET", "/api/nodes"),
   createNode: (name: string) =>
@@ -73,4 +118,54 @@ export const api = {
     ),
   restartXray: (id: string) =>
     req<void>("POST", `/api/nodes/${id}/restart-xray`),
+
+  // --- variables ---
+  listVariables: () => req<{ variables: Variable[] }>("GET", "/api/variables"),
+  createVariable: (v: {
+    name: string;
+    scope: Scope;
+    profile_id?: string;
+    node_id?: string;
+    generator?: string;
+    value?: string;
+  }) => req<Variable>("POST", "/api/variables", v),
+  deleteVariable: (id: string) => req<void>("DELETE", `/api/variables/${id}`),
+  listGenerators: () =>
+    req<{ generators: GeneratorInfo[] }>("GET", "/api/generators"),
+
+  // --- profiles ---
+  listProfiles: () => req<{ profiles: Profile[] }>("GET", "/api/profiles"),
+  getProfile: (id: string) => req<Profile>("GET", `/api/profiles/${id}`),
+  createProfile: (name: string) =>
+    req<Profile>("POST", "/api/profiles", { name }),
+  updateProfile: (
+    id: string,
+    patch: {
+      name?: string;
+      inbound_template?: string;
+      client_entry?: string;
+    },
+  ) => req<Profile>("PUT", `/api/profiles/${id}`, patch),
+  deleteProfile: (id: string) => req<void>("DELETE", `/api/profiles/${id}`),
+  putClientTemplate: (id: string, client: string, template: string) =>
+    req<void>("PUT", `/api/profiles/${id}/clients/${client}`, { template }),
+  deleteClientTemplate: (id: string, client: string) =>
+    req<void>("DELETE", `/api/profiles/${id}/clients/${client}`),
+  bindNode: (profileId: string, nodeId: string) =>
+    req<void>("POST", `/api/profiles/${profileId}/nodes/${nodeId}`),
+  unbindNode: (profileId: string, nodeId: string) =>
+    req<void>("DELETE", `/api/profiles/${profileId}/nodes/${nodeId}`),
+  applyProfile: (id: string) =>
+    req<{ nodes: Record<string, string>; applied: number; failed: number }>(
+      "POST",
+      `/api/profiles/${id}/apply`,
+    ),
+
+  // --- node config assembly ---
+  putSkeleton: (id: string, skeleton: unknown) =>
+    req<void>("PUT", `/api/nodes/${id}/skeleton`, skeleton),
+  previewConfig: (id: string) =>
+    req<ConfigPreview>("GET", `/api/nodes/${id}/config/preview`),
+  applyConfig: (id: string) =>
+    req<{ version: number }>("POST", `/api/nodes/${id}/config/apply`),
 };

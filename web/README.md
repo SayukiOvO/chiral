@@ -11,6 +11,7 @@ Panel 管理界面。**React + Vite + TailwindCSS v4**。视觉方向「信号�
 ```bash
 cd web && npm install
 npm run dev   # http://localhost:5173，/api 代理到本地 core:8080
+npm test      # 模板校验逻辑的单测
 ```
 
 需要先跑起 core（`CHIRAL_ADMIN_TOKEN=... ./bin/chiral-core`），用同一个 admin token 登录。
@@ -18,13 +19,25 @@ npm run dev   # http://localhost:5173，/api 代理到本地 core:8080
 ## 结构
 
 - `api.ts` — 类型化 REST 客户端
-- `lib/` — `cn`（类名）、`theme`（三态主题 hook）
-- `components/` — `TopBar` `LiveRail`（舰队仪表条）`NodeRoster`（节点卡片）`Sparkline`（实时流量活线，客户端环形缓冲）`KernelState` `StatusDot` `AddNodeDialog` `TokenGate` `ThemeToggle` `Mark`（◐ 手性标记）`ui`（Button/IconButton）`icons`
+- `lib/` — `cn`（类名）、`theme`（三态主题 + `useIsDark`）、`router`（hash 路由）、`monaco`（编辑器与语言注册）
+- `pages/` — `NodesPage` `ProfilesPage`（列表 + 编辑器）`VariablesPage`
+- `components/` — `TopBar`（含导航）`LiveRail` `NodeRoster` `Sparkline` `KernelState` `StatusDot` `NodeConfigDialog`（骨架 + 装配预览 + 下发）`TemplateEditor` / `MonacoEditor` `AddNodeDialog` `TokenGate` `ThemeToggle` `Mark`（◐）`ui` `icons`
 
-## 现状（M1）
+## Monaco 模板编辑器
 
-- [x] 工程 + 设计系统 + 三态主题 + 响应式
-- [x] token 登录门、节点卡片列表（在线状态、内核状态、实时指标 3s 轮询、每节点实时流量折线）、新增节点（join token + compose）、重启 / 删除（内联确认）
-- [ ] shadcn/ui 组件化下沉、i18n、Monaco 模板编辑器（M2 起）
+两个约束写在 `lib/monaco.ts` 里，改动前先读：
 
-**状态**：M1 节点控制台完成（视觉重做）。
+1. **不能走 CDN**。`@monaco-editor/react` 默认运行时从 CDN 拉 Monaco，在受限网络下直接白屏；这里用 `loader.config({ monaco })` 交给 Vite 打包的副本，worker 也显式接好。
+2. **懒加载**。Monaco 约 4 MB，节点仪表盘根本不开编辑器。`TemplateEditor` 用 `lazy()` 引入 `MonacoEditor`——**任何一处对 `./MonacoEditor` 的静态 import 都会把整个 Monaco 拖回主包**，静默让这件事白做（主包会从 190 KB 涨到 4.2 MB）。
+
+语言是自定义的 `chiral-template` 而非 JSON：模板里 `{{port}}` 这种不带引号的数字占位在 JSON 模式下会被判成语法错。字符串内的 `{{变量}}` 用单独的 tokenizer 状态着色，否则字符串规则会整体吞掉它（`"{{sni}}:443"` 就是最常见的写法）。
+
+`checkRefs()` 复刻 Go 引擎的规则（未定义变量报错、客户端模板禁用私钥），有单测守着——两边漂移会让编辑器骗人。
+
+## 现状
+
+- [x] M1：节点列表（实时状态 / 指标 / 折线）、新增节点、重启、删除
+- [x] M2：导航；变量管理（生成器 / 静态、私钥遮蔽）；接入配置编辑（inbound 骨架 / client-entry / 各客户端模板、绑定节点、一键下发）；节点 config 骨架 + 装配预览 + `xray -test` 状态 + 下发
+- [ ] i18n、shadcn/ui 组件化下沉、订阅相关界面（M3）
+
+**状态**：M2 前端完成。

@@ -441,3 +441,43 @@ func TestPlaintextConfigStillReadableAfterEnablingEncryption(t *testing.T) {
 		t.Errorf("got %q", node.ConfigSkeleton)
 	}
 }
+
+// The management UI lists the whole pool; a scope-only default would silently
+// hide every profile- and node-scoped variable.
+func TestAllVariablesSpansEveryScope(t *testing.T) {
+	s := testStore(t, storeTestKey)
+	p, _ := s.CreateProfile("p")
+	n, _ := s.CreateNode("n", "h")
+	mk := func(name, scope, profileID, nodeID string) {
+		t.Helper()
+		if _, err := s.PutVariable(Variable{
+			Name: name, Scope: scope,
+			ProfileID:  nullStr(profileID),
+			NodeID:     nullStr(nodeID),
+			Components: []Component{{Value: "v"}},
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	mk("g", ScopeGlobal, "", "")
+	mk("p1", ScopeProfile, p.ID, "")
+	mk("n1", ScopeNode, "", n.ID)
+
+	all, err := s.AllVariables()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(all) != 3 {
+		t.Fatalf("expected all three scopes, got %d: %+v", len(all), all)
+	}
+	if all[0].Scope != ScopeGlobal {
+		t.Errorf("broadest scope should sort first, got %q", all[0].Scope)
+	}
+}
+
+func nullStr(s string) sql.NullString {
+	if s == "" {
+		return sql.NullString{}
+	}
+	return sql.NullString{String: s, Valid: true}
+}
