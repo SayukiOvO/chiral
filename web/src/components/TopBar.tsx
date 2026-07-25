@@ -1,9 +1,11 @@
 import { Mark } from "./Mark";
 import { ThemeToggle } from "./ThemeToggle";
+import { LangToggle } from "./LangToggle";
 import { IconButton } from "./ui";
 import { SignOutIcon } from "./icons";
 import { cn } from "../lib/cn";
 import { href, type Route } from "../lib/router";
+import { useT } from "../lib/i18n";
 
 const NAV: { view: Route["view"]; label: string }[] = [
   { view: "nodes", label: "节点" },
@@ -13,6 +15,7 @@ const NAV: { view: Route["view"]; label: string }[] = [
 ];
 
 export function TopBar({ route, onSignOut }: { route: Route; onSignOut: () => void }) {
+  const { t } = useT();
   return (
     <header className="sticky top-0 z-30 border-b border-line bg-paper/80 backdrop-blur-md">
       <div className="mx-auto flex h-14 max-w-[1120px] items-center justify-between gap-4 px-5 sm:px-8">
@@ -37,14 +40,15 @@ export function TopBar({ route, onSignOut }: { route: Route; onSignOut: () => vo
                     : "text-muted hover:text-ink",
                 )}
               >
-                {item.label}
+                {t(item.label)}
               </a>
             ))}
           </nav>
         </div>
         <div className="flex shrink-0 items-center gap-2">
+          <LangToggle />
           <ThemeToggle />
-          <IconButton label="退出" onClick={onSignOut}>
+          <IconButton label={t("退出")} onClick={onSignOut}>
             <SignOutIcon size={16} />
           </IconButton>
         </div>

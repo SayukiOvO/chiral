@@ -85,6 +85,9 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("POST /api/users/{id}/profiles/{profileID}", s.requireAdmin(s.bindUserProfile))
 	mux.Handle("DELETE /api/users/{id}/profiles/{profileID}", s.requireAdmin(s.unbindUserProfile))
 
+	mux.Handle("GET /api/nodes/{id}/samples", s.requireAdmin(s.nodeSamples))
+	mux.Handle("GET /api/traffic", s.requireAdmin(s.trafficSeries))
+
 	// The one route end users reach, authenticated by the token in the path.
 	mux.HandleFunc("GET /sub/{token}", s.serveSubscription)
 	return mux

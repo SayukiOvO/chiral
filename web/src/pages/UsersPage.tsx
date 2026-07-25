@@ -3,12 +3,15 @@ import { api, type Profile, type User } from "../api";
 import { expiryLabel, periodLabel } from "../format";
 import { cn } from "../lib/cn";
 import { QuotaBar } from "../components/QuotaBar";
+import { UserTraffic } from "../components/UserTraffic";
 import { UserDialog } from "../components/UserDialog";
 import { SubscriptionDialog } from "../components/SubscriptionDialog";
 import { Button, IconButton } from "../components/ui";
 import { CheckIcon, LinkIcon, PencilIcon, PlusIcon, TrashIcon } from "../components/icons";
+import { useT } from "../lib/i18n";
 
 export function UsersPage() {
+  const { t } = useT();
   const [users, setUsers] = useState<User[]>([]);
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [loaded, setLoaded] = useState(false);
@@ -42,14 +45,14 @@ export function UsersPage() {
     <div>
       <div className="mb-6 flex items-end justify-between gap-4">
         <div className="animate-rise">
-          <h1 className="font-display text-[26px] font-semibold tracking-tight">用户</h1>
+          <h1 className="font-display text-[26px] font-semibold tracking-tight">{t("用户")}</h1>
           <p className="mt-1 text-sm text-muted">
-            订阅者、他们的配额，以及每个接入点上的独立凭证。
+            {t("订阅者、他们的配额，以及每个接入点上的独立凭证。")}
           </p>
         </div>
         <Button variant="primary" onClick={() => setCreating(true)}>
           <PlusIcon size={16} />
-          新增用户
+          {t("新增用户")}
         </Button>
       </div>
 
@@ -118,6 +121,7 @@ function UserCard({
   onEdit: () => void;
   onSubscription: (url: string) => void;
 }) {
+  const { t } = useT();
   const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState(false);
   const [expanded, setExpanded] = useState(false);
@@ -192,31 +196,31 @@ function UserCard({
 
         {confirming ? (
           <div className="flex items-center gap-2 text-sm">
-            <span className="hidden text-muted sm:inline">删除此用户？</span>
+            <span className="hidden text-muted sm:inline">{t("删除此用户？")}</span>
             <button
               onClick={() => setConfirming(false)}
               className="rounded-lg px-2.5 py-1 text-muted hover:text-ink"
             >
-              取消
+              {t("取消")}
             </button>
             <button
               onClick={remove}
               disabled={busy}
               className="rounded-lg px-2.5 py-1 font-medium text-danger hover:bg-[color-mix(in_srgb,var(--danger)_12%,transparent)] disabled:opacity-50"
             >
-              删除
+              {t("删除")}
             </button>
           </div>
         ) : (
           <div className="flex items-center gap-1 opacity-70 transition-opacity group-hover:opacity-100">
-            <IconButton label="重置订阅链接" onClick={resetLink} disabled={busy}>
+            <IconButton label={t("重置订阅链接")} onClick={resetLink} disabled={busy}>
               <LinkIcon size={16} />
             </IconButton>
-            <IconButton label="编辑" onClick={onEdit}>
+            <IconButton label={t("编辑")} onClick={onEdit}>
               <PencilIcon size={16} />
             </IconButton>
             <IconButton
-              label="删除用户"
+              label={t("删除用户")}
               onClick={() => setConfirming(true)}
               className="hover:text-danger"
             >
@@ -227,10 +231,10 @@ function UserCard({
       </div>
 
       <div className="mt-4 flex flex-wrap items-end gap-x-8 gap-y-3 pl-[22px]">
-        <Field label="流量">
+        <Field label={t("流量")}>
           <QuotaBar used={user.used_bytes} quota={user.quota_bytes} />
         </Field>
-        <Field label="状态">
+        <Field label={t("状态")}>
           <AccessLabel user={user} />
         </Field>
       </div>
@@ -238,10 +242,10 @@ function UserCard({
       {expanded && (
         <div className="mt-4 border-t border-line pt-4 pl-[22px]">
           <div className="mb-2 text-[11px] font-medium uppercase tracking-[0.07em] text-faint">
-            可访问的接入配置
+            {t("可访问的接入配置")}
           </div>
           {profiles.length === 0 ? (
-            <p className="text-sm text-muted">还没有接入配置。</p>
+            <p className="text-sm text-muted">{t("还没有接入配置。")}</p>
           ) : (
             <div className="flex flex-wrap gap-1.5">
               {profiles.map((p) => {
@@ -266,8 +270,15 @@ function UserCard({
             </div>
           )}
           <p className="mt-2 text-xs text-faint">
-            授权后，该用户会自动获得这个接入配置绑定的每个节点上的独立凭证。
+            {t("授权后，该用户会自动获得这个接入配置绑定的每个节点上的独立凭证。")}
           </p>
+
+          <div className="mt-5">
+            <div className="mb-2 text-[11px] font-medium uppercase tracking-[0.07em] text-faint">
+              {t("流量趋势")}
+            </div>
+            <UserTraffic userId={user.id} />
+          </div>
         </div>
       )}
     </article>
@@ -300,6 +311,7 @@ function AccessDot({ user }: { user: User }) {
 // told; showing the difference makes a stuck sync visible rather than
 // mysterious.
 function AccessLabel({ user }: { user: User }) {
+  const { t } = useT();
   const reason = !user.enabled
     ? "已停用"
     : user.expires_at && user.expires_at * 1000 < Date.now()
@@ -311,24 +323,25 @@ function AccessLabel({ user }: { user: User }) {
     return (
       <span className="text-sm text-muted">
         {reason}
-        {user.active && <span className="ml-1.5 text-xs text-warn">下发中…</span>}
+        {user.active && <span className="ml-1.5 text-xs text-warn">{t("下发中…")}</span>}
       </span>
     );
   }
   return (
     <span className="text-sm">
-      <span className="text-online">可用</span>
-      {!user.active && <span className="ml-1.5 text-xs text-warn">下发中…</span>}
+      <span className="text-online">{t("可用")}</span>
+      {!user.active && <span className="ml-1.5 text-xs text-warn">{t("下发中…")}</span>}
     </span>
   );
 }
 
 function EmptyState() {
+  const { t } = useT();
   return (
     <div className="rounded-2xl border border-dashed border-line-strong bg-surface px-8 py-16 text-center">
-      <p className="font-medium text-ink">还没有用户</p>
+      <p className="font-medium text-ink">{t("还没有用户")}</p>
       <p className="mt-1.5 text-sm text-muted">
-        新增用户后，授权他们使用某个接入配置，凭证会自动下发到该配置绑定的所有节点。
+        {t("新增用户后，授权他们使用某个接入配置，凭证会自动下发到该配置绑定的所有节点。")}
       </p>
     </div>
   );

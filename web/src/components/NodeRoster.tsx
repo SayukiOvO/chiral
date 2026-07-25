@@ -3,10 +3,12 @@ import { api, type Node } from "../api";
 import { bytes, percent, relativeTime, splitBitrate } from "../format";
 import { cn } from "../lib/cn";
 import { KernelState } from "./KernelState";
+import { NodeHistory } from "./NodeHistory";
 import { Sparkline } from "./Sparkline";
 import { StatusDot } from "./StatusDot";
 import { IconButton } from "./ui";
 import { CheckIcon, RestartIcon, SlidersIcon, TrashIcon } from "./icons";
+import { useT } from "../lib/i18n";
 
 export function NodeRoster({
   nodes,
@@ -46,9 +48,11 @@ function NodeCard({
   onChanged: () => void;
   onConfigure: () => void;
 }) {
+  const { t } = useT();
   const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState(false);
   const [restarted, setRestarted] = useState(false);
+  const [expanded, setExpanded] = useState(false);
   const m = node.metrics;
   const running = node.xray_state === "RUNNING";
   const total = (m?.net_tx_bps ?? 0) + (m?.net_rx_bps ?? 0);
@@ -89,9 +93,13 @@ function NodeCard({
         <div className="flex items-center gap-3 min-w-0">
           <StatusDot online={node.online} />
           <div className="min-w-0">
-            <div className="font-display text-[15px] font-semibold tracking-tight truncate">
+            <button
+              onClick={() => setExpanded((v) => !v)}
+              className="block truncate font-display text-[15px] font-semibold tracking-tight hover:text-signal"
+              aria-expanded={expanded}
+            >
               {node.name}
-            </div>
+            </button>
             <div className="font-mono text-xs text-faint truncate">
               {node.hostname || "—"}
               {node.public_ip ? ` · ${node.public_ip}` : ""}
@@ -101,24 +109,24 @@ function NodeCard({
 
         {confirming ? (
           <div className="flex items-center gap-2 text-sm">
-            <span className="text-muted hidden sm:inline">删除此节点？</span>
+            <span className="text-muted hidden sm:inline">{t("删除此节点？")}</span>
             <button
               onClick={() => setConfirming(false)}
               className="rounded-lg px-2.5 py-1 text-muted hover:text-ink"
             >
-              取消
+              {t("取消")}
             </button>
             <button
               onClick={remove}
               disabled={busy}
               className="rounded-lg px-2.5 py-1 font-medium text-danger hover:bg-[color-mix(in_srgb,var(--danger)_12%,transparent)] disabled:opacity-50"
             >
-              删除
+              {t("删除")}
             </button>
           </div>
         ) : (
           <div className="flex items-center gap-1 opacity-70 transition-opacity group-hover:opacity-100">
-            <IconButton label="配置" onClick={onConfigure}>
+            <IconButton label={t("配置")} onClick={onConfigure}>
               <SlidersIcon size={16} />
             </IconButton>
             <IconButton
@@ -133,7 +141,7 @@ function NodeCard({
               )}
             </IconButton>
             <IconButton
-              label="删除节点"
+              label={t("删除节点")}
               onClick={() => setConfirming(true)}
               className="hover:text-danger"
             >
@@ -144,10 +152,10 @@ function NodeCard({
       </div>
 
       <div className="mt-4 flex flex-wrap items-end gap-x-8 gap-y-3 pl-[22px]">
-        <Field label="内核">
+        <Field label={t("内核")}>
           <KernelState state={node.xray_state} version={node.xray_version} />
         </Field>
-        <Field label="流量 ↑↓">
+        <Field label={t("流量 ↑↓")}>
           <div className="flex items-center gap-3">
             <Sparkline data={history} live={running} />
             {node.online ? (
@@ -160,7 +168,7 @@ function NodeCard({
             )}
           </div>
         </Field>
-        <Field label="CPU / 内存">
+        <Field label={t("CPU / 内存")}>
           {m ? (
             <span className="font-mono text-sm tnum">
               {percent(m.cpu_percent)}
@@ -171,10 +179,18 @@ function NodeCard({
             <Dash />
           )}
         </Field>
-        <Field label="最近心跳">
+        <Field label={t("最近心跳")}>
           <span className="text-sm text-muted">{relativeTime(node.last_seen_at)}</span>
         </Field>
       </div>
+
+      {/* Mounted only when opened: the history is a per-node request, and
+          fetching it for every card on the page would be wasteful. */}
+      {expanded && (
+        <div className="mt-4 border-t border-line pt-4 pl-[22px]">
+          <NodeHistory nodeId={node.id} />
+        </div>
+      )}
     </article>
   );
 }
@@ -195,11 +211,12 @@ function Dash() {
 }
 
 function EmptyState() {
+  const { t } = useT();
   return (
     <div className="rounded-2xl border border-dashed border-line-strong bg-surface px-8 py-16 text-center">
-      <p className="text-ink font-medium">还没有节点</p>
+      <p className="text-ink font-medium">{t("还没有节点")}</p>
       <p className="mt-1.5 text-sm text-muted">
-        新增第一个节点后，它的实时状态会显示在这里。
+        {t("新增第一个节点后，它的实时状态会显示在这里。")}
       </p>
     </div>
   );

@@ -1,4 +1,5 @@
 import { cn } from "../lib/cn";
+import { useT } from "../lib/i18n";
 
 const LABEL: Record<string, string> = {
   RUNNING: "运行中",
@@ -8,6 +9,7 @@ const LABEL: Record<string, string> = {
 
 /** Xray-core kernel state + version. Running carries the signal accent. */
 export function KernelState({ state, version }: { state?: string; version?: string }) {
+  const { t } = useT();
   if (!state || state === "UNSPECIFIED") {
     return <span className="text-faint text-sm">—</span>;
   }
@@ -32,7 +34,7 @@ export function KernelState({ state, version }: { state?: string; version?: stri
         }}
       >
         <Glyph running={running} error={error} />
-        {LABEL[state] ?? state}
+        {t(LABEL[state] ?? state)}
       </span>
       {version && <span className="font-mono text-xs text-faint">{version}</span>}
     </span>

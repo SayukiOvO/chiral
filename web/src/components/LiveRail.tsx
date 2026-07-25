@@ -2,12 +2,14 @@ import type { Node } from "../api";
 import { splitBitrate } from "../format";
 import { ArrowDownIcon, ArrowUpIcon } from "./icons";
 import type { ReactNode } from "react";
+import { useT } from "../lib/i18n";
 
 /**
  * Fleet vitals — an instrument rail, not a hero. Precise mono figures with
  * eyebrow labels and hairline dividers; the roster below is the star.
  */
 export function LiveRail({ nodes }: { nodes: Node[] }) {
+  const { t } = useT();
   const online = nodes.filter((n) => n.online);
   const tx = sum(online, (n) => n.metrics?.net_tx_bps);
   const rx = sum(online, (n) => n.metrics?.net_rx_bps);
@@ -18,19 +20,19 @@ export function LiveRail({ nodes }: { nodes: Node[] }) {
 
   return (
     <div className="grid grid-cols-2 divide-x divide-y divide-line rounded-2xl border border-line bg-surface shadow-[var(--shadow-card)] sm:grid-cols-4 sm:divide-y-0">
-      <Cell label="在线节点">
+      <Cell label={t("在线节点")}>
         <span className="font-mono text-2xl font-medium tracking-tight tnum">
           {online.length}
           <span className="text-faint">/{nodes.length}</span>
         </span>
       </Cell>
-      <Cell label="运行内核">
+      <Cell label={t("运行内核")}>
         <span className="font-mono text-2xl font-medium tracking-tight tnum">{running}</span>
       </Cell>
-      <Cell label="总上行" icon={<ArrowUpIcon size={13} />}>
+      <Cell label={t("总上行")} icon={<ArrowUpIcon size={13} />}>
         <Rate value={txv} unit={txu} />
       </Cell>
-      <Cell label="总下行" icon={<ArrowDownIcon size={13} />}>
+      <Cell label={t("总下行")} icon={<ArrowDownIcon size={13} />}>
         <Rate value={rxv} unit={rxu} />
       </Cell>
     </div>

@@ -198,6 +198,7 @@ func (s *Service) handleFrame(nodeID string, sess *Session, f *chiralv1.AgentFra
 		if err := s.st.TouchLastSeen(nodeID, time.Now().Unix()); err != nil {
 			s.logger.Error("touch last_seen failed", "node", nodeID, "err", err)
 		}
+		s.recordSample(nodeID, fr.Heartbeat)
 		// Heartbeats report the applied config version; reconcile drift so a
 		// dropped or out-of-order push heals automatically.
 		s.reconcileConfig(nodeID, sess, fr.Heartbeat.GetConfigVersion())
@@ -217,6 +218,32 @@ func (s *Service) handleFrame(nodeID string, sess *Session, f *chiralv1.AgentFra
 	case *chiralv1.AgentFrame_Hello:
 		s.logger.Warn("unexpected Hello after stream start", "node", nodeID)
 	}
+}
+
+// recordSample files a heartbeat into the node's resource history. Heartbeats
+// arrive far more often than the sample interval; the store keeps the first of
+// each interval and drops the rest.
+func (s *Service) recordSample(nodeID string, hb *chiralv1.Heartbeat) {
+	if err := s.st.PutNodeSample(nodeID, time.Now(), store.NodeSample{
+		CPUPercent:     hb.GetCpuPercent(),
+		MemUsedBytes:   clampInt64(hb.GetMemUsedBytes()),
+		MemTotalBytes:  clampInt64(hb.GetMemTotalBytes()),
+		DiskUsedBytes:  clampInt64(hb.GetDiskUsedBytes()),
+		DiskTotalBytes: clampInt64(hb.GetDiskTotalBytes()),
+		NetTxBps:       clampInt64(hb.GetNetTxBps()),
+		NetRxBps:       clampInt64(hb.GetNetRxBps()),
+	}); err != nil {
+		s.logger.Error("recording node sample failed", "node", nodeID, "err", err)
+	}
+}
+
+// clampInt64 keeps an implausible unsigned value from wrapping negative on the
+// way into the database.
+func clampInt64(v uint64) int64 {
+	if v > math.MaxInt64 {
+		return math.MaxInt64
+	}
+	return int64(v)
 }
 
 // recordStats accumulates one agent report. Entries are deltas — the agent
@@ -242,6 +269,28 @@ func (s *Service) recordStats(nodeID string, report *chiralv1.StatsReport) {
 		if err := s.traffic.AddCredentialTraffic(e.GetName(), int64(up), int64(down)); err != nil {
 			s.logger.Error("recording traffic failed", "node", nodeID, "email", e.GetName(), "err", err)
 		}
+		s.recordTrafficHistory(nodeID, e.GetName(), int64(up), int64(down))
+	}
+}
+
+// recordTrafficHistory files a delta into the charted series. The owner is
+// resolved from the credential; traffic for one that has just been deleted is
+// still counted against the node, since losing the fleet total would be worse
+// than carrying it without an owner.
+func (s *Service) recordTrafficHistory(nodeID, email string, up, down int64) {
+	userID, credNodeID, err := s.st.CredentialOwner(email)
+	if err != nil {
+		if !store.IsNotFound(err) {
+			s.logger.Error("resolving credential owner failed", "email", email, "err", err)
+			return
+		}
+		userID, credNodeID = "", nodeID
+	}
+	if credNodeID == "" {
+		credNodeID = nodeID
+	}
+	if err := s.st.AddTraffic(credNodeID, userID, time.Now(), up, down); err != nil {
+		s.logger.Error("recording traffic history failed", "node", nodeID, "err", err)
 	}
 }
 

@@ -1,4 +1,5 @@
 import { bytes, quotaFraction } from "../format";
+import { useT } from "../lib/i18n";
 
 /**
  * Usage against quota. Green while there is headroom, amber as it runs out,
@@ -6,12 +7,13 @@ import { bytes, quotaFraction } from "../format";
  * because an operator scanning the list needs to spot the trouble.
  */
 export function QuotaBar({ used, quota }: { used: number; quota: number }) {
+  const { t } = useT();
   const fraction = quotaFraction(used, quota);
   if (fraction === null) {
     return (
       <div className="font-mono text-sm tnum">
         {bytes(used)}
-        <span className="ml-1.5 text-xs text-faint">不限</span>
+        <span className="ml-1.5 text-xs text-faint">{t("不限")}</span>
       </div>
     );
   }
@@ -31,7 +33,7 @@ export function QuotaBar({ used, quota }: { used: number; quota: number }) {
         aria-valuenow={pct}
         aria-valuemin={0}
         aria-valuemax={100}
-        aria-label="流量用量"
+        aria-label={t("流量用量")}
       >
         <div
           className="h-full rounded-full transition-[width] duration-500"

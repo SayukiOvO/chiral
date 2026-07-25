@@ -161,6 +161,13 @@ func run(logger *slog.Logger, dbPath, grpcListen, httpListen, grpcPublic, public
 				} else if n > 0 {
 					logger.Info("quota sweep changed user access", "users", n)
 				}
+				// Bound the series tables in the same pass; the panel is the
+				// only writer, so a plain delete is enough.
+				if n, err := st.PruneHistory(time.Now()); err != nil {
+					logger.Error("pruning history failed", "err", err)
+				} else if n > 0 {
+					logger.Info("pruned expired history", "rows", n)
+				}
 			case <-ctx.Done():
 				return
 			}

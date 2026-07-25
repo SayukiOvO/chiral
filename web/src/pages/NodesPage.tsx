@@ -7,11 +7,13 @@ import { NodeConfigDialog } from "../components/NodeConfigDialog";
 import { Button } from "../components/ui";
 import { PlusIcon } from "../components/icons";
 import { ErrorBar } from "./VariablesPage";
+import { useT } from "../lib/i18n";
 
 const REFRESH_MS = 3000;
 const HISTORY = 24; // heartbeat samples kept per node for the sparkline
 
 export function NodesPage({ onSignOut }: { onSignOut: () => void }) {
+  const { t } = useT();
   const [nodes, setNodes] = useState<Node[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState("");
@@ -57,12 +59,12 @@ export function NodesPage({ onSignOut }: { onSignOut: () => void }) {
     <div>
       <div className="mb-6 flex items-end justify-between gap-4">
         <div className="animate-rise">
-          <h1 className="font-display text-[26px] font-semibold tracking-tight">节点</h1>
-          <p className="mt-1 text-sm text-muted">你的代理节点集群与实时状态。</p>
+          <h1 className="font-display text-[26px] font-semibold tracking-tight">{t("节点")}</h1>
+          <p className="mt-1 text-sm text-muted">{t("你的代理节点集群与实时状态。")}</p>
         </div>
         <Button variant="primary" onClick={() => setAddOpen(true)}>
           <PlusIcon size={16} />
-          新增节点
+          {t("新增节点")}
         </Button>
       </div>
 
@@ -75,7 +77,7 @@ export function NodesPage({ onSignOut }: { onSignOut: () => void }) {
           </div>
           <div className="animate-rise" style={{ animationDelay: "80ms" }}>
             <div className="mb-3 text-[11px] font-medium uppercase tracking-[0.08em] text-faint">
-              节点 · {nodes.length}
+              {t("节点")} · {nodes.length}
             </div>
             <NodeRoster
               nodes={nodes}

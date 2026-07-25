@@ -1,3 +1,5 @@
+import { getLang } from "./lib/i18n";
+
 export function bytes(n: number): string {
   const [v, u] = splitBytes(n);
   return `${v} ${u}`;
@@ -24,11 +26,13 @@ export function splitBitrate(bytesPerSec: number): [string, string] {
 export function relativeTime(unixSec?: number): string {
   if (!unixSec) return "—";
   const diff = Date.now() / 1000 - unixSec;
-  if (diff < 5) return "刚刚";
-  if (diff < 60) return `${Math.floor(diff)} 秒前`;
-  if (diff < 3600) return `${Math.floor(diff / 60)} 分钟前`;
-  if (diff < 86400) return `${Math.floor(diff / 3600)} 小时前`;
-  return `${Math.floor(diff / 86400)} 天前`;
+  const zh = getLang() === "zh";
+  if (diff < 5) return zh ? "刚刚" : "just now";
+  const n = (v: number) => Math.floor(v);
+  if (diff < 60) return zh ? `${n(diff)} 秒前` : `${n(diff)}s ago`;
+  if (diff < 3600) return zh ? `${n(diff / 60)} 分钟前` : `${n(diff / 60)}m ago`;
+  if (diff < 86400) return zh ? `${n(diff / 3600)} 小时前` : `${n(diff / 3600)}h ago`;
+  return zh ? `${n(diff / 86400)} 天前` : `${n(diff / 86400)}d ago`;
 }
 
 export function percent(n: number): string {
@@ -37,18 +41,20 @@ export function percent(n: number): string {
 
 /** Absolute date for an expiry timestamp; 0 means "no expiry". */
 export function expiryLabel(unixSec: number): string {
-  if (!unixSec) return "永不过期";
+  if (!unixSec) return getLang() === "zh" ? "永不过期" : "No expiry";
   const d = new Date(unixSec * 1000);
   const iso = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-  return unixSec * 1000 < Date.now() ? `${iso} 已过期` : iso;
+  return unixSec * 1000 < Date.now() ? `${iso} ${getLang() === "zh" ? "已过期" : "(expired)"}` : iso;
 }
 
 /** Renewal period as a human interval; 0 means no auto-renewal. */
 export function periodLabel(seconds: number): string {
-  if (!seconds) return "不续期";
+  const zh = getLang() === "zh";
+  if (!seconds) return zh ? "不续期" : "No renewal";
   const days = Math.round(seconds / 86400);
-  if (days >= 1) return `每 ${days} 天`;
-  return `每 ${Math.round(seconds / 3600)} 小时`;
+  if (days >= 1) return zh ? `每 ${days} 天` : `every ${days}d`;
+  const hours = Math.round(seconds / 3600);
+  return zh ? `每 ${hours} 小时` : `every ${hours}h`;
 }
 
 /** Quota usage as a fraction, or null when the quota is unlimited. */

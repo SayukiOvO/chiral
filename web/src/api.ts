@@ -66,6 +66,38 @@ export interface UserInput {
   enabled?: boolean;
 }
 
+export interface NodeSample {
+  at: number;
+  cpu_percent: number;
+  mem_used_bytes: number;
+  mem_total_bytes: number;
+  disk_used_bytes: number;
+  disk_total_bytes: number;
+  net_tx_bps: number;
+  net_rx_bps: number;
+}
+
+export interface NodeSamplesResult {
+  from: number;
+  to: number;
+  interval: number;
+  samples: NodeSample[];
+  retention_hours: number;
+}
+
+export interface TrafficPoint {
+  at: number;
+  up_bytes: number;
+  down_bytes: number;
+}
+
+export interface TrafficResult {
+  from: number;
+  to: number;
+  interval: number;
+  points: TrafficPoint[];
+}
+
 const TOKEN_KEY = "chiral_admin_token";
 
 export function getToken(): string {
@@ -208,6 +240,16 @@ export const api = {
     req<void>("POST", `/api/users/${userId}/profiles/${profileId}`),
   unbindUserProfile: (userId: string, profileId: string) =>
     req<void>("DELETE", `/api/users/${userId}/profiles/${profileId}`),
+
+  // --- history ---
+  nodeSamples: (id: string, windowSec: number) =>
+    req<NodeSamplesResult>("GET", `/api/nodes/${id}/samples?window=${windowSec}`),
+  trafficSeries: (opts: { userId?: string; nodeId?: string; windowSec: number }) => {
+    const q = new URLSearchParams({ window: String(opts.windowSec) });
+    if (opts.userId) q.set("user_id", opts.userId);
+    if (opts.nodeId) q.set("node_id", opts.nodeId);
+    return req<TrafficResult>("GET", `/api/traffic?${q}`);
+  },
 
   // --- node config assembly ---
   putSkeleton: (id: string, skeleton: unknown) =>
