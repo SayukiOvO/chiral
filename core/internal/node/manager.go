@@ -108,6 +108,13 @@ func (m *Manager) State(nodeID string) NodeState {
 	}
 }
 
+// IsOnline reports whether a node currently has a live, recently-active
+// session. Same rule the API's node list uses, so alerting and the UI can
+// never disagree about who is up.
+func (m *Manager) IsOnline(nodeID string) bool {
+	return m.State(nodeID).Online
+}
+
 // PushConfig queues a ConfigPush to the node's live session. It fails when
 // the node is offline or its send queue is full; the config stays persisted
 // either way and is re-pushed on the next connect.

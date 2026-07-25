@@ -1,10 +1,12 @@
 package store
 
 import (
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/SayukiOvO/chiral/core/internal/auth"
+	"github.com/SayukiOvO/chiral/core/internal/secret"
 )
 
 func seedAdmin(t *testing.T, s *Store, name string, role auth.Role) Admin {
@@ -270,5 +272,76 @@ func TestPruneAuditRespectsRetention(t *testing.T) {
 	entries, _ := s.AuditPage(0, 10, "", "")
 	if len(entries) != 1 || entries[0].Action != "fresh" {
 		t.Errorf("wrong entry survived: %+v", entries)
+	}
+}
+
+// --- alert targets ---
+
+// A bot token is a credential like any other, so it must not sit in the
+// database in the clear.
+func TestAlertTargetConfigIsEncryptedAtRest(t *testing.T) {
+	s := testStore(t, storeTestKey)
+	const token = "123456:AA-secret-bot-token"
+	target, err := s.CreateAlertTarget(AlertTelegram, "tg", token)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var stored string
+	if err := s.db.QueryRow(`SELECT config FROM alert_targets WHERE id = ?`, target.ID).Scan(&stored); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(stored, "AA-secret-bot-token") {
+		t.Fatal("the bot token is stored in plaintext")
+	}
+	if !secret.IsEncrypted(stored) {
+		t.Errorf("not encrypted: %q", stored)
+	}
+	got, err := s.GetAlertTarget(target.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Config != token {
+		t.Errorf("config did not round-trip: %q", got.Config)
+	}
+}
+
+func TestAlertTargetKindIsConstrained(t *testing.T) {
+	s := testStore(t, storeTestKey)
+	if _, err := s.CreateAlertTarget("carrier-pigeon", "x", "y"); err == nil {
+		t.Error("the schema accepted an unknown target kind")
+	}
+}
+
+// A first sighting is recorded as already-announced, so switching alerting on
+// over an existing fleet does not fire a message per node.
+func TestFirstSightingIsAlreadyAnnounced(t *testing.T) {
+	s := testStore(t, storeTestKey)
+	n, _ := s.CreateNode("tokyo-1", "h")
+	now := time.Now()
+	if err := s.ObserveNode(n.ID, true, now); err != nil {
+		t.Fatal(err)
+	}
+	states, _ := s.NodeAlertStates()
+	st := states[n.ID]
+	if st.AnnouncedOnline != st.ObservedOnline {
+		t.Errorf("a first sighting is pending announcement: %+v", st)
+	}
+}
+
+// changed_at must move only when the observation actually differs, or the
+// debounce would restart on every sweep and nothing would ever be announced.
+func TestObserveKeepsChangedAtWhileSteady(t *testing.T) {
+	s := testStore(t, storeTestKey)
+	n, _ := s.CreateNode("tokyo-1", "h")
+	base := time.Now()
+	s.ObserveNode(n.ID, true, base)
+	s.ObserveNode(n.ID, false, base.Add(time.Minute)) // the change
+	states, _ := s.NodeAlertStates()
+	changed := states[n.ID].ChangedAt
+
+	s.ObserveNode(n.ID, false, base.Add(5*time.Minute)) // same state again
+	states, _ = s.NodeAlertStates()
+	if states[n.ID].ChangedAt != changed {
+		t.Errorf("changed_at moved without a change: %d -> %d", changed, states[n.ID].ChangedAt)
 	}
 }

@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/SayukiOvO/chiral/core/internal/alert"
 	"github.com/SayukiOvO/chiral/core/internal/auth"
 	"github.com/SayukiOvO/chiral/core/internal/node"
 	"github.com/SayukiOvO/chiral/core/internal/profile"
@@ -37,6 +38,8 @@ type Server struct {
 	xrayAvailable bool
 	// subs renders subscriptions for end users.
 	subs *subscription.Service
+	// alerts delivers node availability notifications.
+	alerts *alert.Service
 	// publicURL is the panel's own base URL, used to build subscription links
 	// an operator can hand out.
 	publicURL string
@@ -44,9 +47,10 @@ type Server struct {
 }
 
 func NewServer(st *store.Store, mgr *node.Manager, profiles *profile.Service, subs *subscription.Service,
+	alerts *alert.Service,
 	adminToken, grpcPublicAddr, publicURL string, grpcTLS, xrayAvailable bool, logger *slog.Logger) *Server {
 	return &Server{
-		st: st, mgr: mgr, profiles: profiles, subs: subs, adminToken: adminToken,
+		st: st, mgr: mgr, profiles: profiles, subs: subs, alerts: alerts, adminToken: adminToken,
 		grpcPublicAddr: grpcPublicAddr, publicURL: publicURL,
 		grpcTLS: grpcTLS, xrayAvailable: xrayAvailable, logger: logger,
 	}
@@ -102,6 +106,12 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("POST /api/admins/{id}/password", s.requireAdmin(s.changePassword))
 
 	mux.Handle("GET /api/audit", s.requireAdmin(s.auditLog))
+
+	mux.Handle("GET /api/alerts", s.requireAdmin(s.listAlertTargets))
+	mux.Handle("POST /api/alerts", s.requireWrite(s.createAlertTarget))
+	mux.Handle("PUT /api/alerts/{id}", s.requireWrite(s.updateAlertTarget))
+	mux.Handle("DELETE /api/alerts/{id}", s.requireWrite(s.deleteAlertTarget))
+	mux.Handle("POST /api/alerts/{id}/test", s.requireWrite(s.testAlertTarget))
 
 	// The one route end users reach, authenticated by the token in the path.
 	mux.HandleFunc("GET /sub/{token}", s.serveSubscription)

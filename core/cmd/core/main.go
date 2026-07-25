@@ -22,6 +22,7 @@ import (
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/keepalive"
 
+	"github.com/SayukiOvO/chiral/core/internal/alert"
 	"github.com/SayukiOvO/chiral/core/internal/api"
 	"github.com/SayukiOvO/chiral/core/internal/auth"
 	"github.com/SayukiOvO/chiral/core/internal/node"
@@ -112,6 +113,7 @@ func run(logger *slog.Logger, dbPath, grpcListen, httpListen, grpcPublic, public
 	users := user.NewService(st, logger)
 	profiles := profile.NewService(st, xray, mgr, mgr, users, logger)
 	subs := subscription.NewService(st, profiles)
+	alerts := alert.NewService(st, mgr, logger)
 
 	tlsEnabled := tlsCert != "" || tlsKey != ""
 	// Keepalive so both sides detect dead connections in ~40s instead of the
@@ -138,7 +140,7 @@ func run(logger *slog.Logger, dbPath, grpcListen, httpListen, grpcPublic, public
 	}
 	httpSrv := &http.Server{
 		Addr:    httpListen,
-		Handler: api.NewServer(st, mgr, profiles, subs, adminToken, grpcPublic, publicURL, tlsEnabled, xray.Available(), logger).Handler(),
+		Handler: api.NewServer(st, mgr, profiles, subs, alerts, adminToken, grpcPublic, publicURL, tlsEnabled, xray.Available(), logger).Handler(),
 	}
 
 	errCh := make(chan error, 2)
@@ -182,6 +184,14 @@ func run(logger *slog.Logger, dbPath, grpcListen, httpListen, grpcPublic, public
 				}
 				if _, err := st.PruneAudit(time.Now()); err != nil {
 					logger.Error("pruning audit log failed", "err", err)
+				}
+				// Availability changes are announced from swept state rather
+				// than at the moment of disconnection, so they survive a
+				// panel restart and get their debounce for free.
+				if n, err := alerts.Sweep(ctx); err != nil {
+					logger.Error("alert sweep failed", "err", err)
+				} else if n > 0 {
+					logger.Info("sent node availability alerts", "count", n)
 				}
 			case <-ctx.Done():
 				return
