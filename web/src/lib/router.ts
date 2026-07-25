@@ -8,6 +8,7 @@ import { useEffect, useState } from "react";
 export type Route =
   | { view: "nodes" }
   | { view: "profiles"; id?: string }
+  | { view: "users"; id?: string }
   | { view: "variables" };
 
 export function parseHash(hash: string): Route {
@@ -15,6 +16,8 @@ export function parseHash(hash: string): Route {
   switch (path[0]) {
     case "profiles":
       return { view: "profiles", id: path[1] };
+    case "users":
+      return { view: "users", id: path[1] };
     case "variables":
       return { view: "variables" };
     default:
@@ -26,6 +29,8 @@ export function href(route: Route): string {
   switch (route.view) {
     case "profiles":
       return route.id ? `#/profiles/${route.id}` : "#/profiles";
+    case "users":
+      return route.id ? `#/users/${route.id}` : "#/users";
     case "variables":
       return "#/variables";
     default:

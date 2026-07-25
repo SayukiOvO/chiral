@@ -33,6 +33,39 @@ export interface CreateNodeResult {
   compose: string;
 }
 
+export interface Credential {
+  profile_id: string;
+  node_id: string;
+  email: string;
+  up_bytes: number;
+  down_bytes: number;
+}
+
+export interface User {
+  id: string;
+  name: string;
+  quota_bytes: number;
+  used_bytes: number;
+  expires_at: number;
+  renew_period: number;
+  enabled: boolean;
+  /** What the nodes were last told, as opposed to what should be true. */
+  active: boolean;
+  /** Computed: enabled, in date, and under quota. */
+  allowed: boolean;
+  profile_ids: string[];
+  credentials?: Credential[];
+  created_at: number;
+}
+
+export interface UserInput {
+  name: string;
+  quota_bytes: number;
+  expires_at: number;
+  renew_period: number;
+  enabled?: boolean;
+}
+
 const TOKEN_KEY = "chiral_admin_token";
 
 export function getToken(): string {
@@ -160,6 +193,21 @@ export const api = {
       "POST",
       `/api/profiles/${id}/apply`,
     ),
+
+  // --- users ---
+  listUsers: () => req<{ users: User[] }>("GET", "/api/users"),
+  getUser: (id: string) => req<User>("GET", `/api/users/${id}`),
+  createUser: (u: UserInput) =>
+    req<{ user: User; subscription_url: string }>("POST", "/api/users", u),
+  updateUser: (id: string, u: UserInput) =>
+    req<User>("PUT", `/api/users/${id}`, u),
+  deleteUser: (id: string) => req<void>("DELETE", `/api/users/${id}`),
+  resetSubToken: (id: string) =>
+    req<{ subscription_url: string }>("POST", `/api/users/${id}/sub-token`),
+  bindUserProfile: (userId: string, profileId: string) =>
+    req<void>("POST", `/api/users/${userId}/profiles/${profileId}`),
+  unbindUserProfile: (userId: string, profileId: string) =>
+    req<void>("DELETE", `/api/users/${userId}/profiles/${profileId}`),
 
   // --- node config assembly ---
   putSkeleton: (id: string, skeleton: unknown) =>

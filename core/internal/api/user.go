@@ -103,6 +103,15 @@ func (s *Server) createUser(w http.ResponseWriter, r *http.Request) {
 		s.internalErr(w, "create user", err)
 		return
 	}
+	// Settle the sync state straight away. A brand-new user has no
+	// credentials yet, so there is nothing to push — without this they would
+	// sit showing "syncing" until the next sweep for no reason.
+	s.syncUserNow(r.Context(), u.ID)
+	u, err = s.st.GetUser(u.ID)
+	if err != nil {
+		s.internalErr(w, "load user", err)
+		return
+	}
 	v, err := s.userView(u, false)
 	if err != nil {
 		s.internalErr(w, "load user", err)

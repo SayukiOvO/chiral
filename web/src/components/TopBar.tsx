@@ -8,6 +8,7 @@ import { href, type Route } from "../lib/router";
 const NAV: { view: Route["view"]; label: string }[] = [
   { view: "nodes", label: "节点" },
   { view: "profiles", label: "接入配置" },
+  { view: "users", label: "用户" },
   { view: "variables", label: "变量" },
 ];
 

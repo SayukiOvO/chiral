@@ -1,0 +1,335 @@
+import { useCallback, useEffect, useState } from "react";
+import { api, type Profile, type User } from "../api";
+import { expiryLabel, periodLabel } from "../format";
+import { cn } from "../lib/cn";
+import { QuotaBar } from "../components/QuotaBar";
+import { UserDialog } from "../components/UserDialog";
+import { SubscriptionDialog } from "../components/SubscriptionDialog";
+import { Button, IconButton } from "../components/ui";
+import { CheckIcon, LinkIcon, PencilIcon, PlusIcon, TrashIcon } from "../components/icons";
+
+export function UsersPage() {
+  const [users, setUsers] = useState<User[]>([]);
+  const [profiles, setProfiles] = useState<Profile[]>([]);
+  const [loaded, setLoaded] = useState(false);
+  const [error, setError] = useState("");
+  const [editing, setEditing] = useState<User | null>(null);
+  const [creating, setCreating] = useState(false);
+  const [subscription, setSubscription] = useState<{ url: string; name: string } | null>(null);
+
+  const refresh = useCallback(async () => {
+    try {
+      const [u, p] = await Promise.all([api.listUsers(), api.listProfiles()]);
+      setUsers(u.users);
+      setProfiles(p.profiles);
+      setError("");
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setLoaded(true);
+    }
+  }, []);
+
+  useEffect(() => {
+    refresh();
+    // Sync settles asynchronously (a push has to reach the node), so poll to
+    // let "syncing" resolve on its own rather than leaving a stale badge.
+    const t = window.setInterval(refresh, 5000);
+    return () => window.clearInterval(t);
+  }, [refresh]);
+
+  return (
+    <div>
+      <div className="mb-6 flex items-end justify-between gap-4">
+        <div className="animate-rise">
+          <h1 className="font-display text-[26px] font-semibold tracking-tight">用户</h1>
+          <p className="mt-1 text-sm text-muted">
+            订阅者、他们的配额，以及每个接入点上的独立凭证。
+          </p>
+        </div>
+        <Button variant="primary" onClick={() => setCreating(true)}>
+          <PlusIcon size={16} />
+          新增用户
+        </Button>
+      </div>
+
+      {error && (
+        <div className="mb-6 rounded-xl border border-[color-mix(in_srgb,var(--danger)_35%,transparent)] bg-[color-mix(in_srgb,var(--danger)_10%,transparent)] px-4 py-3 text-sm text-danger">
+          {error}
+        </div>
+      )}
+
+      {loaded &&
+        (users.length === 0 ? (
+          <EmptyState />
+        ) : (
+          <div className="flex flex-col gap-2.5">
+            {users.map((u) => (
+              <UserCard
+                key={u.id}
+                user={u}
+                profiles={profiles}
+                onChanged={refresh}
+                onEdit={() => setEditing(u)}
+                onSubscription={(url) => setSubscription({ url, name: u.name })}
+              />
+            ))}
+          </div>
+        ))}
+
+      {(creating || editing) && (
+        <UserDialog
+          user={editing ?? undefined}
+          onClose={() => {
+            setCreating(false);
+            setEditing(null);
+          }}
+          onSaved={(created) => {
+            setCreating(false);
+            setEditing(null);
+            refresh();
+            if (created) {
+              setSubscription({ url: created.subscription_url, name: created.user.name });
+            }
+          }}
+        />
+      )}
+      {subscription && (
+        <SubscriptionDialog
+          url={subscription.url}
+          userName={subscription.name}
+          onClose={() => setSubscription(null)}
+        />
+      )}
+    </div>
+  );
+}
+
+function UserCard({
+  user,
+  profiles,
+  onChanged,
+  onEdit,
+  onSubscription,
+}: {
+  user: User;
+  profiles: Profile[];
+  onChanged: () => void;
+  onEdit: () => void;
+  onSubscription: (url: string) => void;
+}) {
+  const [confirming, setConfirming] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [expanded, setExpanded] = useState(false);
+
+  async function remove() {
+    setBusy(true);
+    try {
+      await api.deleteUser(user.id);
+      onChanged();
+    } finally {
+      setBusy(false);
+      setConfirming(false);
+    }
+  }
+
+  async function resetLink() {
+    setBusy(true);
+    try {
+      const { subscription_url } = await api.resetSubToken(user.id);
+      onSubscription(subscription_url);
+      onChanged();
+    } catch (e) {
+      alert(`重置订阅链接失败：${(e as Error).message}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function toggleProfile(profileId: string, bound: boolean) {
+    setBusy(true);
+    try {
+      if (bound) {
+        await api.unbindUserProfile(user.id, profileId);
+      } else {
+        await api.bindUserProfile(user.id, profileId);
+      }
+      onChanged();
+    } catch (e) {
+      alert(`修改权限失败：${(e as Error).message}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <article className="group rounded-2xl border border-line bg-surface px-5 py-4 shadow-[var(--shadow-card)] transition-all duration-150 hover:border-line-strong hover:shadow-[var(--shadow-lift)]">
+      <div className="flex items-start justify-between gap-4">
+        <div className="flex min-w-0 items-center gap-3">
+          <AccessDot user={user} />
+          <div className="min-w-0">
+            <button
+              onClick={() => setExpanded((v) => !v)}
+              className="font-display text-[15px] font-semibold tracking-tight hover:text-signal"
+            >
+              {user.name}
+            </button>
+            <div className="text-xs text-muted">
+              {user.profile_ids.length === 0
+                ? "未授权任何接入配置"
+                : `${user.profile_ids.length} 个接入配置`}
+              <span className="mx-1.5 text-faint">·</span>
+              {expiryLabel(user.expires_at)}
+              {user.renew_period > 0 && (
+                <>
+                  <span className="mx-1.5 text-faint">·</span>
+                  {periodLabel(user.renew_period)}
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {confirming ? (
+          <div className="flex items-center gap-2 text-sm">
+            <span className="hidden text-muted sm:inline">删除此用户？</span>
+            <button
+              onClick={() => setConfirming(false)}
+              className="rounded-lg px-2.5 py-1 text-muted hover:text-ink"
+            >
+              取消
+            </button>
+            <button
+              onClick={remove}
+              disabled={busy}
+              className="rounded-lg px-2.5 py-1 font-medium text-danger hover:bg-[color-mix(in_srgb,var(--danger)_12%,transparent)] disabled:opacity-50"
+            >
+              删除
+            </button>
+          </div>
+        ) : (
+          <div className="flex items-center gap-1 opacity-70 transition-opacity group-hover:opacity-100">
+            <IconButton label="重置订阅链接" onClick={resetLink} disabled={busy}>
+              <LinkIcon size={16} />
+            </IconButton>
+            <IconButton label="编辑" onClick={onEdit}>
+              <PencilIcon size={16} />
+            </IconButton>
+            <IconButton
+              label="删除用户"
+              onClick={() => setConfirming(true)}
+              className="hover:text-danger"
+            >
+              <TrashIcon size={16} />
+            </IconButton>
+          </div>
+        )}
+      </div>
+
+      <div className="mt-4 flex flex-wrap items-end gap-x-8 gap-y-3 pl-[22px]">
+        <Field label="流量">
+          <QuotaBar used={user.used_bytes} quota={user.quota_bytes} />
+        </Field>
+        <Field label="状态">
+          <AccessLabel user={user} />
+        </Field>
+      </div>
+
+      {expanded && (
+        <div className="mt-4 border-t border-line pt-4 pl-[22px]">
+          <div className="mb-2 text-[11px] font-medium uppercase tracking-[0.07em] text-faint">
+            可访问的接入配置
+          </div>
+          {profiles.length === 0 ? (
+            <p className="text-sm text-muted">还没有接入配置。</p>
+          ) : (
+            <div className="flex flex-wrap gap-1.5">
+              {profiles.map((p) => {
+                const bound = user.profile_ids.includes(p.id);
+                return (
+                  <button
+                    key={p.id}
+                    onClick={() => toggleProfile(p.id, bound)}
+                    disabled={busy}
+                    className={cn(
+                      "inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs transition-colors disabled:opacity-50",
+                      bound
+                        ? "border-[color-mix(in_srgb,var(--online)_45%,transparent)] text-online"
+                        : "border-line-strong text-muted hover:border-signal hover:text-ink",
+                    )}
+                  >
+                    {bound && <CheckIcon size={12} />}
+                    {p.name}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+          <p className="mt-2 text-xs text-faint">
+            授权后，该用户会自动获得这个接入配置绑定的每个节点上的独立凭证。
+          </p>
+        </div>
+      )}
+    </article>
+  );
+}
+
+function Field({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="min-w-0">
+      <div className="mb-1 text-[11px] font-medium uppercase tracking-[0.07em] text-faint">
+        {label}
+      </div>
+      <div className="flex h-[34px] items-center">{children}</div>
+    </div>
+  );
+}
+
+/** Green when the user is both entitled and installed on the nodes. */
+function AccessDot({ user }: { user: User }) {
+  const live = user.allowed && user.active;
+  return (
+    <span
+      className={cn("inline-flex h-2.5 w-2.5 shrink-0 rounded-full", live && "animate-breathe")}
+      style={{ background: live ? "var(--online)" : "var(--faint)" }}
+    />
+  );
+}
+
+// `allowed` is what should be true and `active` is what the nodes were last
+// told; showing the difference makes a stuck sync visible rather than
+// mysterious.
+function AccessLabel({ user }: { user: User }) {
+  const reason = !user.enabled
+    ? "已停用"
+    : user.expires_at && user.expires_at * 1000 < Date.now()
+      ? "已过期"
+      : user.quota_bytes && user.used_bytes >= user.quota_bytes
+        ? "超出配额"
+        : "";
+  if (reason) {
+    return (
+      <span className="text-sm text-muted">
+        {reason}
+        {user.active && <span className="ml-1.5 text-xs text-warn">下发中…</span>}
+      </span>
+    );
+  }
+  return (
+    <span className="text-sm">
+      <span className="text-online">可用</span>
+      {!user.active && <span className="ml-1.5 text-xs text-warn">下发中…</span>}
+    </span>
+  );
+}
+
+function EmptyState() {
+  return (
+    <div className="rounded-2xl border border-dashed border-line-strong bg-surface px-8 py-16 text-center">
+      <p className="font-medium text-ink">还没有用户</p>
+      <p className="mt-1.5 text-sm text-muted">
+        新增用户后，授权他们使用某个接入配置，凭证会自动下发到该配置绑定的所有节点。
+      </p>
+    </div>
+  );
+}

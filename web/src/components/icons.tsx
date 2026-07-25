@@ -93,3 +93,17 @@ export const SlidersIcon = ({ size = 16, className }: IconProps) => (
     <circle cx="16" cy="18" r="2" />
   </svg>
 );
+
+export const LinkIcon = ({ size = 16, className }: IconProps) => (
+  <svg {...base(size, className)}>
+    <path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.5 1.5" />
+    <path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.5-1.5" />
+  </svg>
+);
+
+export const PencilIcon = ({ size = 16, className }: IconProps) => (
+  <svg {...base(size, className)}>
+    <path d="M12 20h9" />
+    <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" />
+  </svg>
+);

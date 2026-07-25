@@ -4,6 +4,7 @@ import { TopBar } from "./components/TopBar";
 import { TokenGate } from "./components/TokenGate";
 import { NodesPage } from "./pages/NodesPage";
 import { ProfilesPage } from "./pages/ProfilesPage";
+import { UsersPage } from "./pages/UsersPage";
 import { VariablesPage } from "./pages/VariablesPage";
 import { useRoute } from "./lib/router";
 
@@ -21,6 +22,7 @@ function Console({ onSignOut }: { onSignOut: () => void }) {
       <main className="mx-auto max-w-[1120px] px-5 py-8 sm:px-8 sm:py-10">
         {route.view === "nodes" && <NodesPage onSignOut={onSignOut} />}
         {route.view === "profiles" && <ProfilesPage id={route.id} />}
+        {route.view === "users" && <UsersPage />}
         {route.view === "variables" && <VariablesPage />}
       </main>
     </div>
