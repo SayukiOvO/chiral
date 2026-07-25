@@ -14,6 +14,7 @@ import (
 	"github.com/SayukiOvO/chiral/core/internal/secret"
 	"github.com/SayukiOvO/chiral/core/internal/store"
 	"github.com/SayukiOvO/chiral/core/internal/template"
+	"github.com/SayukiOvO/chiral/core/internal/user"
 )
 
 type fakePusher struct {
@@ -55,7 +56,7 @@ func newFixture(t *testing.T) (*Service, *store.Store, *fakePusher) {
 	t.Cleanup(func() { st.Close() })
 	push := &fakePusher{}
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	return NewService(st, template.Xray{Bin: xrayBin()}, push, logger), st, push
+	return NewService(st, template.Xray{Bin: xrayBin()}, push, user.NewService(st, logger), logger), st, push
 }
 
 // realityProfile wires up a profile whose inbound is a genuine VLESS+REALITY
@@ -114,6 +115,23 @@ func realityProfile(t *testing.T, svc *Service, st *store.Store) (store.Profile,
 	return p, n
 }
 
+// profileTags drops the management API inbound Core injects into every
+// assembled config, so these tests can assert on what the profiles contributed.
+func profileTags(t *testing.T, cfg []byte) []string {
+	t.Helper()
+	all, err := template.InboundTags(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	kept := []string{}
+	for _, tag := range all {
+		if tag != template.APIInboundTag {
+			kept = append(kept, tag)
+		}
+	}
+	return kept
+}
+
 func TestAssembleProducesValidRealityConfig(t *testing.T) {
 	svc, st, _ := newFixture(t)
 	_, n := realityProfile(t, svc, st)
@@ -122,10 +140,7 @@ func TestAssembleProducesValidRealityConfig(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	tags, err := template.InboundTags(cfg)
-	if err != nil {
-		t.Fatal(err)
-	}
+	tags := profileTags(t, cfg)
 	if len(tags) != 1 || tags[0] != "reality-in" {
 		t.Fatalf("unexpected inbounds: %v", tags)
 	}
@@ -219,8 +234,9 @@ func TestPreviewReportsTestOutcome(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(pv.InboundTags) != 1 {
-		t.Errorf("expected one inbound, got %v", pv.InboundTags)
+	// One from the profile, plus the injected management API inbound.
+	if len(pv.InboundTags) != 2 {
+		t.Errorf("expected the profile inbound and the api inbound, got %v", pv.InboundTags)
 	}
 	if xrayBin() != "" {
 		if !pv.Tested {
@@ -243,7 +259,7 @@ func TestNodeMetadataIsAvailableToTemplates(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	tags, _ := template.InboundTags(cfg)
+	tags := profileTags(t, cfg)
 	if len(tags) != 1 || tags[0] != "tokyo-1" {
 		t.Errorf("node metadata not exposed: %v", tags)
 	}

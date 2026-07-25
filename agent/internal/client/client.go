@@ -44,6 +44,10 @@ type Config struct {
 	Insecure          bool // plaintext gRPC, dev only
 	AgentVersion      string
 	HeartbeatInterval time.Duration
+	// StatsInterval is how often traffic is read and reported. Each read
+	// resets the kernel's counters, so this is also the accounting
+	// granularity — and the window of traffic lost if the agent dies.
+	StatsInterval time.Duration
 }
 
 type state struct {
@@ -66,6 +70,9 @@ type Client struct {
 func New(cfg Config, xr *xray.Manager, col *collector.Collector, logger *slog.Logger) *Client {
 	if cfg.HeartbeatInterval <= 0 {
 		cfg.HeartbeatInterval = 10 * time.Second
+	}
+	if cfg.StatsInterval <= 0 {
+		cfg.StatsInterval = 60 * time.Second
 	}
 	return &Client{cfg: cfg, xr: xr, col: col, logger: logger, events: make(chan *chiralv1.Event, 32)}
 }
@@ -291,6 +298,25 @@ func (c *Client) runStream(ctx context.Context, svc chiralv1.AgentServiceClient)
 		}
 	}()
 
+	// Traffic reporting. Deliberately a separate, slower cadence than the
+	// heartbeat: each read RESETS Xray's counters, so the interval defines the
+	// accounting granularity, and reading too often multiplies subprocess
+	// spawns for no benefit.
+	go func() {
+		t := time.NewTicker(c.cfg.StatsInterval)
+		defer t.Stop()
+		for {
+			select {
+			case <-t.C:
+				if f := c.statsFrame(streamCtx); f != nil {
+					trySend(streamCtx, sendCh, f)
+				}
+			case <-streamCtx.Done():
+				return
+			}
+		}
+	}()
+
 	// Reader loop: dispatch frames from Core.
 	for {
 		frame, err := stream.Recv()
@@ -333,9 +359,55 @@ func (c *Client) handleFrame(ctx context.Context, sendCh chan<- *chiralv1.AgentF
 			trySend(ctx, sendCh, c.heartbeatFrame())
 		}
 	case *chiralv1.CoreFrame_UserOp:
-		// Online user add/remove lands in M3.
-		c.logger.Warn("UserOp received but not implemented until M3")
+		// Applied against the live kernel so a ban or a new subscriber takes
+		// effect without dropping everyone else's connections.
+		op := fr.UserOp
+		var err error
+		switch op.GetKind() {
+		case chiralv1.UserOpKind_USER_OP_KIND_ADD:
+			err = c.xr.AddUser(ctx, op.GetInboundTag(), op.GetEmail(), op.GetAccountJson())
+		case chiralv1.UserOpKind_USER_OP_KIND_REMOVE:
+			err = c.xr.RemoveUser(ctx, op.GetInboundTag(), op.GetEmail())
+		default:
+			err = fmt.Errorf("unknown user op kind %v", op.GetKind())
+		}
+		if err != nil {
+			// Core must hear about this: it believes the operation landed.
+			c.logger.Error("user op failed", "kind", op.GetKind(), "email", op.GetEmail(), "err", err)
+			c.QueueEvent(chiralv1.EventKind_EVENT_KIND_ERROR,
+				fmt.Sprintf("user op %v for %s failed: %v", op.GetKind(), op.GetEmail(), err))
+		}
 	}
+}
+
+// statsFrame reads and resets the kernel's counters, returning a report of
+// what flowed since the previous read, or nil when there is nothing to say.
+//
+// A failed read is logged but not retried: the counters have already been
+// reset by a successful call or not consumed at all by a failed one, and the
+// next tick covers the same ground.
+func (c *Client) statsFrame(ctx context.Context) *chiralv1.AgentFrame {
+	stats, err := c.xr.Stats(ctx)
+	if err != nil {
+		c.logger.Warn("reading xray stats failed", "err", err)
+		return nil
+	}
+	traffic := xray.UserTrafficFrom(stats)
+	if len(traffic) == 0 {
+		return nil
+	}
+	entries := make([]*chiralv1.StatEntry, 0, len(traffic))
+	for _, t := range traffic {
+		entries = append(entries, &chiralv1.StatEntry{
+			Scope:         chiralv1.StatScope_STAT_SCOPE_USER,
+			Name:          t.Email,
+			UplinkBytes:   uint64(t.Up),
+			DownlinkBytes: uint64(t.Down),
+		})
+	}
+	return &chiralv1.AgentFrame{Frame: &chiralv1.AgentFrame_Stats{
+		Stats: &chiralv1.StatsReport{Entries: entries},
+	}}
 }
 
 func (c *Client) heartbeatFrame() *chiralv1.AgentFrame {

@@ -15,6 +15,7 @@ import (
 
 	"github.com/SayukiOvO/chiral/core/internal/store"
 	"github.com/SayukiOvO/chiral/core/internal/template"
+	"github.com/SayukiOvO/chiral/core/internal/user"
 )
 
 // Pusher delivers a config to a live node. Implemented by node.Manager;
@@ -27,11 +28,12 @@ type Service struct {
 	st     *store.Store
 	xray   template.Xray
 	push   Pusher
+	users  *user.Service
 	logger *slog.Logger
 }
 
-func NewService(st *store.Store, xray template.Xray, push Pusher, logger *slog.Logger) *Service {
-	return &Service{st: st, xray: xray, push: push, logger: logger}
+func NewService(st *store.Store, xray template.Xray, push Pusher, users *user.Service, logger *slog.Logger) *Service {
+	return &Service{st: st, xray: xray, push: push, users: users, logger: logger}
 }
 
 // contextFor builds the render context for one profile on one node, merging
@@ -113,14 +115,44 @@ func (s *Service) AssembleNode(nodeID string) ([]byte, error) {
 		if err != nil {
 			return nil, err
 		}
+		// Mint (or reuse) each entitled user's credential for this access
+		// point and render it into the inbound's clients array.
+		clients, err := s.renderClients(p, nodeID, ctx)
+		if err != nil {
+			return nil, err
+		}
 		sources = append(sources, template.InboundSource{
 			ProfileID:   pid,
 			ProfileName: p.Name,
 			Template:    p.InboundTemplate,
 			Ctx:         ctx,
+			Clients:     clients,
 		})
 	}
 	return template.AssembleNode(n.ConfigSkeleton, sources)
+}
+
+// renderClients turns the credentials entitled to this profile on this node
+// into rendered clients[] entries.
+func (s *Service) renderClients(p store.Profile, nodeID string, ctx *template.Context) ([]string, error) {
+	if p.ClientEntry == "" {
+		// No per-user entry means the profile serves no users yet; the inbound
+		// is still valid, just empty.
+		return nil, nil
+	}
+	creds, err := s.users.EnsureCredentials(p.ID, nodeID)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]string, 0, len(creds))
+	for _, c := range creds {
+		rendered, err := ctx.With(user.CredentialVars(c)).Render(p.ClientEntry)
+		if err != nil {
+			return nil, fmt.Errorf("profile %q client entry for %s: %w", p.Name, c.Email, err)
+		}
+		out = append(out, rendered)
+	}
+	return out, nil
 }
 
 // Preview assembles and validates without persisting, so an operator can see

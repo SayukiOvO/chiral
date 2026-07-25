@@ -27,6 +27,7 @@ import (
 	"github.com/SayukiOvO/chiral/core/internal/secret"
 	"github.com/SayukiOvO/chiral/core/internal/store"
 	"github.com/SayukiOvO/chiral/core/internal/template"
+	"github.com/SayukiOvO/chiral/core/internal/user"
 	chiralv1 "github.com/SayukiOvO/chiral/proto/chiral/v1"
 )
 
@@ -85,7 +86,7 @@ func run(logger *slog.Logger, dbPath, grpcListen, httpListen, grpcPublic, tlsCer
 	}
 
 	mgr := node.NewManager(hbTimeout, logger)
-	svc := node.NewService(st, mgr, logger)
+	svc := node.NewService(st, mgr, st, logger)
 
 	// The panel keeps its own Xray binary to validate a rendered config
 	// before pushing it, and for key generators Go cannot implement.
@@ -93,7 +94,8 @@ func run(logger *slog.Logger, dbPath, grpcListen, httpListen, grpcPublic, tlsCer
 	if !xray.Available() {
 		logger.Warn("no Xray binary (CHIRAL_XRAY_BIN); configs are pushed without panel-side validation and ML-DSA-65 is unavailable")
 	}
-	profiles := profile.NewService(st, xray, mgr, logger)
+	users := user.NewService(st, logger)
+	profiles := profile.NewService(st, xray, mgr, users, logger)
 
 	tlsEnabled := tlsCert != "" || tlsKey != ""
 	// Keepalive so both sides detect dead connections in ~40s instead of the

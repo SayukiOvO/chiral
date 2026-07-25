@@ -10,6 +10,23 @@ func srcCtx(vars map[string]string, secrets ...string) *Context {
 	return NewContext(vars, secrets)
 }
 
+// profileTags drops the management API inbound Core injects, so a test can
+// assert on what the profiles contributed without restating that contract.
+func profileTags(t *testing.T, out []byte) []string {
+	t.Helper()
+	all, err := InboundTags(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	kept := []string{}
+	for _, tag := range all {
+		if tag != APIInboundTag {
+			kept = append(kept, tag)
+		}
+	}
+	return kept
+}
+
 func TestAssembleAppendsRenderedInbounds(t *testing.T) {
 	out, err := AssembleNode(DefaultSkeleton, []InboundSource{
 		{
@@ -21,10 +38,7 @@ func TestAssembleAppendsRenderedInbounds(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	tags, err := InboundTags(out)
-	if err != nil {
-		t.Fatal(err)
-	}
+	tags := profileTags(t, out)
 	if len(tags) != 1 || tags[0] != "reality-in" {
 		t.Fatalf("got tags %v", tags)
 	}
@@ -51,7 +65,7 @@ func TestAssemblePreservesManualInbounds(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	tags, _ := InboundTags(out)
+	tags := profileTags(t, out)
 	if len(tags) != 2 || tags[0] != "manual" || tags[1] != "from-profile" {
 		t.Errorf("expected the manual inbound kept and the profile one appended, got %v", tags)
 	}
@@ -65,7 +79,7 @@ func TestAssembleMultipleProfiles(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	tags, _ := InboundTags(out)
+	tags := profileTags(t, out)
 	if len(tags) != 2 || tags[0] != "a" || tags[1] != "b" {
 		t.Errorf("got %v", tags)
 	}

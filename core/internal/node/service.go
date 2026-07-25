@@ -3,6 +3,7 @@ package node
 import (
 	"context"
 	"log/slog"
+	"math"
 	"net"
 	"time"
 
@@ -21,17 +22,25 @@ const CredentialMetadataKey = "x-chiral-credential"
 
 const sendQueueSize = 16
 
+// TrafficRecorder accumulates the deltas agents report. Declared as an
+// interface so this package keeps depending only on what it uses; the store
+// satisfies it.
+type TrafficRecorder interface {
+	AddCredentialTraffic(email string, up, down int64) error
+}
+
 // Service implements chiral.v1.AgentService.
 type Service struct {
 	chiralv1.UnimplementedAgentServiceServer
 
-	st     *store.Store
-	mgr    *Manager
-	logger *slog.Logger
+	st      *store.Store
+	mgr     *Manager
+	traffic TrafficRecorder
+	logger  *slog.Logger
 }
 
-func NewService(st *store.Store, mgr *Manager, logger *slog.Logger) *Service {
-	return &Service{st: st, mgr: mgr, logger: logger}
+func NewService(st *store.Store, mgr *Manager, traffic TrafficRecorder, logger *slog.Logger) *Service {
+	return &Service{st: st, mgr: mgr, traffic: traffic, logger: logger}
 }
 
 // Register exchanges a one-time join token for the node's long-term
@@ -203,10 +212,36 @@ func (s *Service) handleFrame(nodeID string, sess *Session, f *chiralv1.AgentFra
 		sess.touch(nil)
 		s.logger.Warn("agent event", "node", nodeID, "kind", fr.Event.GetKind(), "message", fr.Event.GetMessage())
 	case *chiralv1.AgentFrame_Stats:
-		// Traffic accounting lands in M3.
 		sess.touch(nil)
+		s.recordStats(nodeID, fr.Stats)
 	case *chiralv1.AgentFrame_Hello:
 		s.logger.Warn("unexpected Hello after stream start", "node", nodeID)
+	}
+}
+
+// recordStats accumulates one agent report. Entries are deltas — the agent
+// reads Xray's counters with reset — so they are added, never assigned.
+//
+// A single bad entry is skipped rather than failing the report: losing one
+// credential's interval is much better than dropping every other user's.
+func (s *Service) recordStats(nodeID string, report *chiralv1.StatsReport) {
+	if s.traffic == nil {
+		return
+	}
+	for _, e := range report.GetEntries() {
+		if e.GetScope() != chiralv1.StatScope_STAT_SCOPE_USER || e.GetName() == "" {
+			continue
+		}
+		up, down := e.GetUplinkBytes(), e.GetDownlinkBytes()
+		// The wire type is unsigned; guard the conversion so a bogus report
+		// cannot turn into a negative delta the store would reject.
+		if up > math.MaxInt64 || down > math.MaxInt64 {
+			s.logger.Warn("implausible traffic delta ignored", "node", nodeID, "email", e.GetName())
+			continue
+		}
+		if err := s.traffic.AddCredentialTraffic(e.GetName(), int64(up), int64(down)); err != nil {
+			s.logger.Error("recording traffic failed", "node", nodeID, "email", e.GetName(), "err", err)
+		}
 	}
 }
 
