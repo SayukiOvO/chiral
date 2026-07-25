@@ -21,14 +21,18 @@ type Admin struct {
 	CreatedAt    int64
 	UpdatedAt    int64
 	LastLogin    int64
+	// Email is only usable as a second factor once verified: sending codes to
+	// an unproven address would let a typo lock someone out.
+	Email         string
+	EmailVerified bool
 }
 
-const adminCols = `id, username, password_hash, role, disabled, created_at, updated_at, last_login`
+const adminCols = `id, username, password_hash, role, disabled, created_at, updated_at, last_login, email, email_verified`
 
 func scanAdmin(row interface{ Scan(...any) error }) (Admin, error) {
 	var a Admin
 	err := row.Scan(&a.ID, &a.Username, &a.PasswordHash, &a.Role, &a.Disabled,
-		&a.CreatedAt, &a.UpdatedAt, &a.LastLogin)
+		&a.CreatedAt, &a.UpdatedAt, &a.LastLogin, &a.Email, &a.EmailVerified)
 	return a, err
 }
 
