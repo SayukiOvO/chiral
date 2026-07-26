@@ -1,15 +1,16 @@
 import { useEffect, useState } from "react";
 
 /**
- * A hash router, sized to this app: three top-level views plus an optional
- * selected id. Hash routing keeps reloads and back/forward working without a
- * server-side rewrite rule.
+ * A hash router, sized to this app: a handful of top-level views plus an
+ * optional selected id. Hash routing keeps reloads and back/forward working
+ * without a server-side rewrite rule.
  */
 export type Route =
   | { view: "nodes" }
   | { view: "profiles"; id?: string }
   | { view: "users"; id?: string }
-  | { view: "variables" };
+  | { view: "variables" }
+  | { view: "security" };
 
 export function parseHash(hash: string): Route {
   const path = hash.replace(/^#\/?/, "").split("/").filter(Boolean);
@@ -20,6 +21,8 @@ export function parseHash(hash: string): Route {
       return { view: "users", id: path[1] };
     case "variables":
       return { view: "variables" };
+    case "security":
+      return { view: "security" };
     default:
       return { view: "nodes" };
   }
@@ -33,6 +36,8 @@ export function href(route: Route): string {
       return route.id ? `#/users/${route.id}` : "#/users";
     case "variables":
       return "#/variables";
+    case "security":
+      return "#/security";
     default:
       return "#/nodes";
   }

@@ -107,3 +107,9 @@ export const PencilIcon = ({ size = 16, className }: IconProps) => (
     <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" />
   </svg>
 );
+
+export const ShieldIcon = ({ size = 16, className }: IconProps) => (
+  <svg {...base(size, className)}>
+    <path d="M12 3l7 3v5.5c0 4.3-2.9 7.8-7 9.5-4.1-1.7-7-5.2-7-9.5V6Z" />
+  </svg>
+);

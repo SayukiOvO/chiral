@@ -1,6 +1,7 @@
 import { Suspense, lazy, useMemo } from "react";
 import { cn } from "../lib/cn";
 import { useT } from "../lib/i18n";
+import { checkRefs, refs, type VarProblem } from "../lib/template";
 
 // Monaco is ~4 MB; the node dashboard never opens an editor, so it loads only
 // when one is actually rendered. Nothing here may import ./MonacoEditor
@@ -15,42 +16,6 @@ function EditorSkeleton() {
       {t("载入编辑器…")}
     </div>
   );
-}
-
-/** Variable references a template uses, in order of first appearance. */
-export function refs(template: string): string[] {
-  const seen = new Set<string>();
-  const out: string[] = [];
-  for (const m of template.matchAll(/\{\{\s*([a-zA-Z0-9_.]+)\s*\}\}/g)) {
-    if (!seen.has(m[1])) {
-      seen.add(m[1]);
-      out.push(m[1]);
-    }
-  }
-  return out;
-}
-
-export interface VarProblem {
-  name: string;
-  reason: string;
-}
-
-/** Mirrors the engine's rules so the editor flags what the server would reject. */
-export function checkRefs(
-  template: string,
-  known: Set<string>,
-  secrets: Set<string>,
-  clientSide: boolean,
-): VarProblem[] {
-  const out: VarProblem[] = [];
-  for (const name of refs(template)) {
-    if (clientSide && secrets.has(name)) {
-      out.push({ name, reason: "私钥变量不能用在客户端模板里" });
-    } else if (!known.has(name)) {
-      out.push({ name, reason: "未定义的变量" });
-    }
-  }
-  return out;
 }
 
 export function TemplateEditor({

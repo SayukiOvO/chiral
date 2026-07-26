@@ -98,6 +98,64 @@ export interface TrafficResult {
   points: TrafficPoint[];
 }
 
+
+// --- authentication ---
+
+export interface Admin {
+  id: string;
+  username: string;
+  role: "superadmin" | "operator" | "viewer";
+  disabled: boolean;
+  created_at: number;
+  last_login: number;
+}
+
+export interface MfaMethod {
+  kind: "totp" | "passkey" | "email";
+  id: string;
+  name: string;
+}
+
+/** A login either completes, or comes back needing a second factor. */
+export type LoginResult =
+  | { kind: "session"; token: string; expires_at: number; admin: Admin }
+  | {
+      kind: "mfa";
+      challenge: string;
+      expires_at: number;
+      methods: MfaMethod[];
+      has_recovery: boolean;
+      passkey_ready: boolean;
+    };
+
+export interface MfaFactor {
+  id: string;
+  kind: "totp" | "passkey" | "email";
+  name: string;
+  confirmed: boolean;
+  created_at: number;
+  last_used_at: number;
+}
+
+export interface MfaStatus {
+  factors: MfaFactor[];
+  recovery_left: number;
+  email: string;
+  email_verified: boolean;
+  passkey_ready: boolean;
+  email_ready: boolean;
+  passkey_rp_id: string;
+}
+
+export interface Whoami {
+  id: string;
+  name: string;
+  role: string;
+  via_token: boolean;
+  can_write: boolean;
+  can_admin: boolean;
+}
+
 const TOKEN_KEY = "chiral_admin_token";
 
 export function getToken(): string {
@@ -106,6 +164,21 @@ export function getToken(): string {
 
 export function setToken(token: string) {
   localStorage.setItem(TOKEN_KEY, token);
+}
+
+/**
+ * Carries the status alongside the message. A 401 means two different things
+ * — an expired session on a console page, a rejected credential on the login
+ * page — and only the caller knows which; the message stays the server's, so
+ * "that code is not valid" reaches the person who typed it.
+ */
+export class ApiError extends Error {
+  constructor(
+    public status: number,
+    message: string,
+  ) {
+    super(message);
+  }
 }
 
 async function req<T>(method: string, path: string, body?: unknown): Promise<T> {
@@ -117,10 +190,12 @@ async function req<T>(method: string, path: string, body?: unknown): Promise<T> 
     },
     body: body ? JSON.stringify(body) : undefined,
   });
-  if (res.status === 401) throw new Error("unauthorized");
   if (!res.ok) {
     const detail = await res.json().catch(() => ({}));
-    throw new Error((detail as { error?: string }).error ?? `HTTP ${res.status}`);
+    throw new ApiError(
+      res.status,
+      (detail as { error?: string }).error ?? `HTTP ${res.status}`,
+    );
   }
   if (res.status === 204) return undefined as T;
   return res.json() as Promise<T>;
@@ -225,6 +300,55 @@ export const api = {
       "POST",
       `/api/profiles/${id}/apply`,
     ),
+
+
+  // --- authentication ---
+  login: async (username: string, password: string): Promise<LoginResult> => {
+    const r = await req<any>("POST", "/api/login", { username, password });
+    return r.mfa_required
+      ? {
+          kind: "mfa",
+          challenge: r.challenge,
+          expires_at: r.expires_at,
+          methods: r.methods ?? [],
+          has_recovery: !!r.has_recovery,
+          passkey_ready: !!r.passkey_ready,
+        }
+      : { kind: "session", token: r.token, expires_at: r.expires_at, admin: r.admin };
+  },
+  verifyMfa: (challenge: string, method: string, code: string) =>
+    req<{ token: string; expires_at: number; admin: Admin }>("POST", "/api/login/mfa", {
+      challenge,
+      method,
+      code,
+    }),
+  sendLoginEmailCode: (challenge: string) =>
+    req<{ sent_to: string }>("POST", "/api/login/email", { challenge }),
+  logout: () => req<void>("POST", "/api/logout"),
+  whoami: () => req<Whoami>("GET", "/api/whoami"),
+  changePassword: (id: string, current: string, next: string) =>
+    req<void>("POST", `/api/admins/${id}/password`, {
+      current_password: current,
+      new_password: next,
+    }),
+
+  // --- second factors ---
+  mfaStatus: () => req<MfaStatus>("GET", "/api/mfa"),
+  beginTotp: (name: string) =>
+    req<{ id: string; secret: string; uri: string }>("POST", "/api/mfa/totp/begin", { name }),
+  confirmTotp: (id: string, code: string) =>
+    req<{ confirmed: boolean; recovery_codes?: string[] }>("POST", "/api/mfa/totp/confirm", {
+      id,
+      code,
+    }),
+  sendEmailVerification: (email: string) =>
+    req<{ sent_to: string }>("POST", "/api/mfa/email/send", { email }),
+  confirmEmail: (code: string) =>
+    req<{ confirmed: boolean; recovery_codes?: string[] }>("POST", "/api/mfa/email/confirm", {
+      code,
+    }),
+  regenerateRecoveryCodes: () => req<{ codes: string[] }>("POST", "/api/mfa/recovery"),
+  deleteMfaFactor: (id: string) => req<void>("DELETE", `/api/mfa/${id}`),
 
   // --- users ---
   listUsers: () => req<{ users: User[] }>("GET", "/api/users"),

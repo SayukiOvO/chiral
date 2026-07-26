@@ -1,7 +1,7 @@
 import { useEffect, useRef } from "react";
 import Editor, { type OnMount } from "@monaco-editor/react";
 import { LANG_ID, monaco, registerTemplateLanguage } from "../lib/monaco";
-import type { VarProblem } from "./TemplateEditor";
+import type { VarProblem } from "../lib/template";
 
 registerTemplateLanguage();
 

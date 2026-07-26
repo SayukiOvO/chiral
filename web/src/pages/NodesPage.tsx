@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { api, type Node } from "../api";
+import { api, ApiError, type Node } from "../api";
 import { LiveRail } from "../components/LiveRail";
 import { NodeRoster } from "../components/NodeRoster";
 import { AddNodeDialog } from "../components/AddNodeDialog";
@@ -42,7 +42,8 @@ export function NodesPage({ onSignOut }: { onSignOut: () => void }) {
       setNodes(nodes);
       setError("");
     } catch (e) {
-      if ((e as Error).message === "unauthorized") return onSignOut();
+      // The session expired or was revoked; there is nothing to show.
+      if (e instanceof ApiError && e.status === 401) return onSignOut();
       setError((e as Error).message);
     } finally {
       setLoaded(true);

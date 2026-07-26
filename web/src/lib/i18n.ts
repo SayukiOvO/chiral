@@ -46,13 +46,36 @@ const EN: Record<string, string> = {
   "生成中…": "Generating…",
   暂无数据: "No data",
 
-  // token gate
+  // login
   节点控制台: "Node console",
-  "输入管理令牌以进入。": "Enter the admin token to continue.",
-  管理令牌: "Admin token",
-  进入: "Enter",
+  "请登录以继续。": "Sign in to continue.",
+  // 登录名 rather than 用户名: that key already belongs to the proxy user's
+  // name on the users page, and the English differs ("Name" vs "Username").
+  登录名: "Username",
+  密码: "Password",
+  登录: "Sign in",
+  "用户名或密码不正确。": "Incorrect username or password.",
   "验证中…": "Checking…",
-  "令牌无效，请重试。": "That token was not accepted.",
+  二次验证: "Two-factor check",
+  "密码正确，还需要一个验证方式。": "Password accepted. One more factor to go.",
+  通行密钥: "Passkey",
+  验证器应用: "Authenticator app",
+  邮箱验证码: "Emailed code",
+  恢复码: "Recovery code",
+  "用你的通行密钥、指纹或安全密钥完成验证。":
+    "Finish with your passkey, fingerprint or security key.",
+  "等待验证…": "Waiting…",
+  使用通行密钥: "Use passkey",
+  "通行密钥已取消。": "Passkey prompt cancelled.",
+  发送验证码: "Send code",
+  重新发送: "Send again",
+  "验证码已发送至 {addr}": "Code sent to {addr}",
+  "6 位验证码": "6-digit code",
+  验证: "Verify",
+  请重新登录: "Start again",
+  "这次登录已超时。": "This sign-in took too long.",
+  重新开始: "Start over",
+  "← 换个账号": "← Different account",
 
   // nodes page
   "你的代理节点集群与实时状态。": "Your proxy fleet and its live state.",
@@ -268,6 +291,66 @@ const EN: Record<string, string> = {
     "); the server and client each reference one half, so they always match.",
   "例如 alice": "e.g. alice",
   "下发到 {n} 个节点": "Apply to {n} nodes",
+
+  // security page
+  安全: "Security",
+  登录到: "Signed in as",
+  超级管理员: "Superadmin",
+  操作员: "Operator",
+  只读: "Read-only",
+  邮箱: "Email",
+  "只有密码。加一个第二因素，密码泄露就不足以登录。":
+    "Password only. Add a second factor and a leaked password is no longer enough.",
+  "登录时，密码之外还需要下面任意一项。":
+    "Signing in needs the password plus any one of these.",
+  "还没有第二因素。": "No second factor yet.",
+  "最近使用 {when}": "Last used {when}",
+  从未使用: "Never used",
+  移除: "Remove",
+  "这是最后一个第二因素，移除后只剩密码。确定？":
+    "This is the last second factor — removing it leaves only the password. Continue?",
+  "移除这个第二因素？": "Remove this second factor?",
+  更换邮箱: "Change email",
+  "面板未配置 SMTP": "SMTP is not configured on this panel",
+  "通行密钥需要面板经 https（或 localhost）访问": "Passkeys need https (or localhost)",
+  "通行密钥需要面板经 https（或 localhost）访问，且 CHIRAL_PUBLIC_URL 指向它。":
+    "Passkeys need the panel served over https (or localhost), with CHIRAL_PUBLIC_URL pointing at it.",
+  "邮箱验证码需要在 .env 里配置 CHIRAL_SMTP_HOST 与 CHIRAL_SMTP_FROM。":
+    "Emailed codes need CHIRAL_SMTP_HOST and CHIRAL_SMTP_FROM set in .env.",
+  "设备丢了的时候用它登录。每个只能用一次，重新生成会作废旧的。":
+    "Your way back in if you lose a device. Each works once; regenerating voids the old set.",
+  "剩余 {n} 个未使用": "{n} unused",
+  "还没有恢复码。": "No recovery codes yet.",
+  "重新生成会作废现有的恢复码。确定？":
+    "Regenerating voids your existing recovery codes. Continue?",
+  重新生成: "Regenerate",
+  生成: "Generate",
+  "改密码会让所有已登录的会话失效，包括当前这个。":
+    "Changing it signs out every session, including this one.",
+  修改密码: "Change password",
+  "当前是用环境变量里的管理令牌进入的，它没有对应的账号，也就没有第二因素可设。用一个管理员账号登录后再来这里。":
+    "You are in with the admin token from the environment. It has no account behind it, so there is nothing here to configure. Sign in with an admin account instead.",
+  添加验证器应用: "Add an authenticator app",
+  "用 Authy、1Password、Google Authenticator 之类的应用扫码，再填一次它给出的验证码。":
+    "Scan this with Authy, 1Password, Google Authenticator or similar, then type back the code it shows.",
+  或手动输入密钥: "Or enter the secret by hand",
+  "应用给出的 6 位验证码": "The app's 6-digit code",
+  开启: "Turn on",
+  验证邮箱: "Verify email",
+  "验证后，这个地址可以作为登录时的第二因素接收验证码。":
+    "Once verified, this address can receive sign-in codes as a second factor.",
+  邮箱地址: "Email address",
+  发送: "Send",
+  "邮件里的 6 位验证码": "The 6-digit code from the email",
+  "现在就存好。面板只保存它们的哈希，关掉这个窗口后再也看不到。":
+    "Save these now. The panel keeps only their hashes — close this and they are gone.",
+  复制全部: "Copy all",
+  我存好了: "I've saved them",
+  "改完需要重新登录。": "You will need to sign in again afterwards.",
+  当前密码: "Current password",
+  新密码: "New password",
+  再输一次: "Repeat it",
+  "两次输入不一致。": "Those do not match.",
 };
 
 const DICT: Record<Lang, Record<string, string>> = { zh: {}, en: EN };

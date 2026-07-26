@@ -1,17 +1,27 @@
 import { useState } from "react";
-import { getToken } from "./api";
+import { api, getToken, setToken } from "./api";
 import { TopBar } from "./components/TopBar";
-import { TokenGate } from "./components/TokenGate";
+import { LoginPage } from "./components/LoginPage";
 import { NodesPage } from "./pages/NodesPage";
 import { ProfilesPage } from "./pages/ProfilesPage";
+import { SecurityPage } from "./pages/SecurityPage";
 import { UsersPage } from "./pages/UsersPage";
 import { VariablesPage } from "./pages/VariablesPage";
 import { useRoute } from "./lib/router";
 
 export function App() {
   const [authed, setAuthed] = useState(!!getToken());
-  if (!authed) return <TokenGate onAuthed={() => setAuthed(true)} />;
-  return <Console onSignOut={() => setAuthed(false)} />;
+
+  // Revoke the session server-side before dropping it locally: a token left
+  // valid until it expires is a token someone else can still use.
+  async function signOut() {
+    await api.logout().catch(() => {});
+    setToken("");
+    setAuthed(false);
+  }
+
+  if (!authed) return <LoginPage onAuthed={() => setAuthed(true)} />;
+  return <Console onSignOut={signOut} />;
 }
 
 function Console({ onSignOut }: { onSignOut: () => void }) {
@@ -24,6 +34,7 @@ function Console({ onSignOut }: { onSignOut: () => void }) {
         {route.view === "profiles" && <ProfilesPage id={route.id} />}
         {route.view === "users" && <UsersPage />}
         {route.view === "variables" && <VariablesPage />}
+        {route.view === "security" && <SecurityPage />}
       </main>
     </div>
   );

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { checkRefs, refs } from "./TemplateEditor";
+import { checkRefs, refs } from "./template";
 
 /**
  * These rules must stay in step with the Go engine
