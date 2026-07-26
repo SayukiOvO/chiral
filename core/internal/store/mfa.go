@@ -221,9 +221,24 @@ type Challenge struct {
 
 func (s *Store) CreateChallenge(tokenHash, adminID, purpose, data string, ttl time.Duration) error {
 	now := time.Now()
+	// Upsert rather than a bare insert. Several challenges are keyed off
+	// something stable — the email code hangs off the login challenge, the
+	// verification code off the admin id — so "send me another one" arrives on
+	// the same primary key. A plain INSERT turns that ordinary request into a
+	// constraint violation and a 500.
+	//
+	// Replacing resets attempts: the caller asked for a fresh code, and the
+	// old code's failed guesses are not this code's budget.
 	_, err := s.db.Exec(`
 		INSERT INTO auth_challenges (token_hash, admin_id, purpose, data, created_at, expires_at)
-		VALUES (?, ?, ?, ?, ?, ?)`,
+		VALUES (?, ?, ?, ?, ?, ?)
+		ON CONFLICT (token_hash) DO UPDATE SET
+			admin_id   = excluded.admin_id,
+			purpose    = excluded.purpose,
+			data       = excluded.data,
+			attempts   = 0,
+			created_at = excluded.created_at,
+			expires_at = excluded.expires_at`,
 		tokenHash, adminID, purpose, data, now.Unix(), now.Add(ttl).Unix())
 	return err
 }

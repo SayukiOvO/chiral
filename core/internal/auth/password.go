@@ -75,3 +75,34 @@ func VerifyPassword(password, encoded string) bool {
 	}
 	return subtle.ConstantTimeCompare(got, want) == 1
 }
+
+// dummyHash is a real hash of a value nobody can supply, used to spend the
+// same work on a username that does not exist as on one that does.
+//
+// Built once at startup rather than per request: PBKDF2 at these iteration
+// counts is the expensive part, and hashing twice on every miss would double
+// the cost of exactly the path an attacker controls.
+var dummyHash = func() string {
+	unguessable := make([]byte, 32)
+	if _, err := rand.Read(unguessable); err != nil {
+		// Only reachable if the system entropy source is broken, at which
+		// point the panel has larger problems than a timing side channel.
+		panic("auth: cannot read random bytes: " + err.Error())
+	}
+	h, err := HashPassword(base64.RawStdEncoding.EncodeToString(unguessable))
+	if err != nil {
+		panic("auth: cannot build dummy hash: " + err.Error())
+	}
+	return h
+}()
+
+// SpendVerification does the work of a password check and throws the answer
+// away.
+//
+// Without it, "no such user" returns as fast as the database lookup while a
+// real username costs 210,000 PBKDF2 rounds — a difference of two orders of
+// magnitude, measurable over the network, and enough to enumerate accounts.
+// Call it on every path that declines before reaching VerifyPassword.
+func SpendVerification(password string) {
+	VerifyPassword(password, dummyHash)
+}

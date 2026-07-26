@@ -13,6 +13,8 @@
 | `CHIRAL_GRPC_PUBLIC_ADDR` | 是 | Agent 拨回的地址，写进生成的 compose |
 | `CHIRAL_XRAY_BIN` | 镜像内已设 | 面板侧 Xray 二进制 |
 | `CHIRAL_TLS_CERT` / `_KEY` | 生产必需 | gRPC 端 TLS |
+| `CHIRAL_TRUSTED_PROXY` | 有反代时必需 | 逗号分隔的地址或 CIDR，只写 Core 前面那层反代。**不设**则限流按对端地址计；**设错**则任何调用方一个请求头就能自选桶，限流形同虚设 |
+| `CHIRAL_SMTP_*` | 可选 | 邮箱验证与登录验证码；`HOST` 留空即不提供邮件因素 |
 
 ## 待办
 

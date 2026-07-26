@@ -30,7 +30,12 @@ func (s *Server) routeTemplates(mux *http.ServeMux) {
 	mux.Handle("POST /api/profiles/{id}/apply", s.requireWrite(s.applyProfile))
 
 	mux.Handle("PUT /api/nodes/{id}/skeleton", s.requireWrite(s.putSkeleton))
-	mux.Handle("GET /api/nodes/{id}/config/preview", s.requireAdmin(s.previewNodeConfig))
+	// Write, not read. The preview is the fully assembled config.json: every
+	// REALITY private key and every user's credential in the clear. Reading it
+	// is not a lesser act than applying it — it is strictly more revealing —
+	// so it cannot sit at the viewer level the way the other GETs do.
+	// listVariables can, because it masks secret components on the way out.
+	mux.Handle("GET /api/nodes/{id}/config/preview", s.requireWrite(s.previewNodeConfig))
 	mux.Handle("POST /api/nodes/{id}/config/apply", s.requireWrite(s.applyNodeConfig))
 }
 

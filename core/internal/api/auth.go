@@ -116,12 +116,22 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	a, err := s.st.FindAdminByUsername(strings.TrimSpace(req.Username))
-	if err != nil || a.Disabled || !auth.VerifyPassword(req.Password, a.PasswordHash) {
+	if err != nil || a.Disabled {
 		// One message for every failure: whether the account exists is not
 		// something an unauthenticated caller should be able to probe.
+		//
+		// The message alone is not enough — returning here without hashing
+		// would answer for an unknown username two orders of magnitude faster
+		// than for a real one, which says the same thing out loud. Spend the
+		// work anyway.
+		auth.SpendVerification(req.Password)
 		if err != nil && !store.IsNotFound(err) {
 			s.logger.Error("login lookup failed", "err", err)
 		}
+		writeErr(w, http.StatusUnauthorized, "incorrect username or password")
+		return
+	}
+	if !auth.VerifyPassword(req.Password, a.PasswordHash) {
 		writeErr(w, http.StatusUnauthorized, "incorrect username or password")
 		return
 	}

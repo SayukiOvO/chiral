@@ -152,9 +152,11 @@ func run(logger *slog.Logger, dbPath, grpcListen, httpListen, grpcPublic, public
 	if err != nil {
 		return err
 	}
+	apiServer := api.NewServer(st, mgr, profiles, subs, alerts, passkeys, mailer,
+		adminToken, grpcPublic, publicURL, tlsEnabled, xray.Available(), logger)
 	httpSrv := &http.Server{
 		Addr:    httpListen,
-		Handler: api.NewServer(st, mgr, profiles, subs, alerts, passkeys, mailer, adminToken, grpcPublic, publicURL, tlsEnabled, xray.Available(), logger).Handler(),
+		Handler: apiServer.Handler(),
 	}
 
 	errCh := make(chan error, 2)
@@ -196,9 +198,17 @@ func run(logger *slog.Logger, dbPath, grpcListen, httpListen, grpcPublic, public
 				if _, err := st.PruneSessions(time.Now()); err != nil {
 					logger.Error("pruning sessions failed", "err", err)
 				}
+				// Expired challenges are not merely clutter: they hold their
+				// primary key, and several challenges are keyed off something
+				// stable, so a stale row is what a later "send me another
+				// code" collides with.
+				if _, err := st.PruneChallenges(time.Now()); err != nil {
+					logger.Error("pruning auth challenges failed", "err", err)
+				}
 				if _, err := st.PruneAudit(time.Now()); err != nil {
 					logger.Error("pruning audit log failed", "err", err)
 				}
+				apiServer.PruneLimiter(time.Now())
 				// Availability changes are announced from swept state rather
 				// than at the moment of disconnection, so they survive a
 				// panel restart and get their debounce for free.

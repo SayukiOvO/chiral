@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/SayukiOvO/chiral/core/internal/alert"
 	"github.com/SayukiOvO/chiral/core/internal/auth"
@@ -52,7 +53,10 @@ type Server struct {
 	// mailer is nil-safe: with no SMTP configured, email is not offered as a
 	// factor.
 	mailer *mail.Sender
-	logger *slog.Logger
+	// limiter budgets the routes that answer before any credential has been
+	// checked. See ratelimit.go.
+	limiter *limiter
+	logger  *slog.Logger
 }
 
 func NewServer(st *store.Store, mgr *node.Manager, profiles *profile.Service, subs *subscription.Service,
@@ -62,9 +66,16 @@ func NewServer(st *store.Store, mgr *node.Manager, profiles *profile.Service, su
 		st: st, mgr: mgr, profiles: profiles, subs: subs, alerts: alerts,
 		passkeys: passkeys, mailer: mailer, adminToken: adminToken,
 		grpcPublicAddr: grpcPublicAddr, publicURL: publicURL,
-		grpcTLS: grpcTLS, xrayAvailable: xrayAvailable, logger: logger,
+		grpcTLS: grpcTLS, xrayAvailable: xrayAvailable,
+		// 8192 buckets is far more than a real panel sees and still bounded;
+		// the sweep prunes expired ones.
+		limiter: newLimiter(8192),
+		logger:  logger,
 	}
 }
+
+// PruneLimiter drops expired rate-limit buckets. Called from the sweep.
+func (s *Server) PruneLimiter(now time.Time) { s.limiter.prune(now) }
 
 // notFoundOr answers 404 for a missing row and 500 for anything else, so a
 // handler does not have to spell the distinction out every time.
@@ -103,11 +114,14 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("GET /api/traffic", s.requireAdmin(s.trafficSeries))
 
 	// Authentication. Login is the only unauthenticated /api route.
-	mux.HandleFunc("POST /api/login", s.login)
-	mux.HandleFunc("POST /api/login/mfa", s.verifyMFA)
-	mux.HandleFunc("POST /api/login/email", s.sendEmailCode)
-	mux.HandleFunc("POST /api/login/passkey/begin", s.beginPasskeyLogin)
-	mux.HandleFunc("POST /api/login/passkey/finish", s.finishPasskeyLogin)
+	// Every route below answers before any credential has been checked, so
+	// each one carries a per-IP budget. Adding an unauthenticated route
+	// without a throttle is the mistake this grouping exists to make visible.
+	mux.HandleFunc("POST /api/login", s.throttle("login", limitLogin, s.login))
+	mux.HandleFunc("POST /api/login/mfa", s.throttle("mfa", limitMFA, s.verifyMFA))
+	mux.HandleFunc("POST /api/login/email", s.throttle("email-code", limitEmailCode, s.sendEmailCode))
+	mux.HandleFunc("POST /api/login/passkey/begin", s.throttle("mfa", limitMFA, s.beginPasskeyLogin))
+	mux.HandleFunc("POST /api/login/passkey/finish", s.throttle("mfa", limitMFA, s.finishPasskeyLogin))
 	mux.Handle("POST /api/logout", s.requireAdmin(s.logout))
 	mux.Handle("GET /api/whoami", s.requireAdmin(s.whoami))
 
@@ -139,7 +153,7 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("POST /api/alerts/{id}/test", s.requireWrite(s.testAlertTarget))
 
 	// The one route end users reach, authenticated by the token in the path.
-	mux.HandleFunc("GET /sub/{token}", s.serveSubscription)
+	mux.HandleFunc("GET /sub/{token}", s.throttle("sub", limitSubscription, s.serveSubscription))
 	return mux
 }
 
