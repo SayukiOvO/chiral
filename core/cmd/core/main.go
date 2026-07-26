@@ -25,7 +25,9 @@ import (
 	"github.com/SayukiOvO/chiral/core/internal/alert"
 	"github.com/SayukiOvO/chiral/core/internal/api"
 	"github.com/SayukiOvO/chiral/core/internal/auth"
+	"github.com/SayukiOvO/chiral/core/internal/mail"
 	"github.com/SayukiOvO/chiral/core/internal/node"
+	"github.com/SayukiOvO/chiral/core/internal/passkey"
 	"github.com/SayukiOvO/chiral/core/internal/profile"
 	"github.com/SayukiOvO/chiral/core/internal/secret"
 	"github.com/SayukiOvO/chiral/core/internal/store"
@@ -113,6 +115,18 @@ func run(logger *slog.Logger, dbPath, grpcListen, httpListen, grpcPublic, public
 	users := user.NewService(st, logger)
 	profiles := profile.NewService(st, xray, mgr, mgr, users, logger)
 	subs := subscription.NewService(st, profiles)
+
+	// Passkeys need a secure context; without a usable public URL they are
+	// simply not offered rather than offered and failing at the last step.
+	passkeys, err := passkey.New(publicURL, "Chiral")
+	if err != nil {
+		logger.Warn("passkeys unavailable", "reason", err)
+		passkeys = nil
+	}
+	mailer := mail.NewSender(mail.FromEnv())
+	if !mailer.Enabled() {
+		logger.Info("SMTP not configured; email verification and email codes are unavailable")
+	}
 	alerts := alert.NewService(st, mgr, logger)
 
 	tlsEnabled := tlsCert != "" || tlsKey != ""
@@ -140,7 +154,7 @@ func run(logger *slog.Logger, dbPath, grpcListen, httpListen, grpcPublic, public
 	}
 	httpSrv := &http.Server{
 		Addr:    httpListen,
-		Handler: api.NewServer(st, mgr, profiles, subs, alerts, adminToken, grpcPublic, publicURL, tlsEnabled, xray.Available(), logger).Handler(),
+		Handler: api.NewServer(st, mgr, profiles, subs, alerts, passkeys, mailer, adminToken, grpcPublic, publicURL, tlsEnabled, xray.Available(), logger).Handler(),
 	}
 
 	errCh := make(chan error, 2)

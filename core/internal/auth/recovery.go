@@ -64,3 +64,21 @@ func randIndex(n int) (int, error) {
 		}
 	}
 }
+
+// NumericCodeDigits is the length of a mailed one-time code. Six is what
+// people expect to retype; the attempt cap on the challenge is what keeps it
+// from being guessable, not the length.
+const NumericCodeDigits = 6
+
+// NewNumericCode returns a uniformly random numeric code.
+func NewNumericCode() (string, error) {
+	var b strings.Builder
+	for i := 0; i < NumericCodeDigits; i++ {
+		n, err := randIndex(10)
+		if err != nil {
+			return "", err
+		}
+		b.WriteByte(byte('0' + n))
+	}
+	return b.String(), nil
+}

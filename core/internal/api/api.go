@@ -12,7 +12,9 @@ import (
 
 	"github.com/SayukiOvO/chiral/core/internal/alert"
 	"github.com/SayukiOvO/chiral/core/internal/auth"
+	"github.com/SayukiOvO/chiral/core/internal/mail"
 	"github.com/SayukiOvO/chiral/core/internal/node"
+	"github.com/SayukiOvO/chiral/core/internal/passkey"
 	"github.com/SayukiOvO/chiral/core/internal/profile"
 	"github.com/SayukiOvO/chiral/core/internal/store"
 	"github.com/SayukiOvO/chiral/core/internal/subscription"
@@ -43,14 +45,22 @@ type Server struct {
 	// publicURL is the panel's own base URL, used to build subscription links
 	// an operator can hand out.
 	publicURL string
-	logger    *slog.Logger
+	// passkeys is nil when the panel's URL cannot host WebAuthn (plain http
+	// off localhost), in which case passkeys are simply not offered rather
+	// than offered and failing at the last step.
+	passkeys *passkey.Service
+	// mailer is nil-safe: with no SMTP configured, email is not offered as a
+	// factor.
+	mailer *mail.Sender
+	logger *slog.Logger
 }
 
 func NewServer(st *store.Store, mgr *node.Manager, profiles *profile.Service, subs *subscription.Service,
-	alerts *alert.Service,
+	alerts *alert.Service, passkeys *passkey.Service, mailer *mail.Sender,
 	adminToken, grpcPublicAddr, publicURL string, grpcTLS, xrayAvailable bool, logger *slog.Logger) *Server {
 	return &Server{
-		st: st, mgr: mgr, profiles: profiles, subs: subs, alerts: alerts, adminToken: adminToken,
+		st: st, mgr: mgr, profiles: profiles, subs: subs, alerts: alerts,
+		passkeys: passkeys, mailer: mailer, adminToken: adminToken,
 		grpcPublicAddr: grpcPublicAddr, publicURL: publicURL,
 		grpcTLS: grpcTLS, xrayAvailable: xrayAvailable, logger: logger,
 	}
@@ -94,6 +104,10 @@ func (s *Server) Handler() http.Handler {
 
 	// Authentication. Login is the only unauthenticated /api route.
 	mux.HandleFunc("POST /api/login", s.login)
+	mux.HandleFunc("POST /api/login/mfa", s.verifyMFA)
+	mux.HandleFunc("POST /api/login/email", s.sendEmailCode)
+	mux.HandleFunc("POST /api/login/passkey/begin", s.beginPasskeyLogin)
+	mux.HandleFunc("POST /api/login/passkey/finish", s.finishPasskeyLogin)
 	mux.Handle("POST /api/logout", s.requireAdmin(s.logout))
 	mux.Handle("GET /api/whoami", s.requireAdmin(s.whoami))
 
@@ -104,6 +118,17 @@ func (s *Server) Handler() http.Handler {
 	// Changing your own password only needs to be logged in; the handler
 	// checks that it is your own account or that you are a superadmin.
 	mux.Handle("POST /api/admins/{id}/password", s.requireAdmin(s.changePassword))
+
+	// Enrolling and removing your own second factors.
+	mux.Handle("GET /api/mfa", s.requireAdmin(s.listMFA))
+	mux.Handle("POST /api/mfa/totp/begin", s.requireAdmin(s.beginTOTP))
+	mux.Handle("POST /api/mfa/totp/confirm", s.requireAdmin(s.confirmTOTP))
+	mux.Handle("POST /api/mfa/passkey/begin", s.requireAdmin(s.beginPasskeyRegistration))
+	mux.Handle("POST /api/mfa/passkey/finish", s.requireAdmin(s.finishPasskeyRegistration))
+	mux.Handle("POST /api/mfa/email/send", s.requireAdmin(s.sendEmailVerification))
+	mux.Handle("POST /api/mfa/email/confirm", s.requireAdmin(s.confirmEmail))
+	mux.Handle("POST /api/mfa/recovery", s.requireAdmin(s.regenerateRecoveryCodes))
+	mux.Handle("DELETE /api/mfa/{id}", s.requireAdmin(s.deleteMFA))
 
 	mux.Handle("GET /api/audit", s.requireAdmin(s.auditLog))
 

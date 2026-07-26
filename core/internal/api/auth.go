@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/SayukiOvO/chiral/core/internal/auth"
 	"github.com/SayukiOvO/chiral/core/internal/store"
@@ -127,23 +126,19 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	token, hash := auth.NewSecret()
-	if err := s.st.CreateSession(hash, a.ID, store.SessionTTL); err != nil {
-		s.internalErr(w, "create session", err)
+	// A correct password only finishes the job when no second factor is
+	// enrolled. Otherwise it earns a short-lived challenge, and the session is
+	// issued only once that challenge is spent.
+	factors, err := s.st.ConfirmedMFACredentials(a.ID)
+	if err != nil {
+		s.internalErr(w, "load factors", err)
 		return
 	}
-	if err := s.st.TouchAdminLogin(a.ID); err != nil {
-		s.logger.Error("recording login time failed", "admin", a.Username, "err", err)
+	if len(factors) > 0 {
+		s.startMFA(w, a, factors)
+		return
 	}
-	identity := auth.Identity{ID: a.ID, Name: a.Username, Role: a.Role}
-	if err := s.st.Audit(identity, "login", "admin", a.ID, a.Username, ""); err != nil {
-		s.logger.Error("writing audit entry failed", "action", "login", "err", err)
-	}
-	writeJSON(w, http.StatusOK, map[string]any{
-		"token":      token,
-		"expires_at": time.Now().Add(store.SessionTTL).Unix(),
-		"admin":      adminView(a),
-	})
+	s.issueSession(w, a, "password")
 }
 
 func (s *Server) logout(w http.ResponseWriter, r *http.Request) {

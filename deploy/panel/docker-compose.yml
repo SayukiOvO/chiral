@@ -25,6 +25,17 @@ services:
       # Bundled in the image; the panel validates every rendered config with
       # `xray -test` before storing or pushing it.
       CHIRAL_XRAY_BIN: /usr/local/bin/xray
+      # Email: address verification and one-time sign-in codes. Leave the
+      # host empty to run without email — it is simply not offered as a
+      # second factor then.
+      CHIRAL_SMTP_HOST: ${CHIRAL_SMTP_HOST:-}
+      CHIRAL_SMTP_PORT: ${CHIRAL_SMTP_PORT:-587}
+      CHIRAL_SMTP_USER: ${CHIRAL_SMTP_USER:-}
+      CHIRAL_SMTP_PASSWORD: ${CHIRAL_SMTP_PASSWORD:-}
+      CHIRAL_SMTP_FROM: ${CHIRAL_SMTP_FROM:-}
+      # starttls (default) | implicit | none. A server that does not offer
+      # STARTTLS is an error rather than a silent downgrade.
+      CHIRAL_SMTP_TLS: ${CHIRAL_SMTP_TLS:-starttls}
       # CHIRAL_TLS_CERT: /certs/fullchain.pem
       # CHIRAL_TLS_KEY: /certs/privkey.pem
     volumes:
