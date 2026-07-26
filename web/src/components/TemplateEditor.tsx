@@ -1,5 +1,6 @@
 import { Suspense, lazy, useMemo } from "react";
 import { cn } from "../lib/cn";
+import { useT } from "../lib/i18n";
 
 // Monaco is ~4 MB; the node dashboard never opens an editor, so it loads only
 // when one is actually rendered. Nothing here may import ./MonacoEditor
@@ -8,9 +9,10 @@ import { cn } from "../lib/cn";
 const MonacoEditor = lazy(() => import("./MonacoEditor"));
 
 function EditorSkeleton() {
+  const { t } = useT();
   return (
     <div className="grid h-full w-full place-items-center bg-surface text-xs text-faint">
-      载入编辑器…
+      {t("载入编辑器…")}
     </div>
   );
 }
@@ -104,6 +106,7 @@ function VarChips({
   secrets: Set<string>;
   problems: VarProblem[];
 }) {
+  const { t } = useT();
   const used = refs(template);
   if (used.length === 0) return null;
   const bad = new Map(problems.map((p) => [p.name, p.reason]));
@@ -115,7 +118,7 @@ function VarChips({
         return (
           <span
             key={name}
-            title={reason ?? (secrets.has(name) ? "私钥变量（仅服务端）" : "已定义")}
+            title={t(reason ?? (secrets.has(name) ? "私钥变量（仅服务端）" : "已定义"))}
             className={cn(
               "inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 font-mono text-[11px]",
               reason ? "text-danger" : known.has(name) ? "text-muted" : "text-faint",

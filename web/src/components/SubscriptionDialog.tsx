@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Button } from "./ui";
 import { CheckIcon, CopyIcon } from "./icons";
+import { useT } from "../lib/i18n";
 
 /**
  * Shows a freshly issued subscription link. The panel only ever stores the
@@ -16,6 +17,7 @@ export function SubscriptionDialog({
   userName: string;
   onClose: () => void;
 }) {
+  const { t } = useT();
   const [copied, setCopied] = useState(false);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
@@ -34,11 +36,13 @@ export function SubscriptionDialog({
         className="w-full max-w-lg animate-rise rounded-2xl border border-line bg-raised p-6 shadow-[var(--shadow-pop)]"
       >
         <h3 className="font-display text-lg font-semibold tracking-tight">
-          {userName} 的订阅链接
+          {userName}
+          {t("的订阅链接")}
         </h3>
         <p className="mt-1 text-sm text-muted">
-          面板只保存令牌的哈希，所以这个链接<b className="text-ink">只显示这一次</b>。
-          客户端会按自己的类型自动取到对应格式。
+          {t("面板只保存令牌的哈希，所以这个链接")}
+          <b className="text-ink">{t("只显示这一次")}</b>
+          {t("。 客户端会按自己的类型自动取到对应格式。")}
         </p>
 
         <div className="relative mt-4">
@@ -57,18 +61,18 @@ export function SubscriptionDialog({
             className="absolute right-2.5 top-2.5 inline-flex items-center gap-1.5 rounded-lg border border-line-strong bg-surface px-2.5 py-1.5 text-xs font-medium text-muted transition-colors hover:border-signal hover:text-signal"
           >
             {copied ? <CheckIcon size={13} className="text-online" /> : <CopyIcon size={13} />}
-            {copied ? "已复制" : "复制"}
+            {copied ? t("已复制") : t("复制")}
           </button>
         </div>
 
         <p className="mt-3 text-xs text-faint">
-          需要指定格式时可加 <code className="font-mono">?client=clash</code>
+          {t("需要指定格式时可加")} <code className="font-mono">?client=clash</code>
           （clash / stash / xray-json / vless-uri）。
         </p>
 
         <div className="mt-5 flex justify-end">
           <Button variant="primary" onClick={onClose}>
-            完成
+            {t("完成")}
           </Button>
         </div>
       </div>

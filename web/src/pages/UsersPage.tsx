@@ -121,7 +121,7 @@ function UserCard({
   onEdit: () => void;
   onSubscription: (url: string) => void;
 }) {
-  const { t } = useT();
+  const { t, tf } = useT();
   const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState(false);
   const [expanded, setExpanded] = useState(false);
@@ -144,7 +144,7 @@ function UserCard({
       onSubscription(subscription_url);
       onChanged();
     } catch (e) {
-      alert(`重置订阅链接失败：${(e as Error).message}`);
+      alert(t("重置订阅链接失败：") + (e as Error).message);
     } finally {
       setBusy(false);
     }
@@ -160,7 +160,7 @@ function UserCard({
       }
       onChanged();
     } catch (e) {
-      alert(`修改权限失败：${(e as Error).message}`);
+      alert(t("修改权限失败：") + (e as Error).message);
     } finally {
       setBusy(false);
     }
@@ -180,8 +180,8 @@ function UserCard({
             </button>
             <div className="text-xs text-muted">
               {user.profile_ids.length === 0
-                ? "未授权任何接入配置"
-                : `${user.profile_ids.length} 个接入配置`}
+                ? t("未授权任何接入配置")
+                : tf("{n} 个接入配置", { n: user.profile_ids.length })}
               <span className="mx-1.5 text-faint">·</span>
               {expiryLabel(user.expires_at)}
               {user.renew_period > 0 && (
@@ -313,11 +313,11 @@ function AccessDot({ user }: { user: User }) {
 function AccessLabel({ user }: { user: User }) {
   const { t } = useT();
   const reason = !user.enabled
-    ? "已停用"
+    ? t("已停用")
     : user.expires_at && user.expires_at * 1000 < Date.now()
-      ? "已过期"
+      ? t("已过期")
       : user.quota_bytes && user.used_bytes >= user.quota_bytes
-        ? "超出配额"
+        ? t("超出配额")
         : "";
   if (reason) {
     return (

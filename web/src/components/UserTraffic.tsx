@@ -76,7 +76,7 @@ export function UserTraffic({ userId }: { userId: string }) {
         series={series}
         height={120}
         format={bytes}
-        emptyLabel={points === null ? "加载中…" : "这段时间没有流量"}
+        emptyLabel={points === null ? t("加载中…") : t("这段时间没有流量")}
       />
       <p className="mt-1 text-xs text-faint">{t("按小时累计。")}</p>
     </div>

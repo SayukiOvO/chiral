@@ -21,7 +21,7 @@ export function TokenGate({ onAuthed }: { onAuthed: () => void }) {
       await api.listNodes();
       onAuthed();
     } catch {
-      setError("令牌无效，请重试。");
+      setError(t("令牌无效，请重试。"));
     } finally {
       setBusy(false);
     }
@@ -59,7 +59,7 @@ export function TokenGate({ onAuthed }: { onAuthed: () => void }) {
               disabled={busy || !value.trim()}
               className="mt-4 w-full"
             >
-              {busy ? "验证中…" : "进入"}
+              {busy ? t("验证中…") : t("进入")}
             </Button>
           </form>
         </div>

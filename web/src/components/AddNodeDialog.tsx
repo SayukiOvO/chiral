@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { api, type CreateNodeResult } from "../api";
 import { Button } from "./ui";
 import { CheckIcon, CopyIcon } from "./icons";
+import { useT } from "../lib/i18n";
 
 export function AddNodeDialog({
   onClose,
@@ -10,6 +11,7 @@ export function AddNodeDialog({
   onClose: () => void;
   onCreated: () => void;
 }) {
+  const { t } = useT();
   const [name, setName] = useState("");
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<CreateNodeResult | null>(null);
@@ -50,36 +52,37 @@ export function AddNodeDialog({
       >
         {!result ? (
           <form onSubmit={create}>
-            <h3 className="font-display text-lg font-semibold tracking-tight">新增节点</h3>
-            <p className="mt-1 text-sm text-muted">为节点起个名字，生成一次性加入命令。</p>
+            <h3 className="font-display text-lg font-semibold tracking-tight">{t("新增节点")}</h3>
+            <p className="mt-1 text-sm text-muted">{t("为节点起个名字，生成一次性加入命令。")}</p>
             <input
               autoFocus
               value={name}
               onChange={(e) => setName(e.target.value)}
-              placeholder="例如 tokyo-1"
+              placeholder={t("例如 tokyo-1")}
               className="mt-4 w-full rounded-xl border border-line-strong bg-surface px-3.5 py-2.5 text-sm outline-none transition-colors placeholder:text-faint focus:border-signal"
             />
             {error && <p className="mt-2 text-sm text-danger">{error}</p>}
             <div className="mt-5 flex justify-end gap-2">
               <Button type="button" variant="ghost" onClick={onClose}>
-                取消
+                {t("取消")}
               </Button>
               <Button type="submit" variant="primary" disabled={busy || !name.trim()}>
-                {busy ? "生成中…" : "生成加入命令"}
+                {busy ? t("生成中…") : t("生成加入命令")}
               </Button>
             </div>
           </form>
         ) : (
           <div>
-            <h3 className="font-display text-lg font-semibold tracking-tight">节点已创建</h3>
+            <h3 className="font-display text-lg font-semibold tracking-tight">{t("节点已创建")}</h3>
             <p className="mt-1 text-sm text-muted">
-              在目标主机保存为 <code className="font-mono text-ink">docker-compose.yml</code>，然后运行{" "}
-              <code className="font-mono text-ink">docker compose up -d</code>。加入令牌仅可使用一次。
+              {t("在目标主机保存为")} <code className="font-mono text-ink">docker-compose.yml</code>
+              {t("，然后运行")} <code className="font-mono text-ink">docker compose up -d</code>
+              {t("。加入令牌仅可使用一次。")}
             </p>
             <CopyBlock text={result.compose} />
             <div className="mt-5 flex justify-end">
               <Button variant="primary" onClick={onClose}>
-                完成
+                {t("完成")}
               </Button>
             </div>
           </div>
@@ -90,6 +93,7 @@ export function AddNodeDialog({
 }
 
 function CopyBlock({ text }: { text: string }) {
+  const { t } = useT();
   const [copied, setCopied] = useState(false);
   return (
     <div className="relative mt-4">
@@ -105,7 +109,7 @@ function CopyBlock({ text }: { text: string }) {
         className="absolute right-2.5 top-2.5 inline-flex items-center gap-1.5 rounded-lg border border-line-strong bg-surface px-2.5 py-1.5 text-xs font-medium text-muted transition-colors hover:border-signal hover:text-signal"
       >
         {copied ? <CheckIcon size={13} className="text-online" /> : <CopyIcon size={13} />}
-        {copied ? "已复制" : "复制"}
+        {copied ? t("已复制") : t("复制")}
       </button>
     </div>
   );

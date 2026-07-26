@@ -137,6 +137,35 @@ const EN: Record<string, string> = {
   "每 7 天": "Every 7 days",
   "每 90 天": "Every 90 days",
 
+  // profiles / variables / node config
+  "渲染后作为一项进节点 config.json 的 inbounds。clients 留空，由 Core 按绑定用户注入。":
+    "Rendered as one entry in the node's config.json inbounds. Leave clients empty — Core fills it from the bound users.",
+  "clients 数组里单个用户对象的模板。M3 的在线增删用户改的就是这一条。":
+    "The template for one entry of the clients array. This is exactly what online add/remove edits.",
+  "每种客户端手写一份，避开订阅转换的表达力上限。私钥变量在这里不可用。":
+    "One hand-written template per client, so nothing is limited by what a converter can express. Secret variables are unavailable here.",
+  未填: "empty",
+  "创建中…": "Creating…",
+  "（需要 xray 二进制，当前不可用）": " (needs the xray binary; unavailable)",
+  "{ok} 个成功，{bad} 个失败：": "{ok} succeeded, {bad} failed: ",
+  "删除接入配置「{name}」？绑定关系与其变量会一并删除。":
+    "Delete profile \u201c{name}\u201d? Its bindings and variables go with it.",
+  "删除变量「{name}」？引用它的模板会渲染失败。":
+    "Delete variable \u201c{name}\u201d? Templates referencing it will fail to render.",
+  "骨架不是合法 JSON：{msg}": "The skeleton is not valid JSON: {msg}",
+  属于哪个接入配置: "Which profile",
+  属于哪个节点: "Which node",
+  生成器: "Generator",
+  静态值: "Static value",
+  全局: "Global",
+  "私钥变量不能用在客户端模板里": "Secret variables cannot be used in a client template",
+  未定义的变量: "Undefined variable",
+  "私钥变量（仅服务端）": "Secret variable (server side only)",
+  已定义: "Defined",
+  下发: "Apply",
+  "xray -test 通过": "xray -test passed",
+  "xray -test 未通过": "xray -test failed",
+
   // subscription dialog
   订阅链接: "subscription link",
   重置订阅链接: "Reset subscription link",
@@ -145,6 +174,100 @@ const EN: Record<string, string> = {
   "。 客户端会按自己的类型自动取到对应格式。":
     ". Clients receive the format they ask for automatically.",
   "需要指定格式时可加": "To force a format, append",
+  "的订阅链接": "'s subscription link",
+
+  // add-node dialog
+  "为节点起个名字，生成一次性加入命令。":
+    "Name the node to generate its one-time join command.",
+  "例如 tokyo-1": "e.g. tokyo-1",
+  生成加入命令: "Generate join command",
+  节点已创建: "Node created",
+  在目标主机保存为: "On the target host, save this as",
+  "，然后运行": ", then run",
+  "。加入令牌仅可使用一次。": ". The join token can only be used once.",
+
+  // node config dialog
+  "骨架是 inbounds 之外的部分；inbounds 由绑定的接入配置渲染装配。":
+    "The skeleton is everything but inbounds; those are assembled from the profiles bound to this node.",
+  关闭: "Close",
+  "config 骨架": "Config skeleton",
+  保存骨架: "Save skeleton",
+  装配预览: "Assembly preview",
+  "无法装配。先绑定接入配置，并确认模板里的变量都已定义。":
+    "Cannot assemble. Bind a profile first, and check every variable the template uses is defined.",
+  未校验: "Not validated",
+  "面板未配置 xray 二进制，下发前不做预校验":
+    "No xray binary on the panel, so configs are pushed without validation",
+  "骨架不是合法 JSON：": "Skeleton is not valid JSON: ",
+  "已下发，版本 v{n}": "Applied as v{n}",
+
+  // profiles page
+  "一套接入方式：服务端 inbound 骨架 + 每用户凭证 + 各客户端模板。":
+    "One way in: a server inbound skeleton, a per-user credential, and a template per client.",
+  新增: "New",
+  "还没有接入配置。新建一个，再把它绑定到节点上。":
+    "No profiles yet. Create one, then bind it to a node.",
+  "{n} 个节点": "{n} nodes",
+  "{n} 份客户端模板": "{n} client templates",
+  "未填 inbound 骨架": "No inbound skeleton",
+  新增接入配置: "New profile",
+  名字: "Name",
+  创建: "Create",
+  "已下发到 {n} 个节点": "Applied to {n} nodes",
+  "{ok} 个成功，{failed} 个失败：": "{ok} succeeded, {failed} failed: ",
+  "载入中…": "Loading…",
+
+  // variables page
+  "模板里 {{名字}} 引用的值。私钥类分量只存不取。":
+    "The values templates reference. Secret components are stored but never returned.",
+  新增变量: "New variable",
+  "还没有变量。生成一组 REALITY 密钥或填一个静态值，模板就能引用它。":
+    "No variables yet. Generate a REALITY keypair or set a static value, and templates can use it.",
+  作用域: "Scope",
+  取值: "Value",
+  删除变量: "Delete variable",
+  "生成器会产出成组的分量（如": "A generator produces a group of components (for example",
+
+  "绑上以后，下发即把这套 inbound 装配进该节点的 config。":
+    "Once bound, applying assembles this inbound into that node's config.",
+
+  // template editor
+  "载入编辑器…": "Loading the editor…",
+
+  // misc
+  "重启失败：": "Restart failed: ",
+  "重置订阅链接失败：": "Could not reset the subscription link: ",
+  "修改权限失败：": "Could not change access: ",
+  "{n} 个接入配置": "{n} profiles",
+  删除用户: "Delete user",
+  流量用量: "Quota usage",
+  "还没有接入配置。": "No profiles yet.",
+
+  // profile editor
+  "← 接入配置": "← Profiles",
+  删除此接入配置: "Delete this profile",
+  客户端模板: "Client templates",
+  已保存: "Saved",
+  "服务端 inbound 骨架": "Server inbound skeleton",
+  "每用户 client-entry": "Per-user client entry",
+  绑定节点: "Bound nodes",
+  "还没有节点。": "No nodes yet.",
+  "服务端与客户端引用同一组变量的不同分量，因此不可能配错。":
+    "Server and client reference different components of the same variable, so they cannot drift apart.",
+
+  // variables page detail
+  值: "Value",
+  取值方式: "Source",
+  "选择…": "Choose…",
+  模板里: "Templates reference",
+  "引用的值。私钥类分量只存不取。":
+    " — these values. Secret components are stored but never returned.",
+  "该生成器由面板调用 xray 二进制产出，保证格式与内核一致。":
+    "The panel produces this by running the xray binary, so the format always matches the kernel.",
+  "），服务端与客户端各引用一半，天然配对。":
+    "); the server and client each reference one half, so they always match.",
+  "例如 alice": "e.g. alice",
+  "下发到 {n} 个节点": "Apply to {n} nodes",
 };
 
 const DICT: Record<Lang, Record<string, string>> = { zh: {}, en: EN };
@@ -183,7 +306,15 @@ function subscribe(l: () => void) {
 export function useT() {
   const lang = useSyncExternalStore(subscribe, getLang, getLang);
   const t = (key: string) => DICT[lang][key] ?? key;
-  return { t, lang, setLang };
+  // tf interpolates {name} placeholders, so a sentence with a number in it
+  // stays one translatable unit instead of being glued together from
+  // fragments — word order differs between languages.
+  const tf = (key: string, params: Record<string, string | number>) =>
+    Object.entries(params).reduce(
+      (out, [k, v]) => out.replaceAll(`{${k}}`, String(v)),
+      t(key),
+    );
+  return { t, tf, lang, setLang };
 }
 
 // Set the document language before React mounts, for screen readers and for

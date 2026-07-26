@@ -5,6 +5,7 @@ import { TemplateEditor } from "./TemplateEditor";
 import { useIsDark } from "../lib/theme";
 import { Modal } from "../pages/VariablesPage";
 import { cn } from "../lib/cn";
+import { useT } from "../lib/i18n";
 
 const DEFAULT_SKELETON = `{
   "log": { "loglevel": "warning" },
@@ -20,6 +21,7 @@ const DEFAULT_SKELETON = `{
  * with `xray -test` before it can be applied.
  */
 export function NodeConfigDialog({ node, onClose }: { node: Node; onClose: () => void }) {
+  const { t, tf } = useT();
   const dark = useIsDark();
   const [skeleton, setSkeleton] = useState(DEFAULT_SKELETON);
   const [preview, setPreview] = useState<ConfigPreview | null>(null);
@@ -51,7 +53,9 @@ export function NodeConfigDialog({ node, onClose }: { node: Node; onClose: () =>
       await loadPreview();
     } catch (e) {
       setError(
-        e instanceof SyntaxError ? `骨架不是合法 JSON：${e.message}` : (e as Error).message,
+        e instanceof SyntaxError
+          ? tf("骨架不是合法 JSON：{msg}", { msg: e.message })
+          : (e as Error).message,
       );
     } finally {
       setBusy(false);
@@ -63,7 +67,7 @@ export function NodeConfigDialog({ node, onClose }: { node: Node; onClose: () =>
     setError("");
     try {
       const r = await api.applyConfig(node.id);
-      setApplied(`已下发，版本 v${r.version}`);
+      setApplied(tf("已下发，版本 v{n}", { n: r.version }));
       setTimeout(() => setApplied(""), 2500);
     } catch (e) {
       setError((e as Error).message);
@@ -77,14 +81,14 @@ export function NodeConfigDialog({ node, onClose }: { node: Node; onClose: () =>
       <div className="flex items-start justify-between gap-4">
         <div>
           <h3 className="font-display text-lg font-semibold tracking-tight">
-            {node.name} · 配置
+            {node.name} · {t("配置")}
           </h3>
           <p className="mt-1 text-sm text-muted">
-            骨架是 inbounds 之外的部分；inbounds 由绑定的接入配置渲染装配。
+            {t("骨架是 inbounds 之外的部分；inbounds 由绑定的接入配置渲染装配。")}
           </p>
         </div>
         <Button variant="ghost" onClick={onClose}>
-          关闭
+          {t("关闭")}
         </Button>
       </div>
 
@@ -103,10 +107,10 @@ export function NodeConfigDialog({ node, onClose }: { node: Node; onClose: () =>
       <div className="mt-5">
         <div className="mb-2 flex items-center justify-between">
           <h4 className="text-[11px] font-medium uppercase tracking-[0.07em] text-faint">
-            config 骨架
+            {t("config 骨架")}
           </h4>
           <Button size="sm" variant="outline" onClick={saveSkeleton} disabled={busy}>
-            保存骨架
+            {t("保存骨架")}
           </Button>
         </div>
         {/* The skeleton is plain JSON, but the same editor keeps the look
@@ -123,7 +127,7 @@ export function NodeConfigDialog({ node, onClose }: { node: Node; onClose: () =>
       <div className="mt-6">
         <div className="mb-2 flex items-center justify-between gap-3">
           <h4 className="text-[11px] font-medium uppercase tracking-[0.07em] text-faint">
-            装配预览
+            {t("装配预览")}
           </h4>
           <div className="flex items-center gap-2">
             {preview && <TestBadge tested={preview.tested} error={preview.test_error} />}
@@ -133,7 +137,7 @@ export function NodeConfigDialog({ node, onClose }: { node: Node; onClose: () =>
               onClick={apply}
               disabled={busy || !preview || (!!preview.test_error && preview.tested)}
             >
-              {applied || "下发"}
+              {applied || t("下发")}
             </Button>
           </div>
         </div>
@@ -159,7 +163,7 @@ export function NodeConfigDialog({ node, onClose }: { node: Node; onClose: () =>
           </>
         ) : (
           <p className="rounded-xl border border-dashed border-line-strong px-4 py-8 text-center text-sm text-muted">
-            无法装配。先绑定接入配置，并确认模板里的变量都已定义。
+            {t("无法装配。先绑定接入配置，并确认模板里的变量都已定义。")}
           </p>
         )}
       </div>
@@ -168,19 +172,20 @@ export function NodeConfigDialog({ node, onClose }: { node: Node; onClose: () =>
 }
 
 function TestBadge({ tested, error }: { tested: boolean; error: string }) {
+  const { t } = useT();
   if (!tested) {
     return (
-      <span className="text-xs text-muted" title="面板未配置 xray 二进制，下发前不做预校验">
-        未校验
+      <span className="text-xs text-muted" title={t("面板未配置 xray 二进制，下发前不做预校验")}>
+        {t("未校验")}
       </span>
     );
   }
   return (
     <span
       className={cn("text-xs", error ? "text-danger" : "text-online")}
-      title={error || "xray -test 通过"}
+      title={error || t("xray -test 通过")}
     >
-      {error ? "xray -test 未通过" : "xray -test 通过"}
+      {error ? t("xray -test 未通过") : t("xray -test 通过")}
     </span>
   );
 }

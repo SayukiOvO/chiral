@@ -76,7 +76,7 @@ function NodeCard({
       setRestarted(true);
       setTimeout(() => setRestarted(false), 1600);
     } catch (e) {
-      alert(`重启失败：${(e as Error).message}`);
+      alert(t("重启失败：") + (e as Error).message);
     } finally {
       setBusy(false);
     }
@@ -130,7 +130,7 @@ function NodeCard({
               <SlidersIcon size={16} />
             </IconButton>
             <IconButton
-              label={restarted ? "已发送重启" : "重启内核"}
+              label={restarted ? t("已发送重启") : t("重启内核")}
               onClick={restart}
               disabled={busy || !node.online}
             >

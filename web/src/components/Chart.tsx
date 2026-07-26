@@ -20,7 +20,7 @@ export function Chart({
   series,
   height = 160,
   format,
-  emptyLabel = "暂无数据",
+  emptyLabel = "—",
 }: {
   series: Series[];
   height?: number;

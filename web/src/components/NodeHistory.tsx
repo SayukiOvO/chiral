@@ -46,7 +46,7 @@ export function NodeHistory({ nodeId }: { nodeId: string }) {
     { label: "CPU", points: (samples ?? []).map((s) => ({ at: s.at, value: s.cpu_percent })) },
   ];
   const mem: Series[] = [
-    { label: "内存", points: (samples ?? []).map((s) => ({ at: s.at, value: s.mem_used_bytes })) },
+    { label: t("内存"), points: (samples ?? []).map((s) => ({ at: s.at, value: s.mem_used_bytes })) },
   ];
   const net: Series[] = [
     { label: "↑", points: (samples ?? []).map((s) => ({ at: s.at, value: s.net_tx_bps })) },
@@ -79,13 +79,13 @@ export function NodeHistory({ nodeId }: { nodeId: string }) {
 
       <div className="grid gap-4 sm:grid-cols-3">
         <Panel title="CPU">
-          <Chart series={cpu} height={120} format={percent} emptyLabel={loadingLabel(samples)} />
+          <Chart series={cpu} height={120} format={percent} emptyLabel={loadingLabel(t, samples)} />
         </Panel>
         <Panel title={t("内存")}>
-          <Chart series={mem} height={120} format={bytes} emptyLabel={loadingLabel(samples)} />
+          <Chart series={mem} height={120} format={bytes} emptyLabel={loadingLabel(t, samples)} />
         </Panel>
         <Panel title={t("网速 ↑ / ↓")}>
-          <Chart series={net} height={120} format={bitrate} emptyLabel={loadingLabel(samples)} />
+          <Chart series={net} height={120} format={bitrate} emptyLabel={loadingLabel(t, samples)} />
         </Panel>
       </div>
       <p className="mt-2 text-xs text-faint">
@@ -106,6 +106,6 @@ function Panel({ title, children }: { title: string; children: React.ReactNode }
 
 // Distinguishing "still loading" from "nothing recorded" matters: a new node
 // legitimately has no history, and that should not read as a failure.
-function loadingLabel(samples: NodeSample[] | null): string {
-  return samples === null ? "加载中…" : "暂无采样";
+function loadingLabel(t: (k: string) => string, samples: NodeSample[] | null): string {
+  return samples === null ? t("加载中…") : t("暂无采样");
 }

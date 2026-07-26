@@ -2,6 +2,7 @@ import { MonitorIcon, MoonIcon, SunIcon } from "./icons";
 import { cn } from "../lib/cn";
 import type { ThemeMode } from "../lib/theme";
 import { useTheme } from "../lib/theme";
+import { useT } from "../lib/i18n";
 
 const OPTIONS: { mode: ThemeMode; label: string; Icon: typeof SunIcon }[] = [
   { mode: "light", label: "日间", Icon: SunIcon },
@@ -12,10 +13,11 @@ const OPTIONS: { mode: ThemeMode; label: string; Icon: typeof SunIcon }[] = [
 /** Three-state theme control as a compact segmented pill. */
 export function ThemeToggle() {
   const { mode, setMode } = useTheme();
+  const { t } = useT();
   return (
     <div
       role="radiogroup"
-      aria-label="主题"
+      aria-label={t("主题")}
       className="inline-flex items-center gap-0.5 rounded-lg border border-line p-0.5"
     >
       {OPTIONS.map(({ mode: m, label, Icon }) => {
@@ -25,8 +27,8 @@ export function ThemeToggle() {
             key={m}
             role="radio"
             aria-checked={active}
-            aria-label={label}
-            title={label}
+            aria-label={t(label)}
+            title={t(label)}
             onClick={() => setMode(m)}
             className={cn(
               "grid h-7 w-7 place-items-center rounded-md transition-colors",

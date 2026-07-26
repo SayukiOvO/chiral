@@ -7,6 +7,7 @@ import { cn } from "../lib/cn";
 import { href, navigate } from "../lib/router";
 import { useIsDark } from "../lib/theme";
 import { Empty, ErrorBar, Field, Modal, inputCls } from "./VariablesPage";
+import { useT } from "../lib/i18n";
 
 /** Injected by the Core for every render; see profile.contextFor. */
 const BUILTIN_NODE_VARS = ["node.name", "node.address", "node.hostname"];
@@ -46,6 +47,7 @@ function ProfileList({
   error: string;
   onChanged: () => void;
 }) {
+  const { t, tf } = useT();
   const [adding, setAdding] = useState(false);
   const [name, setName] = useState("");
   const [busy, setBusy] = useState(false);
@@ -72,21 +74,21 @@ function ProfileList({
     <div>
       <div className="mb-6 flex items-end justify-between gap-4">
         <div>
-          <h1 className="font-display text-[26px] font-semibold tracking-tight">接入配置</h1>
+          <h1 className="font-display text-[26px] font-semibold tracking-tight">{t("接入配置")}</h1>
           <p className="mt-1 text-sm text-muted">
-            一套接入方式：服务端 inbound 骨架 + 每用户凭证 + 各客户端模板。
+            {t("一套接入方式：服务端 inbound 骨架 + 每用户凭证 + 各客户端模板。")}
           </p>
         </div>
         <Button variant="primary" onClick={() => setAdding(true)}>
           <PlusIcon size={16} />
-          新增
+          {t("新增")}
         </Button>
       </div>
 
       {error && <ErrorBar text={error} />}
 
       {profiles.length === 0 ? (
-        <Empty>还没有接入配置。新建一个，再把它绑定到节点上。</Empty>
+        <Empty>{t("还没有接入配置。新建一个，再把它绑定到节点上。")}</Empty>
       ) : (
         <div className="flex flex-col gap-2.5">
           {profiles.map((p) => (
@@ -100,13 +102,13 @@ function ProfileList({
                   {p.name}
                 </div>
                 <div className="mt-0.5 text-xs text-muted">
-                  {p.node_ids.length} 个节点
+                  {tf("{n} 个节点", { n: p.node_ids.length })}
                   <span className="mx-1.5 text-faint">·</span>
-                  {(p.client_kinds ?? []).length} 份客户端模板
+                  {tf("{n} 份客户端模板", { n: (p.client_kinds ?? []).length })}
                   {!p.inbound_template && (
                     <>
                       <span className="mx-1.5 text-faint">·</span>
-                      <span className="text-warn">未填 inbound 骨架</span>
+                      <span className="text-warn">{t("未填 inbound 骨架")}</span>
                     </>
                   )}
                 </div>
@@ -120,8 +122,8 @@ function ProfileList({
       {adding && (
         <Modal onClose={() => setAdding(false)}>
           <form onSubmit={create}>
-            <h3 className="font-display text-lg font-semibold tracking-tight">新增接入配置</h3>
-            <Field label="名字">
+            <h3 className="font-display text-lg font-semibold tracking-tight">{t("新增接入配置")}</h3>
+            <Field label={t("名字")}>
               <input
                 autoFocus
                 value={name}
@@ -133,10 +135,10 @@ function ProfileList({
             {addError && <p className="mt-3 text-sm text-danger">{addError}</p>}
             <div className="mt-5 flex justify-end gap-2">
               <Button type="button" variant="ghost" onClick={() => setAdding(false)}>
-                取消
+                {t("取消")}
               </Button>
               <Button type="submit" variant="primary" disabled={busy || !name.trim()}>
-                创建
+                {t("创建")}
               </Button>
             </div>
           </form>
@@ -147,6 +149,7 @@ function ProfileList({
 }
 
 function ProfileEditor({ id, onChanged }: { id: string; onChanged: () => void }) {
+  const { t, tf } = useT();
   const dark = useIsDark();
   const [profile, setProfile] = useState<Profile | null>(null);
   const [vars, setVars] = useState<Variable[]>([]);
@@ -241,8 +244,8 @@ function ProfileEditor({ id, onChanged }: { id: string; onChanged: () => void })
       const r = await api.applyProfile(id);
       setApplyResult(
         r.failed === 0
-          ? `已下发到 ${r.applied} 个节点`
-          : `${r.applied} 个成功，${r.failed} 个失败：` +
+          ? tf("已下发到 {n} 个节点", { n: r.applied })
+          : tf("{ok} 个成功，{bad} 个失败：", { ok: r.applied, bad: r.failed }) +
               Object.entries(r.nodes)
                 .filter(([, v]) => v !== "ok")
                 .map(([k, v]) => `${nodes.find((n) => n.id === k)?.name ?? k}: ${v}`)
@@ -256,7 +259,7 @@ function ProfileEditor({ id, onChanged }: { id: string; onChanged: () => void })
   }
 
   if (!profile) {
-    return error ? <ErrorBar text={error} /> : <p className="text-sm text-muted">载入中…</p>;
+    return error ? <ErrorBar text={error} /> : <p className="text-sm text-muted">{t("载入中…")}</p>;
   }
 
   const bound = new Set(profile.node_ids);
@@ -267,7 +270,7 @@ function ProfileEditor({ id, onChanged }: { id: string; onChanged: () => void })
         href={href({ view: "profiles" })}
         className="text-sm text-muted transition-colors hover:text-ink"
       >
-        ← 接入配置
+        {t("← 接入配置")}
       </a>
       <div className="mt-3 mb-6 flex flex-wrap items-end justify-between gap-4">
         <div>
@@ -275,22 +278,22 @@ function ProfileEditor({ id, onChanged }: { id: string; onChanged: () => void })
             {profile.name}
           </h1>
           <p className="mt-1 text-sm text-muted">
-            服务端与客户端引用同一组变量的不同分量，因此不可能配错。
+            {t("服务端与客户端引用同一组变量的不同分量，因此不可能配错。")}
           </p>
         </div>
         <div className="flex items-center gap-2">
           <Button variant="outline" onClick={apply} disabled={busy || bound.size === 0}>
-            下发到 {bound.size} 个节点
+            {tf("下发到 {n} 个节点", { n: bound.size })}
           </Button>
           <Button variant="primary" onClick={save} disabled={busy}>
             {saved ? (
               <>
-                <CheckIcon size={15} /> 已保存
+                <CheckIcon size={15} /> {t("已保存")}
               </>
             ) : busy ? (
-              "保存中…"
+              t("保存中…")
             ) : (
-              "保存"
+              t("保存")
             )}
           </Button>
         </div>
@@ -304,8 +307,8 @@ function ProfileEditor({ id, onChanged }: { id: string; onChanged: () => void })
       )}
 
       <Section
-        title="服务端 inbound 骨架"
-        hint="渲染后作为一项进节点 config.json 的 inbounds。clients 留空，由 Core 按绑定用户注入。"
+        title={t("服务端 inbound 骨架")}
+        hint={t("渲染后作为一项进节点 config.json 的 inbounds。clients 留空，由 Core 按绑定用户注入。")}
       >
         <TemplateEditor
           value={inbound}
@@ -318,8 +321,8 @@ function ProfileEditor({ id, onChanged }: { id: string; onChanged: () => void })
       </Section>
 
       <Section
-        title="每用户 client-entry"
-        hint="clients 数组里单个用户对象的模板。M3 的在线增删用户改的就是这一条。"
+        title={t("每用户 client-entry")}
+        hint={t("clients 数组里单个用户对象的模板。M3 的在线增删用户改的就是这一条。")}
       >
         <TemplateEditor
           value={clientEntry}
@@ -332,8 +335,8 @@ function ProfileEditor({ id, onChanged }: { id: string; onChanged: () => void })
       </Section>
 
       <Section
-        title="客户端模板"
-        hint="每种客户端手写一份，避开订阅转换的表达力上限。私钥变量在这里不可用。"
+        title={t("客户端模板")}
+        hint={t("每种客户端手写一份，避开订阅转换的表达力上限。私钥变量在这里不可用。")}
       >
         <div className="mb-2.5 flex flex-wrap gap-1.5">
           {CLIENT_KINDS.map((k) => (
@@ -349,7 +352,7 @@ function ProfileEditor({ id, onChanged }: { id: string; onChanged: () => void })
               )}
             >
               {k}
-              {clientTemplates[k]?.trim() ? "" : " ·未填"}
+              {clientTemplates[k]?.trim() ? "" : " ·" + t("未填")}
             </button>
           ))}
         </div>
@@ -364,9 +367,9 @@ function ProfileEditor({ id, onChanged }: { id: string; onChanged: () => void })
         />
       </Section>
 
-      <Section title="绑定节点" hint="绑上以后，下发即把这套 inbound 装配进该节点的 config。">
+      <Section title={t("绑定节点")} hint={t("绑上以后，下发即把这套 inbound 装配进该节点的 config。")}>
         {nodes.length === 0 ? (
-          <p className="text-sm text-muted">还没有节点。</p>
+          <p className="text-sm text-muted">{t("还没有节点。")}</p>
         ) : (
           <div className="flex flex-wrap gap-2">
             {nodes.map((n) => {
@@ -400,14 +403,14 @@ function ProfileEditor({ id, onChanged }: { id: string; onChanged: () => void })
         <Button
           variant="danger"
           onClick={async () => {
-            if (!confirm(`删除接入配置「${profile.name}」？绑定关系与其变量会一并删除。`)) return;
+            if (!confirm(tf("删除接入配置「{name}」？绑定关系与其变量会一并删除。", { name: profile.name }))) return;
             await api.deleteProfile(id);
             onChanged();
             navigate({ view: "profiles" });
           }}
         >
           <TrashIcon size={15} />
-          删除此接入配置
+          {t("删除此接入配置")}
         </Button>
       </div>
     </div>

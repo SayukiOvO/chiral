@@ -10,6 +10,7 @@ import {
 import { Button, IconButton } from "../components/ui";
 import { PlusIcon, TrashIcon } from "../components/icons";
 import { cn } from "../lib/cn";
+import { useT } from "../lib/i18n";
 
 const SCOPE_LABEL: Record<Scope, string> = {
   global: "全局",
@@ -18,6 +19,7 @@ const SCOPE_LABEL: Record<Scope, string> = {
 };
 
 export function VariablesPage() {
+  const { t, tf } = useT();
   const [vars, setVars] = useState<Variable[]>([]);
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [nodes, setNodes] = useState<Node[]>([]);
@@ -61,14 +63,14 @@ export function VariablesPage() {
     <div>
       <div className="mb-6 flex items-end justify-between gap-4">
         <div>
-          <h1 className="font-display text-[26px] font-semibold tracking-tight">变量</h1>
+          <h1 className="font-display text-[26px] font-semibold tracking-tight">{t("变量")}</h1>
           <p className="mt-1 text-sm text-muted">
-            模板里 <code className="font-mono">{"{{名字}}"}</code> 引用的值。私钥类分量只存不取。
+            {t("模板里")} <code className="font-mono">{`{{${t("名字")}}}`}</code> {t("引用的值。私钥类分量只存不取。")}
           </p>
         </div>
         <Button variant="primary" onClick={() => setAdding(true)}>
           <PlusIcon size={16} />
-          新增变量
+          {t("新增变量")}
         </Button>
       </div>
 
@@ -76,16 +78,16 @@ export function VariablesPage() {
 
       {vars.length === 0 ? (
         <Empty>
-          还没有变量。生成一组 REALITY 密钥或填一个静态值，模板就能引用它。
+          {t("还没有变量。生成一组 REALITY 密钥或填一个静态值，模板就能引用它。")}
         </Empty>
       ) : (
         <div className="overflow-hidden rounded-2xl border border-line bg-surface">
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-line text-left text-[11px] uppercase tracking-[0.07em] text-faint">
-                <Th>名字</Th>
-                <Th>作用域</Th>
-                <Th>取值</Th>
+                <Th>{t("名字")}</Th>
+                <Th>{t("作用域")}</Th>
+                <Th>{t("取值")}</Th>
                 <Th> </Th>
               </tr>
             </thead>
@@ -102,7 +104,7 @@ export function VariablesPage() {
                     )}
                   </Td>
                   <Td>
-                    <span className="text-muted">{SCOPE_LABEL[v.scope]}</span>
+                    <span className="text-muted">{t(SCOPE_LABEL[v.scope])}</span>
                     {ownerName(v) && (
                       <span className="ml-1.5 text-faint">· {ownerName(v)}</span>
                     )}
@@ -128,10 +130,10 @@ export function VariablesPage() {
                   </Td>
                   <Td className="text-right">
                     <IconButton
-                      label="删除变量"
+                      label={t("删除变量")}
                       className="hover:text-danger"
                       onClick={async () => {
-                        if (!confirm(`删除变量「${v.name}」？引用它的模板会渲染失败。`)) return;
+                        if (!confirm(tf("删除变量「{name}」？引用它的模板会渲染失败。", { name: v.name }))) return;
                         await api.deleteVariable(v.id);
                         refresh();
                       }}
@@ -172,6 +174,7 @@ function AddVariableDialog({
   onClose: () => void;
   onCreated: () => void;
 }) {
+  const { t } = useT();
   const [name, setName] = useState("");
   const [scope, setScope] = useState<Scope>("profile");
   const [owner, setOwner] = useState("");
@@ -210,13 +213,13 @@ function AddVariableDialog({
   return (
     <Modal onClose={onClose}>
       <form onSubmit={submit}>
-        <h3 className="font-display text-lg font-semibold tracking-tight">新增变量</h3>
+        <h3 className="font-display text-lg font-semibold tracking-tight">{t("新增变量")}</h3>
         <p className="mt-1 text-sm text-muted">
-          生成器会产出成组的分量（如 <code className="font-mono">reality.private</code> /{" "}
-          <code className="font-mono">reality.public</code>），服务端与客户端各引用一半，天然配对。
+          {t("生成器会产出成组的分量（如")} <code className="font-mono">reality.private</code> /{" "}
+          <code className="font-mono">reality.public</code>{t("），服务端与客户端各引用一半，天然配对。")}
         </p>
 
-        <Field label="名字">
+        <Field label={t("名字")}>
           <input
             autoFocus
             value={name}
@@ -226,7 +229,7 @@ function AddVariableDialog({
           />
         </Field>
 
-        <Field label="作用域">
+        <Field label={t("作用域")}>
           <div className="flex gap-1.5">
             {(["global", "profile", "node"] as Scope[]).map((s) => (
               <button
@@ -243,20 +246,20 @@ function AddVariableDialog({
                     : "border-line-strong text-muted hover:border-signal",
                 )}
               >
-                {SCOPE_LABEL[s]}
+                {t(SCOPE_LABEL[s])}
               </button>
             ))}
           </div>
         </Field>
 
         {needsOwner && (
-          <Field label={scope === "profile" ? "属于哪个接入配置" : "属于哪个节点"}>
+          <Field label={t(scope === "profile" ? "属于哪个接入配置" : "属于哪个节点")}>
             <select
               value={owner}
               onChange={(e) => setOwner(e.target.value)}
               className={inputCls}
             >
-              <option value="">选择…</option>
+              <option value="">{t("选择…")}</option>
               {owners.map((o) => (
                 <option key={o.id} value={o.id}>
                   {o.name}
@@ -266,7 +269,7 @@ function AddVariableDialog({
           </Field>
         )}
 
-        <Field label="取值方式">
+        <Field label={t("取值方式")}>
           <div className="flex gap-1.5">
             {(
               [
@@ -285,14 +288,14 @@ function AddVariableDialog({
                     : "border-line-strong text-muted hover:border-signal",
                 )}
               >
-                {label}
+                {t(label)}
               </button>
             ))}
           </div>
         </Field>
 
         {mode === "generator" ? (
-          <Field label="生成器">
+          <Field label={t("生成器")}>
             <select
               value={generator}
               onChange={(e) => setGenerator(e.target.value)}
@@ -301,18 +304,18 @@ function AddVariableDialog({
               {generators.map((g) => (
                 <option key={g.name} value={g.name} disabled={!g.available}>
                   {g.name}
-                  {!g.available ? "（需要 xray 二进制，当前不可用）" : ""}
+                  {!g.available ? t("（需要 xray 二进制，当前不可用）") : ""}
                 </option>
               ))}
             </select>
             {chosen?.needs_xray && (
               <p className="mt-1.5 text-xs text-muted">
-                该生成器由面板调用 xray 二进制产出，保证格式与内核一致。
+                {t("该生成器由面板调用 xray 二进制产出，保证格式与内核一致。")}
               </p>
             )}
           </Field>
         ) : (
-          <Field label="值">
+          <Field label={t("值")}>
             <input
               value={value}
               onChange={(e) => setValue(e.target.value)}
@@ -326,14 +329,14 @@ function AddVariableDialog({
 
         <div className="mt-5 flex justify-end gap-2">
           <Button type="button" variant="ghost" onClick={onClose}>
-            取消
+            {t("取消")}
           </Button>
           <Button
             type="submit"
             variant="primary"
             disabled={busy || !name.trim() || (needsOwner && !owner)}
           >
-            {busy ? "创建中…" : "创建"}
+            {busy ? t("创建中…") : t("创建")}
           </Button>
         </div>
       </form>
@@ -346,6 +349,8 @@ function AddVariableDialog({
 export const inputCls =
   "w-full rounded-xl border border-line-strong bg-surface px-3.5 py-2.5 text-sm outline-none transition-colors placeholder:text-faint focus:border-signal";
 
+// label arrives already translated by the caller; translating again here would
+// be a second lookup of an English string.
 export function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="mt-4">

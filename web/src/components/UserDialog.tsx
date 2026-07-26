@@ -2,6 +2,7 @@ import { useState } from "react";
 import { api, type User, type UserInput } from "../api";
 import { dateToUnix, unixToDate } from "../format";
 import { Button } from "./ui";
+import { useT } from "../lib/i18n";
 
 const PERIODS = [
   { label: "不续期", seconds: 0 },
@@ -24,6 +25,7 @@ export function UserDialog({
   onClose: () => void;
   onSaved: (created?: { user: User; subscription_url: string }) => void;
 }) {
+  const { t } = useT();
   const [name, setName] = useState(user?.name ?? "");
   const [quotaGB, setQuotaGB] = useState(
     user ? String(user.quota_bytes ? user.quota_bytes / GB : 0) : "0",
@@ -38,7 +40,7 @@ export function UserDialog({
     e.preventDefault();
     const quota = Math.round(Number(quotaGB) * GB);
     if (!Number.isFinite(quota) || quota < 0) {
-      setError("流量配额必须是 0 或正数（0 表示不限）");
+      setError(t("流量配额必须是 0 或正数（0 表示不限）"));
       return;
     }
     const input: UserInput = {
@@ -77,21 +79,21 @@ export function UserDialog({
         className="w-full max-w-md animate-rise rounded-2xl border border-line bg-raised p-6 shadow-[var(--shadow-pop)]"
       >
         <h3 className="font-display text-lg font-semibold tracking-tight">
-          {user ? "编辑用户" : "新增用户"}
+          {user ? t("编辑用户") : t("新增用户")}
         </h3>
         <p className="mt-1 text-sm text-muted">
-          {user ? "改动会立即下发到节点。" : "创建后会给出订阅链接，只显示这一次。"}
+          {user ? t("改动会立即下发到节点。") : t("创建后会给出订阅链接，只显示这一次。")}
         </p>
 
         <label className="mt-4 block">
           <span className="text-xs font-medium uppercase tracking-[0.07em] text-faint">
-            用户名
+            {t("用户名")}
           </span>
           <input
             autoFocus
             value={name}
             onChange={(e) => setName(e.target.value)}
-            placeholder="例如 alice"
+            placeholder={t("例如 alice")}
             className="mt-1.5 w-full rounded-xl border border-line-strong bg-surface px-3.5 py-2.5 text-sm outline-none transition-colors placeholder:text-faint focus:border-signal"
           />
         </label>
@@ -99,7 +101,7 @@ export function UserDialog({
         <div className="mt-4 grid grid-cols-2 gap-3">
           <label className="block">
             <span className="text-xs font-medium uppercase tracking-[0.07em] text-faint">
-              流量配额 (GB)
+              {t("流量配额 (GB)")}
             </span>
             <input
               type="number"
@@ -109,11 +111,11 @@ export function UserDialog({
               onChange={(e) => setQuotaGB(e.target.value)}
               className="mt-1.5 w-full rounded-xl border border-line-strong bg-surface px-3.5 py-2.5 font-mono text-sm outline-none transition-colors focus:border-signal"
             />
-            <span className="mt-1 block text-xs text-faint">0 表示不限</span>
+            <span className="mt-1 block text-xs text-faint">{t("0 表示不限")}</span>
           </label>
           <label className="block">
             <span className="text-xs font-medium uppercase tracking-[0.07em] text-faint">
-              到期日
+              {t("到期日")}
             </span>
             <input
               type="date"
@@ -121,13 +123,13 @@ export function UserDialog({
               onChange={(e) => setExpires(e.target.value)}
               className="mt-1.5 w-full rounded-xl border border-line-strong bg-surface px-3.5 py-2.5 font-mono text-sm outline-none transition-colors focus:border-signal"
             />
-            <span className="mt-1 block text-xs text-faint">留空表示永不过期</span>
+            <span className="mt-1 block text-xs text-faint">{t("留空表示永不过期")}</span>
           </label>
         </div>
 
         <label className="mt-4 block">
           <span className="text-xs font-medium uppercase tracking-[0.07em] text-faint">
-            自动续期
+            {t("自动续期")}
           </span>
           <select
             value={period}
@@ -136,12 +138,12 @@ export function UserDialog({
           >
             {PERIODS.map((p) => (
               <option key={p.seconds} value={p.seconds}>
-                {p.label}
+                {t(p.label)}
               </option>
             ))}
           </select>
           <span className="mt-1 block text-xs text-faint">
-            到期时顺延一个周期，并把已用流量清零
+            {t("到期时顺延一个周期，并把已用流量清零")}
           </span>
         </label>
 
@@ -152,17 +154,17 @@ export function UserDialog({
             onChange={(e) => setEnabled(e.target.checked)}
             className="h-4 w-4 accent-[var(--online)]"
           />
-          <span className="text-sm">启用</span>
+          <span className="text-sm">{t("启用")}</span>
         </label>
 
         {error && <p className="mt-3 text-sm text-danger">{error}</p>}
 
         <div className="mt-5 flex justify-end gap-2">
           <Button type="button" variant="ghost" onClick={onClose}>
-            取消
+            {t("取消")}
           </Button>
           <Button type="submit" variant="primary" disabled={busy || !name.trim()}>
-            {busy ? "保存中…" : "保存"}
+            {busy ? t("保存中…") : t("保存")}
           </Button>
         </div>
       </form>
