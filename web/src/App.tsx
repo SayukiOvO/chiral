@@ -4,6 +4,9 @@ import { TopBar } from "./components/TopBar";
 import { LoginPage } from "./components/LoginPage";
 import { NodesPage } from "./pages/NodesPage";
 import { ProfilesPage } from "./pages/ProfilesPage";
+import { AdminsPage } from "./pages/AdminsPage";
+import { AlertsPage } from "./pages/AlertsPage";
+import { AuditPage } from "./pages/AuditPage";
 import { SecurityPage } from "./pages/SecurityPage";
 import { UsersPage } from "./pages/UsersPage";
 import { VariablesPage } from "./pages/VariablesPage";
@@ -34,6 +37,9 @@ function Console({ onSignOut }: { onSignOut: () => void }) {
         {route.view === "profiles" && <ProfilesPage id={route.id} />}
         {route.view === "users" && <UsersPage />}
         {route.view === "variables" && <VariablesPage />}
+        {route.view === "alerts" && <AlertsPage />}
+        {route.view === "admins" && <AdminsPage />}
+        {route.view === "audit" && <AuditPage />}
         {route.view === "security" && <SecurityPage />}
       </main>
     </div>

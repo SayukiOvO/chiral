@@ -10,6 +10,9 @@ export type Route =
   | { view: "profiles"; id?: string }
   | { view: "users"; id?: string }
   | { view: "variables" }
+  | { view: "admins" }
+  | { view: "audit" }
+  | { view: "alerts" }
   | { view: "security" };
 
 export function parseHash(hash: string): Route {
@@ -21,6 +24,12 @@ export function parseHash(hash: string): Route {
       return { view: "users", id: path[1] };
     case "variables":
       return { view: "variables" };
+    case "admins":
+      return { view: "admins" };
+    case "audit":
+      return { view: "audit" };
+    case "alerts":
+      return { view: "alerts" };
     case "security":
       return { view: "security" };
     default:
@@ -36,6 +45,12 @@ export function href(route: Route): string {
       return route.id ? `#/users/${route.id}` : "#/users";
     case "variables":
       return "#/variables";
+    case "admins":
+      return "#/admins";
+    case "audit":
+      return "#/audit";
+    case "alerts":
+      return "#/alerts";
     case "security":
       return "#/security";
     default:

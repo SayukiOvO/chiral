@@ -191,6 +191,32 @@ export interface Whoami {
   can_admin: boolean;
 }
 
+/** One entry in the audit trail. */
+export interface AuditEntry {
+  id: number;
+  at: number;
+  actor_id: string;
+  actor_name: string;
+  action: string;
+  target_type: string;
+  target_id: string;
+  target_name: string;
+  detail: string;
+}
+
+/** A place node availability alerts get delivered to. */
+export interface AlertTarget {
+  id: string;
+  kind: "telegram" | "webhook";
+  name: string;
+  /** The panel never returns the config itself, only enough to recognise it. */
+  config_hint: string;
+  enabled: boolean;
+  created_at: number;
+  last_error: string;
+  last_sent_at: number;
+}
+
 const TOKEN_KEY = "chiral_admin_token";
 
 export function getToken(): string {
@@ -353,6 +379,33 @@ export const api = {
     }),
   regenerateRecoveryCodes: () => req<{ codes: string[] }>("POST", "/api/mfa/recovery"),
   deleteMfaFactor: (id: string) => req<void>("DELETE", `/api/mfa/${id}`),
+
+  // --- admins (superadmin only) ---
+  listAdmins: () => req<{ admins: Admin[] }>("GET", "/api/admins"),
+  createAdmin: (username: string, password: string, role: Admin["role"]) =>
+    req<Admin>("POST", "/api/admins", { username, password, role }),
+  updateAdmin: (id: string, patch: { role?: Admin["role"]; disabled?: boolean }) =>
+    req<Admin>("PUT", `/api/admins/${id}`, patch),
+  deleteAdmin: (id: string) => req<void>("DELETE", `/api/admins/${id}`),
+
+  // --- audit ---
+  auditLog: (params: { before?: number; action?: string; actor_id?: string } = {}) => {
+    const q = new URLSearchParams();
+    if (params.before) q.set("before", String(params.before));
+    if (params.action) q.set("action", params.action);
+    if (params.actor_id) q.set("actor_id", params.actor_id);
+    const qs = q.toString();
+    return req<{ entries: AuditEntry[] }>("GET", `/api/audit${qs ? "?" + qs : ""}`);
+  },
+
+  // --- alert targets ---
+  listAlertTargets: () => req<{ targets: AlertTarget[] }>("GET", "/api/alerts"),
+  createAlertTarget: (t: { kind: string; name: string; config: string }) =>
+    req<AlertTarget>("POST", "/api/alerts", t),
+  updateAlertTarget: (id: string, patch: { enabled?: boolean }) =>
+    req<AlertTarget>("PUT", `/api/alerts/${id}`, patch),
+  deleteAlertTarget: (id: string) => req<void>("DELETE", `/api/alerts/${id}`),
+  testAlertTarget: (id: string) => req<void>("POST", `/api/alerts/${id}/test`),
 
   // --- users ---
   listUsers: () => req<{ users: User[] }>("GET", "/api/users"),

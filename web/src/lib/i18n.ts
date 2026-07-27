@@ -369,6 +369,57 @@ const EN: Record<string, string> = {
   再输一次: "Repeat it",
   "两次输入不一致。": "Those do not match.",
 
+  // alerts page
+  告警: "Alerts",
+  "节点上线 / 掉线的通知去处。状态要稳定两分钟才播报，避免抖动刷屏。":
+    "Where node up/down notifications go. A state must hold for two minutes before it is announced, so a flapping link does not flood the channel.",
+  新增目标: "Add target",
+  新增通知目标: "Add a notification target",
+  "还没有通知目标。加一个之后，节点掉线时才有人知道。":
+    "No targets yet. Until there is one, a node going down tells nobody.",
+  "创建后发一条测试消息——填错的 chat id 在真出事之前和正常的一模一样。":
+    "Send a test afterwards — a wrong chat id looks exactly like a working one until the night it matters.",
+  发一条测试: "Send a test",
+  已送达: "Delivered",
+  发送失败: "Failed",
+  最近发送: "last sent",
+  停用: "Disable",
+  类型: "Kind",
+  // 配置 already means the node's "Configure" action; this is a noun.
+  目标配置: "Target config",
+  "例如 运维群": "e.g. Ops group",
+  "格式 <bot-token>:<chat-id>。bot token 里本来就有冒号，从最右边的冒号切分。":
+    "Format <bot-token>:<chat-id>. The bot token contains a colon itself, so it is split at the rightmost one.",
+  "POST 一个 JSON body 过去。": "POSTs a JSON body.",
+
+  // admins page
+  管理员: "Admins",
+  新增管理员: "Add admin",
+  "能登录控制台的人，以及他们的角色。": "Who can sign in to the console, and as what.",
+  "还没有管理员账号。": "No admin accounts yet.",
+  "只有超级管理员能管理管理员账号。": "Only a superadmin can manage admin accounts.",
+  "对方首次登录后可以在「安全」页自行改密码并加第二因素。":
+    "After their first sign-in they can change the password and add a second factor from Security.",
+  "初始密码（至少 8 位）": "Initial password (8 characters or more)",
+  角色: "Role",
+  "全部权限，含管理其他管理员": "Everything, including managing other admins",
+  "改状态：节点 / 接入配置 / 变量 / 用户": "Changes state: nodes, profiles, variables, users",
+  只能看: "Read-only",
+  "（你自己）": "(you)",
+  最近登录: "last signed in",
+  "最近登录 {when}": "last signed in {when}",
+  从未登录: "never signed in",
+  不能改自己的角色: "You cannot change your own role",
+  删除管理员: "Delete admin",
+
+  // audit page
+  审计: "Audit",
+  "谁在什么时候改了什么。保留 180 天。": "Who changed what, and when. Kept for 180 days.",
+  "按动作过滤，例如 user.delete": "Filter by action, e.g. user.delete",
+  "还没有审计记录。": "Nothing recorded yet.",
+  "没有匹配的记录。": "No entries match.",
+  加载更多: "Load more",
+
   // node naming / portal handover (console side)
   重命名节点: "Rename node",
   重命名: "Rename",
