@@ -369,6 +369,24 @@ const EN: Record<string, string> = {
   再输一次: "Repeat it",
   "两次输入不一致。": "Those do not match.",
 
+  // node naming / portal handover (console side)
+  重命名节点: "Rename node",
+  重命名: "Rename",
+  "内部名给运维看，对客名称给订阅者看。":
+    "The internal name is for you; the customer-facing one is what subscribers see.",
+  内部名: "Internal name",
+  对客名称: "Customer-facing name",
+  "只在控制台出现，不会发给订阅者。": "Console only — never sent to subscribers.",
+  "例如 日本 · 东京 01": "e.g. Japan · Tokyo 01",
+  "留空则门户显示「线路 01」这样的编号，不会回落到内部名。":
+    "Leave blank and the portal numbers the line instead. It never falls back to the internal name.",
+  未设对客名称: "no customer-facing name",
+  门户认领链接: "Portal claim link",
+  "把这条链接发给 {name}，他用它设置自己的门户密码。":
+    "Send this to {name}; they use it to set their own portal password.",
+  "7 天内有效，只能用一次，关掉这个窗口就再也看不到。账号已存在时它只能改密码，不能改邮箱。":
+    "Valid for 7 days, usable once, and gone when you close this. If the account already exists it can set a new password but cannot change the email address.",
+
   // --- portal (the subscriber's side) ---
   //
   // Written for someone who bought a subscription, not for an operator: no

@@ -126,20 +126,6 @@ func (s *Store) SetUserAccountPassword(userID, passwordHash string) error {
 	return tx.Commit()
 }
 
-// SetUserAccountEmail changes the address and marks it unverified.
-func (s *Store) SetUserAccountEmail(userID, email string, verified bool) error {
-	res, err := s.db.Exec(
-		`UPDATE user_accounts SET email = ?, email_verified = ?, updated_at = ? WHERE user_id = ?`,
-		NormalizeEmail(email), verified, time.Now().Unix(), userID)
-	if err != nil {
-		return err
-	}
-	if n, _ := res.RowsAffected(); n == 0 {
-		return sql.ErrNoRows
-	}
-	return nil
-}
-
 // SetUserAccountDisabled switches portal access and drops live sessions when
 // switching it off, so the block takes effect now rather than in 30 days.
 func (s *Store) SetUserAccountDisabled(userID string, disabled bool) error {

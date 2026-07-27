@@ -7,7 +7,8 @@ import { NodeHistory } from "./NodeHistory";
 import { Sparkline } from "./Sparkline";
 import { StatusDot } from "./StatusDot";
 import { IconButton } from "./ui";
-import { CheckIcon, RestartIcon, SlidersIcon, TrashIcon } from "./icons";
+import { CheckIcon, PencilIcon, RestartIcon, SlidersIcon, TrashIcon } from "./icons";
+import { NodeNameDialog } from "./NodeNameDialog";
 import { useT } from "../lib/i18n";
 
 export function NodeRoster({
@@ -53,6 +54,7 @@ function NodeCard({
   const [busy, setBusy] = useState(false);
   const [restarted, setRestarted] = useState(false);
   const [expanded, setExpanded] = useState(false);
+  const [renaming, setRenaming] = useState(false);
   const m = node.metrics;
   const running = node.xray_state === "RUNNING";
   const total = (m?.net_tx_bps ?? 0) + (m?.net_rx_bps ?? 0);
@@ -104,6 +106,16 @@ function NodeCard({
               {node.hostname || "—"}
               {node.public_ip ? ` · ${node.public_ip}` : ""}
             </div>
+            {/* The portal shows this instead of the internal name. Flagged when
+                unset, because an unnamed line reads as "线路 03" to every
+                subscriber until someone fills it in. */}
+            <div className="truncate text-xs">
+              {node.display_name ? (
+                <span className="text-muted">{node.display_name}</span>
+              ) : (
+                <span className="text-warn">{t("未设对客名称")}</span>
+              )}
+            </div>
           </div>
         </div>
 
@@ -126,6 +138,9 @@ function NodeCard({
           </div>
         ) : (
           <div className="flex items-center gap-1 opacity-70 transition-opacity group-hover:opacity-100">
+            <IconButton label={t("重命名")} onClick={() => setRenaming(true)}>
+              <PencilIcon size={16} />
+            </IconButton>
             <IconButton label={t("配置")} onClick={onConfigure}>
               <SlidersIcon size={16} />
             </IconButton>
@@ -190,6 +205,10 @@ function NodeCard({
         <div className="mt-4 border-t border-line pt-4 pl-[22px]">
           <NodeHistory nodeId={node.id} />
         </div>
+      )}
+
+      {renaming && (
+        <NodeNameDialog node={node} onClose={() => setRenaming(false)} onSaved={onChanged} />
       )}
     </article>
   );

@@ -219,6 +219,44 @@ func (s *Server) portalClaim(w http.ResponseWriter, r *http.Request) {
 
 // --- the operator side of claiming ---
 
+// setPortalAccess switches a subscriber's portal login on or off.
+//
+// Deliberately separate from users.enabled, which governs whether their proxy
+// credentials work. The two answer different questions, and an operator wants
+// both levers: stop someone proxying while they can still sign in and read
+// why, or lock them out of the portal without interrupting their service.
+//
+// Switching it off drops their live sessions in the same transaction — a
+// 30-day session would otherwise outlive the decision by a month.
+func (s *Server) setPortalAccess(w http.ResponseWriter, r *http.Request) {
+	u, err := s.st.GetUser(r.PathValue("id"))
+	if err != nil {
+		s.notFoundOr(w, "load user", err, "no such user")
+		return
+	}
+	var req struct {
+		Disabled bool `json:"disabled"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeErr(w, http.StatusBadRequest, `body must be JSON with "disabled"`)
+		return
+	}
+	if _, err := s.st.UserAccount(u.ID); err != nil {
+		s.notFoundOr(w, "load account", err, "this user has no portal account")
+		return
+	}
+	if err := s.st.SetUserAccountDisabled(u.ID, req.Disabled); err != nil {
+		s.internalErr(w, "set portal access", err)
+		return
+	}
+	detail := "enabled"
+	if req.Disabled {
+		detail = "disabled"
+	}
+	s.audit(r, "user.portal_access", "user", u.ID, u.Name, detail)
+	w.WriteHeader(http.StatusNoContent)
+}
+
 // issuePortalLink mints a one-time link for a user, shaped exactly like
 // resetJoinToken: returned once, stored only as a hash.
 func (s *Server) issuePortalLink(w http.ResponseWriter, r *http.Request) {

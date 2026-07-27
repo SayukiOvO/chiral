@@ -145,6 +145,24 @@ func (s *Store) scanNode(row interface{ Scan(...any) error }) (Node, error) {
 	return n, nil
 }
 
+// UpdateNode changes the operator-facing name and the customer-facing one.
+//
+// Two names because they have two audiences: `name` is what the operator uses
+// to find a box and usually encodes the provider and datacentre, while
+// display_name is what subscribers see. Blank display_name means "unset" and
+// never falls back to name — see migration 0009.
+func (s *Store) UpdateNode(id, name, displayName string) error {
+	res, err := s.db.Exec(`UPDATE nodes SET name = ?, display_name = ? WHERE id = ?`,
+		name, displayName, id)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
 // CreateNode inserts a node awaiting registration via its join token.
 func (s *Store) CreateNode(name, joinTokenHash string) (Node, error) {
 	n := Node{ID: NewID(), Name: name, CreatedAt: time.Now().Unix()}

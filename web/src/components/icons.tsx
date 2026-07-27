@@ -108,6 +108,13 @@ export const PencilIcon = ({ size = 16, className }: IconProps) => (
   </svg>
 );
 
+export const KeyIcon = ({ size = 16, className }: IconProps) => (
+  <svg {...base(size, className)}>
+    <circle cx="8" cy="15" r="4" />
+    <path d="M10.8 12.2 20 3l1.5 1.5-1.5 1.5 1.5 1.5-2.5 2.5-1.5-1.5-2.2 2.2" />
+  </svg>
+);
+
 export const ShieldIcon = ({ size = 16, className }: IconProps) => (
   <svg {...base(size, className)}>
     <path d="M12 3l7 3v5.5c0 4.3-2.9 7.8-7 9.5-4.1-1.7-7-5.2-7-9.5V6Z" />

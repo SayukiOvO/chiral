@@ -5,6 +5,8 @@ import { cn } from "../lib/cn";
 import { QuotaBar } from "../components/QuotaBar";
 import { UserTraffic } from "../components/UserTraffic";
 import { UserDevices } from "../components/UserDevices";
+import { PortalLinkDialog } from "../components/PortalLinkDialog";
+import { KeyIcon } from "../components/icons";
 import { UserDialog } from "../components/UserDialog";
 import { SubscriptionDialog } from "../components/SubscriptionDialog";
 import { Button, IconButton } from "../components/ui";
@@ -126,6 +128,7 @@ function UserCard({
   const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState(false);
   const [expanded, setExpanded] = useState(false);
+  const [portalLink, setPortalLink] = useState(false);
 
   async function remove() {
     setBusy(true);
@@ -217,6 +220,11 @@ function UserCard({
             <IconButton label={t("重置订阅链接")} onClick={resetLink} disabled={busy}>
               <LinkIcon size={16} />
             </IconButton>
+            {/* The only way to hand an existing subscriber a portal account,
+                and — without SMTP — the only password reset there is. */}
+            <IconButton label={t("门户认领链接")} onClick={() => setPortalLink(true)}>
+              <KeyIcon size={16} />
+            </IconButton>
             <IconButton label={t("编辑")} onClick={onEdit}>
               <PencilIcon size={16} />
             </IconButton>
@@ -247,6 +255,14 @@ function UserCard({
           </Field>
         )}
       </div>
+
+      {portalLink && (
+        <PortalLinkDialog
+          userId={user.id}
+          userName={user.name}
+          onClose={() => setPortalLink(false)}
+        />
+      )}
 
       {expanded && (
         <div className="mt-4 border-t border-line pt-4 pl-[22px]">

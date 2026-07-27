@@ -108,6 +108,7 @@ func (s *Server) Handler() http.Handler {
 	})
 	mux.Handle("POST /api/nodes", s.requireWrite(s.createNode))
 	mux.Handle("GET /api/nodes", s.requireAdmin(s.listNodes))
+	mux.Handle("PUT /api/nodes/{id}", s.requireWrite(s.updateNode))
 	mux.Handle("DELETE /api/nodes/{id}", s.requireWrite(s.deleteNode))
 	mux.Handle("POST /api/nodes/{id}/join-token", s.requireWrite(s.resetJoinToken))
 	mux.Handle("PUT /api/nodes/{id}/config", s.requireWrite(s.putConfig))
@@ -125,6 +126,9 @@ func (s *Server) Handler() http.Handler {
 	// Hands the operator a one-time link a subscriber uses to set their own
 	// password, so nobody has to send a password by hand.
 	mux.Handle("POST /api/users/{id}/portal-link", s.requireWrite(s.issuePortalLink))
+	// Portal access, separate from users.enabled: one governs signing in, the
+	// other governs whether their proxy credentials work.
+	mux.Handle("PUT /api/users/{id}/portal-access", s.requireWrite(s.setPortalAccess))
 
 	mux.Handle("GET /api/nodes/{id}/samples", s.requireAdmin(s.nodeSamples))
 	mux.Handle("GET /api/traffic", s.requireAdmin(s.trafficSeries))
@@ -190,8 +194,13 @@ func (s *Server) Handler() http.Handler {
 }
 
 type nodeView struct {
-	ID           string `json:"id"`
+	ID string `json:"id"`
+	// Name is the operator's name for the box; DisplayName is what
+	// subscribers see in the portal. Blank means unset — the portal numbers
+	// the line instead, and never falls back to Name, which usually encodes
+	// the provider and datacentre.
 	Name         string `json:"name"`
+	DisplayName  string `json:"display_name"`
 	Hostname     string `json:"hostname"`
 	PublicIP     string `json:"public_ip"`
 	AgentVersion string `json:"agent_version"`
@@ -220,6 +229,7 @@ func (s *Server) view(n store.Node) nodeView {
 	v := nodeView{
 		ID:           n.ID,
 		Name:         n.Name,
+		DisplayName:  n.DisplayName,
 		Hostname:     n.Hostname,
 		PublicIP:     n.PublicIP,
 		AgentVersion: n.AgentVersion,
@@ -268,6 +278,44 @@ func (s *Server) createNode(w http.ResponseWriter, r *http.Request) {
 		"join_token": joinToken,
 		"compose":    s.composeSnippet(joinToken),
 	})
+}
+
+func (s *Server) updateNode(w http.ResponseWriter, r *http.Request) {
+	n, err := s.st.GetNode(r.PathValue("id"))
+	if err != nil {
+		s.notFoundOr(w, "load node", err, "no such node")
+		return
+	}
+	var req struct {
+		Name        string `json:"name"`
+		DisplayName string `json:"display_name"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeErr(w, http.StatusBadRequest, "body must be JSON")
+		return
+	}
+	if name := strings.TrimSpace(req.Name); name != "" {
+		n.Name = name
+	}
+	// Blank is a meaningful value here: it clears the customer-facing name and
+	// puts the line back to being numbered.
+	n.DisplayName = strings.TrimSpace(req.DisplayName)
+
+	if err := s.st.UpdateNode(n.ID, n.Name, n.DisplayName); err != nil {
+		if isConflict(err) {
+			writeErr(w, http.StatusConflict, "a node with that name already exists")
+			return
+		}
+		s.notFoundOr(w, "update node", err, "no such node")
+		return
+	}
+	s.audit(r, "node.update", "node", n.ID, n.Name, n.DisplayName)
+	n, err = s.st.GetNode(n.ID)
+	if err != nil {
+		s.internalErr(w, "load node", err)
+		return
+	}
+	writeJSON(w, http.StatusOK, s.view(n))
 }
 
 // composeSnippet renders the docker-compose the operator pastes onto the node

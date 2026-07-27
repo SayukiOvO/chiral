@@ -23,6 +23,12 @@ export interface NodeMetrics {
 export interface Node {
   id: string;
   name: string;
+  /**
+   * What subscribers see in the portal. Empty means unset, and the portal
+   * numbers the line instead — it never falls back to `name`, which usually
+   * encodes the provider and datacentre.
+   */
+  display_name: string;
   hostname: string;
   public_ip: string;
   agent_version: string;
@@ -246,6 +252,8 @@ export const api = {
   listNodes: () => req<{ nodes: Node[] }>("GET", "/api/nodes"),
   createNode: (name: string) =>
     req<CreateNodeResult>("POST", "/api/nodes", { name }),
+  updateNode: (id: string, patch: { name?: string; display_name?: string }) =>
+    req<Node>("PUT", `/api/nodes/${id}`, patch),
   deleteNode: (id: string) => req<void>("DELETE", `/api/nodes/${id}`),
   resetJoinToken: (id: string) =>
     req<{ join_token: string; compose: string }>(
@@ -363,6 +371,12 @@ export const api = {
   /** The addresses themselves. Superadmin only, and audited on every read. */
   userDevices: (id: string) =>
     req<{ devices: UserDevice[]; recording: boolean }>("GET", `/api/users/${id}/devices`),
+  /** Mints a one-time link the subscriber uses to set their own password. */
+  portalLink: (id: string) =>
+    req<{ claim_url: string; expires_at: number }>("POST", `/api/users/${id}/portal-link`),
+  /** Portal sign-in, separate from whether their proxy credentials work. */
+  setPortalAccess: (id: string, disabled: boolean) =>
+    req<void>("PUT", `/api/users/${id}/portal-access`, { disabled }),
   resetSubToken: (id: string) =>
     req<{ subscription_url: string }>("POST", `/api/users/${id}/sub-token`),
   bindUserProfile: (userId: string, profileId: string) =>
