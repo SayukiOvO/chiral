@@ -13,6 +13,7 @@ import (
 	"math/rand/v2"
 	"os"
 	"path/filepath"
+	"sync"
 	"time"
 
 	"google.golang.org/grpc"
@@ -65,6 +66,12 @@ type Client struct {
 	// events buffers async xray events for the active stream; bounded and
 	// lossy (an overwhelmed queue drops, Core learns state via heartbeats).
 	events chan *chiralv1.Event
+
+	// online holds the polling policy Core last pushed. Guarded by its own
+	// mutex: the policy arrives on the reader goroutine and is read by the
+	// polling one.
+	onlineMu     sync.Mutex
+	onlinePolicy *chiralv1.OnlinePolicy
 }
 
 func New(cfg Config, xr *xray.Manager, col *collector.Collector, logger *slog.Logger) *Client {
@@ -241,6 +248,17 @@ func (c *Client) runStream(ctx context.Context, svc chiralv1.AgentServiceClient)
 	defer cancel()
 	streamCtx = metadata.AppendToOutgoingContext(streamCtx, CredentialMetadataKey, c.st.Credential)
 
+	// Forget the previous stream's polling policy before this one starts.
+	//
+	// The policy is Core's to decide and is re-sent on every connect, so
+	// carrying it across a reconnect means an agent keeps polling after the
+	// operator has switched recording off — it would only stop when its
+	// process did. Idle is the safe default: the worst case is one round of
+	// delay, against recording addresses nobody asked for.
+	c.onlineMu.Lock()
+	c.onlinePolicy = nil
+	c.onlineMu.Unlock()
+
 	stream, err := svc.Channel(streamCtx)
 	if err != nil {
 		return err
@@ -317,6 +335,31 @@ func (c *Client) runStream(ctx context.Context, svc chiralv1.AgentServiceClient)
 		}
 	}()
 
+	// Online-address polling. Idle until Core enables it, and re-read every
+	// tick so a policy change takes effect without a reconnect. The tick is
+	// deliberately finer than any interval Core would ask for; a round only
+	// runs when its own interval has elapsed.
+	go func() {
+		t := time.NewTicker(time.Second)
+		defer t.Stop()
+		var last time.Time
+		for {
+			select {
+			case now := <-t.C:
+				enabled, interval := c.onlineSettings()
+				if !enabled || now.Sub(last) < interval {
+					continue
+				}
+				last = now
+				if f := c.onlineFrame(streamCtx); f != nil {
+					trySend(streamCtx, sendCh, f)
+				}
+			case <-streamCtx.Done():
+				return
+			}
+		}
+	}()
+
 	// Reader loop: dispatch frames from Core.
 	for {
 		frame, err := stream.Recv()
@@ -358,6 +401,13 @@ func (c *Client) handleFrame(ctx context.Context, sendCh chan<- *chiralv1.AgentF
 		case *chiralv1.Command_ReportNow:
 			trySend(ctx, sendCh, c.heartbeatFrame())
 		}
+	case *chiralv1.CoreFrame_OnlinePolicy:
+		p := fr.OnlinePolicy
+		c.onlineMu.Lock()
+		c.onlinePolicy = p
+		c.onlineMu.Unlock()
+		c.logger.Info("online policy updated",
+			"enabled", p.GetEnabled(), "interval_seconds", p.GetIntervalSeconds())
 	case *chiralv1.CoreFrame_UserOp:
 		// Applied against the live kernel so a ban or a new subscriber takes
 		// effect without dropping everyone else's connections.
@@ -407,6 +457,53 @@ func (c *Client) statsFrame(ctx context.Context) *chiralv1.AgentFrame {
 	}
 	return &chiralv1.AgentFrame{Frame: &chiralv1.AgentFrame_Stats{
 		Stats: &chiralv1.StatsReport{Entries: entries},
+	}}
+}
+
+// onlineSettings reports the policy Core last pushed. Disabled until it says
+// otherwise: an operator who has not asked for this should not be paying for
+// an `xray api` subprocess per online user per round.
+func (c *Client) onlineSettings() (enabled bool, interval time.Duration) {
+	c.onlineMu.Lock()
+	defer c.onlineMu.Unlock()
+	if c.onlinePolicy == nil || !c.onlinePolicy.GetEnabled() {
+		return false, 0
+	}
+	seconds := c.onlinePolicy.GetIntervalSeconds()
+	if seconds <= 0 {
+		seconds = 30
+	}
+	return true, time.Duration(seconds) * time.Second
+}
+
+// onlineFrame reports who is connected and from where.
+//
+// Always returns a frame when polling is on, even with nothing to report. An
+// empty report and no report at all must not look the same to Core: the first
+// says "nobody is connected", the second says "this node is not telling you",
+// and treating the second as the first would clear a user's addresses every
+// time an agent went quiet.
+func (c *Client) onlineFrame(ctx context.Context) *chiralv1.AgentFrame {
+	users, complete, err := c.xr.OnlineUsers(ctx)
+	if err != nil {
+		c.logger.Warn("reading online users failed", "err", err)
+		// Not a silent skip: an incomplete round is a fact Core acts on.
+		complete = false
+	}
+	entries := make([]*chiralv1.OnlineUser, 0, len(users))
+	for _, u := range users {
+		ips := make([]*chiralv1.OnlineIP, 0, len(u.IPs))
+		for ip, at := range u.IPs {
+			ips = append(ips, &chiralv1.OnlineIP{Ip: ip, LastSeenUnix: at})
+		}
+		entries = append(entries, &chiralv1.OnlineUser{Email: u.Email, Ips: ips})
+	}
+	return &chiralv1.AgentFrame{Frame: &chiralv1.AgentFrame_Online{
+		Online: &chiralv1.OnlineReport{
+			AtUnix:   time.Now().Unix(),
+			Complete: complete,
+			Users:    entries,
+		},
 	}}
 }
 

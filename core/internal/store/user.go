@@ -23,9 +23,13 @@ type User struct {
 	Enabled     bool
 	// Active records whether the credentials are currently installed on the
 	// nodes, so we only push the difference rather than re-pushing blindly.
-	Active    bool
-	CreatedAt int64
-	UpdatedAt int64
+	Active bool
+	// DeviceLimit is the expected number of concurrent source addresses, 0 for
+	// none. Displayed, never enforced: no Xray API can end an established
+	// session, so there is nothing for it to drive. See migration 0008.
+	DeviceLimit int
+	CreatedAt   int64
+	UpdatedAt   int64
 }
 
 // Credential is one user's access to one profile on one node — the unit of
@@ -44,12 +48,12 @@ type Credential struct {
 
 func credentialAAD(id string) string { return "credential:" + id }
 
-const userCols = `id, name, quota_bytes, used_bytes, expires_at, renew_period, enabled, active, created_at, updated_at`
+const userCols = `id, name, quota_bytes, used_bytes, expires_at, renew_period, enabled, active, device_limit, created_at, updated_at`
 
 func scanUser(row interface{ Scan(...any) error }) (User, error) {
 	var u User
 	err := row.Scan(&u.ID, &u.Name, &u.QuotaBytes, &u.UsedBytes, &u.ExpiresAt,
-		&u.RenewPeriod, &u.Enabled, &u.Active, &u.CreatedAt, &u.UpdatedAt)
+		&u.RenewPeriod, &u.Enabled, &u.Active, &u.DeviceLimit, &u.CreatedAt, &u.UpdatedAt)
 	return u, err
 }
 
@@ -61,10 +65,10 @@ func (s *Store) CreateUser(u User, subTokenHash string) (User, error) {
 	u.CreatedAt, u.UpdatedAt = now, now
 	_, err := s.db.Exec(`
 		INSERT INTO users (id, name, sub_token_hash, quota_bytes, used_bytes, expires_at,
-			renew_period, enabled, active, created_at, updated_at)
-		VALUES (?, ?, ?, ?, 0, ?, ?, ?, 0, ?, ?)`,
+			renew_period, enabled, active, device_limit, created_at, updated_at)
+		VALUES (?, ?, ?, ?, 0, ?, ?, ?, 0, ?, ?, ?)`,
 		u.ID, u.Name, subTokenHash, u.QuotaBytes, u.ExpiresAt, u.RenewPeriod,
-		u.Enabled, u.CreatedAt, u.UpdatedAt)
+		u.Enabled, u.DeviceLimit, u.CreatedAt, u.UpdatedAt)
 	return u, err
 }
 
@@ -98,8 +102,9 @@ func (s *Store) ListUsers() ([]User, error) {
 func (s *Store) UpdateUser(u User) error {
 	res, err := s.db.Exec(`
 		UPDATE users SET name = ?, quota_bytes = ?, expires_at = ?, renew_period = ?,
-			enabled = ?, updated_at = ? WHERE id = ?`,
-		u.Name, u.QuotaBytes, u.ExpiresAt, u.RenewPeriod, u.Enabled, time.Now().Unix(), u.ID)
+			enabled = ?, device_limit = ?, updated_at = ? WHERE id = ?`,
+		u.Name, u.QuotaBytes, u.ExpiresAt, u.RenewPeriod, u.Enabled, u.DeviceLimit,
+		time.Now().Unix(), u.ID)
 	if err != nil {
 		return err
 	}

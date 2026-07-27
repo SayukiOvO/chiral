@@ -24,10 +24,16 @@ type userView struct {
 	// true; surfacing both makes a stuck sync visible instead of mysterious.
 	Active bool `json:"active"`
 	// Allowed is the computed verdict: enabled, in date, and under quota.
-	Allowed     bool             `json:"allowed"`
-	ProfileIDs  []string         `json:"profile_ids"`
-	Credentials []credentialView `json:"credentials,omitempty"`
-	CreatedAt   int64            `json:"created_at"`
+	Allowed bool `json:"allowed"`
+	// DeviceLimit is the expected number of concurrent source addresses, 0 for
+	// none. Nothing enforces it — see store.User.DeviceLimit.
+	DeviceLimit int `json:"device_limit"`
+	// OnlineDevices is the current count, absent when recording is off so the
+	// UI can distinguish "nobody connected" from "not measuring".
+	OnlineDevices *int             `json:"online_devices,omitempty"`
+	ProfileIDs    []string         `json:"profile_ids"`
+	Credentials   []credentialView `json:"credentials,omitempty"`
+	CreatedAt     int64            `json:"created_at"`
 }
 
 type credentialView struct {
@@ -50,9 +56,14 @@ func (s *Server) userView(u store.User, withCredentials bool) (userView, error) 
 		QuotaBytes: u.QuotaBytes, UsedBytes: u.UsedBytes,
 		ExpiresAt: u.ExpiresAt, RenewPeriod: u.RenewPeriod,
 		Enabled: u.Enabled, Active: u.Active,
-		Allowed:    user.Allowed(u, time.Now().Unix()),
-		ProfileIDs: profileIDs,
-		CreatedAt:  u.CreatedAt,
+		Allowed:     user.Allowed(u, time.Now().Unix()),
+		DeviceLimit: u.DeviceLimit,
+		ProfileIDs:  profileIDs,
+		CreatedAt:   u.CreatedAt,
+	}
+	if s.online != nil {
+		n := s.online.Status(u.ID, time.Now()).Count
+		v.OnlineDevices = &n
 	}
 	if withCredentials {
 		creds, err := s.st.UserCredentials(u.ID)
@@ -75,6 +86,7 @@ type userRequest struct {
 	ExpiresAt   int64  `json:"expires_at"`
 	RenewPeriod int64  `json:"renew_period"`
 	Enabled     *bool  `json:"enabled"`
+	DeviceLimit int    `json:"device_limit"`
 }
 
 func (s *Server) createUser(w http.ResponseWriter, r *http.Request) {
@@ -94,6 +106,7 @@ func (s *Server) createUser(w http.ResponseWriter, r *http.Request) {
 		ExpiresAt:   req.ExpiresAt,
 		RenewPeriod: req.RenewPeriod,
 		Enabled:     enabled,
+		DeviceLimit: req.DeviceLimit,
 	}, hash)
 	if err != nil {
 		if isConflict(err) {
@@ -172,6 +185,7 @@ func (s *Server) updateUser(w http.ResponseWriter, r *http.Request) {
 		u.Name = name
 	}
 	u.QuotaBytes, u.ExpiresAt, u.RenewPeriod = req.QuotaBytes, req.ExpiresAt, req.RenewPeriod
+	u.DeviceLimit = req.DeviceLimit
 	if req.Enabled != nil {
 		u.Enabled = *req.Enabled
 	}

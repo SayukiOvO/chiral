@@ -273,6 +273,115 @@ func UserTrafficFrom(stats []Stat) []UserTraffic {
 	return out
 }
 
+// OnlineUser is one credential's currently-connected source addresses.
+type OnlineUser struct {
+	Email string
+	IPs   map[string]int64 // address -> last-seen unix seconds
+}
+
+// OnlineUsers reports who is connected right now and from where.
+//
+// Two calls per round plus one per online user: `statsgetallonlineusers` for
+// the roster, then `statsonlineiplist` for each name in it. The roster alone is
+// not enough — it gives names, not addresses — and there is no bulk form.
+//
+// The boolean reports whether the enumeration finished. A partial answer must
+// never be read as a complete one: it would look exactly like several devices
+// disconnecting at once. Everything measured here is against Xray 26.3.27:
+//
+//   - Without policy.levels."0".statsUserOnline, every one of these commands
+//     fails silently. statsonline and statsonlineiplist return NotFound with a
+//     non-zero exit, but statsgetallonlineusers prints `{}` and exits 0 —
+//     indistinguishable from nobody being connected. `xray -test` accepts the
+//     config either way, so the kernel is the only oracle for this.
+//
+//   - The count is of distinct source addresses, not sessions. Three
+//     concurrent connections from one address report as one address.
+//
+//   - Loopback sources are excluded from the accounting altogether: a
+//     connection from 127.0.0.1 leaves the count at zero and the map empty.
+//     That only bites in local testing, but it makes a loopback test look
+//     exactly like a broken feature.
+func (m *Manager) OnlineUsers(ctx context.Context) ([]OnlineUser, bool, error) {
+	addr := m.APIAddress()
+	if addr == "" {
+		return nil, false, nil // no API configured; nothing to report
+	}
+	out, err := m.runAPI(ctx, addr, "statsgetallonlineusers")
+	if err != nil {
+		return nil, false, err
+	}
+	emails, err := parseOnlineRoster(out)
+	if err != nil {
+		return nil, false, err
+	}
+
+	users := make([]OnlineUser, 0, len(emails))
+	for _, email := range emails {
+		ipOut, err := m.runAPI(ctx, addr, "statsonlineiplist", "-email="+email)
+		if err != nil {
+			// The roster is already stale by the time we walk it, so a user who
+			// disconnected mid-round is ordinary. Report what we have and let
+			// Core discard the round rather than treating a short list as fact.
+			m.logger.Warn("reading online addresses failed", "email", email, "err", err)
+			return users, false, nil
+		}
+		ips, err := parseOnlineIPs(ipOut)
+		if err != nil {
+			m.logger.Warn("parsing online addresses failed", "email", email, "err", err)
+			return users, false, nil
+		}
+		if len(ips) == 0 {
+			continue
+		}
+		users = append(users, OnlineUser{Email: email, IPs: ips})
+	}
+	return users, true, nil
+}
+
+// parseOnlineRoster pulls the credential names out of statsgetallonlineusers.
+//
+// The names arrive as full stat keys ("user>>>alice.u1@p1.n1>>>online"), which
+// are not what statsonlineiplist wants; it takes the bare email.
+func parseOnlineRoster(out string) ([]string, error) {
+	start := strings.Index(out, "{")
+	if start < 0 {
+		return nil, fmt.Errorf("no JSON in statsgetallonlineusers output: %s", firstLines(out, 3))
+	}
+	var parsed struct {
+		Users []string `json:"users"`
+	}
+	if err := json.Unmarshal([]byte(out[start:]), &parsed); err != nil {
+		return nil, fmt.Errorf("statsgetallonlineusers output is not JSON: %w", err)
+	}
+	emails := make([]string, 0, len(parsed.Users))
+	for _, name := range parsed.Users {
+		parts := strings.Split(name, ">>>")
+		if len(parts) != 3 || parts[0] != "user" || parts[2] != "online" {
+			continue
+		}
+		if parts[1] != "" {
+			emails = append(emails, parts[1])
+		}
+	}
+	return emails, nil
+}
+
+// parseOnlineIPs reads the {address: last-seen} map from statsonlineiplist.
+func parseOnlineIPs(out string) (map[string]int64, error) {
+	start := strings.Index(out, "{")
+	if start < 0 {
+		return nil, fmt.Errorf("no JSON in statsonlineiplist output: %s", firstLines(out, 3))
+	}
+	var parsed struct {
+		IPs map[string]int64 `json:"ips"`
+	}
+	if err := json.Unmarshal([]byte(out[start:]), &parsed); err != nil {
+		return nil, fmt.Errorf("statsonlineiplist output is not JSON: %w", err)
+	}
+	return parsed.IPs, nil
+}
+
 func (m *Manager) runAPI(ctx context.Context, addr, sub string, args ...string) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, apiTimeout)
 	defer cancel()

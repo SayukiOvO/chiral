@@ -53,6 +53,17 @@ export interface User {
   active: boolean;
   /** Computed: enabled, in date, and under quota. */
   allowed: boolean;
+  /**
+   * Expected concurrent source addresses, 0 for none. Nothing enforces it —
+   * no Xray API can end an established session — so it is shown, not applied.
+   */
+  device_limit: number;
+  /**
+   * Current address count. Absent when recording is switched off, which is
+   * why it is optional rather than 0: "not measuring" and "nobody connected"
+   * must not look the same.
+   */
+  online_devices?: number;
   profile_ids: string[];
   credentials?: Credential[];
   created_at: number;
@@ -63,7 +74,17 @@ export interface UserInput {
   quota_bytes: number;
   expires_at: number;
   renew_period: number;
+  device_limit?: number;
   enabled?: boolean;
+}
+
+/** One observed source address. Superadmin only; every read is audited. */
+export interface UserDevice {
+  ip: string;
+  node_id: string;
+  node_name: string;
+  first_seen: number;
+  last_seen: number;
 }
 
 export interface NodeSample {
@@ -358,6 +379,15 @@ export const api = {
   updateUser: (id: string, u: UserInput) =>
     req<User>("PUT", `/api/users/${id}`, u),
   deleteUser: (id: string) => req<void>("DELETE", `/api/users/${id}`),
+  /** Address COUNT. Available to any admin — it answers "why can't they connect". */
+  userOnline: (id: string) =>
+    req<{ count: number; partial: boolean; nodes_reporting: number; device_limit: number; recording: boolean }>(
+      "GET",
+      `/api/users/${id}/online`,
+    ),
+  /** The addresses themselves. Superadmin only, and audited on every read. */
+  userDevices: (id: string) =>
+    req<{ devices: UserDevice[]; recording: boolean }>("GET", `/api/users/${id}/devices`),
   resetSubToken: (id: string) =>
     req<{ subscription_url: string }>("POST", `/api/users/${id}/sub-token`),
   bindUserProfile: (userId: string, profileId: string) =>

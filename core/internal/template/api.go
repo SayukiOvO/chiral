@@ -12,6 +12,13 @@ import (
 // Core injects the block rather than expecting operators to remember the
 // incantation. A skeleton that already declares "api" is left entirely alone,
 // on the assumption that an operator who wrote one meant it.
+//
+// RoutingService is in the service list even though nothing calls it yet. It is
+// what `xray api sib` needs to block a source address, and adding it later
+// would mean a second config version and a second Xray restart across the whole
+// fleet — every live connection on every node dropped, twice, for one line of
+// JSON. Measured on 26.3.27: without it, sib fails with
+// "Unimplemented: unknown service xray.app.router.command.RoutingService".
 const (
 	// APIInboundTag is the dokodemo-door inbound that carries API calls. It is
 	// distinct from APIHandlerTag so it cannot collide with the implicit
@@ -41,7 +48,8 @@ func EnsureAPI(cfg map[string]json.RawMessage) (bool, error) {
 
 	if _, present := cfg["api"]; !present {
 		cfg["api"] = json.RawMessage(fmt.Sprintf(
-			`{"tag":%q,"services":["HandlerService","StatsService"]}`, APIHandlerTag))
+			`{"tag":%q,"services":[%q,%q,%q]}`,
+			APIHandlerTag, "HandlerService", "StatsService", "RoutingService"))
 		if err := ensureAPIInbound(cfg); err != nil {
 			return false, err
 		}
@@ -67,6 +75,14 @@ func EnsureAPI(cfg map[string]json.RawMessage) (bool, error) {
 // ensureStatsPolicy turns on per-user counters for policy level 0, which is
 // what an inbound's clients get unless told otherwise, without disturbing any
 // other policy the operator set.
+//
+// statsUserOnline is here alongside the traffic counters, and its absence is
+// the nastiest silent failure in this file. Measured on Xray 26.3.27: without
+// it, per-user traffic still works, but `xray api statsonline` and
+// `statsonlineiplist` return NotFound while `statsgetallonlineusers` prints
+// `{}` and exits 0 — identical to nobody being connected. `xray -test` accepts
+// the config either way. So a panel missing this line would show every account
+// as using zero addresses, forever, with nothing anywhere reporting a problem.
 func ensureStatsPolicy(cfg map[string]json.RawMessage) (bool, error) {
 	var policy map[string]json.RawMessage
 	if raw, ok := cfg["policy"]; ok && len(raw) > 0 {
@@ -99,7 +115,7 @@ func ensureStatsPolicy(cfg map[string]json.RawMessage) (bool, error) {
 	}
 
 	changed := false
-	for _, key := range []string{"statsUserUplink", "statsUserDownlink"} {
+	for _, key := range []string{"statsUserUplink", "statsUserDownlink", "statsUserOnline"} {
 		// Only fill in what is missing: an operator who deliberately set one
 		// to false has said something, even if it costs them enforcement.
 		if _, present := level0[key]; !present {

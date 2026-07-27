@@ -349,6 +349,7 @@ type AgentFrame struct {
 	//	*AgentFrame_Stats
 	//	*AgentFrame_ConfigAck
 	//	*AgentFrame_Event
+	//	*AgentFrame_Online
 	Frame         isAgentFrame_Frame `protobuf_oneof:"frame"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -436,6 +437,15 @@ func (x *AgentFrame) GetEvent() *Event {
 	return nil
 }
 
+func (x *AgentFrame) GetOnline() *OnlineReport {
+	if x != nil {
+		if x, ok := x.Frame.(*AgentFrame_Online); ok {
+			return x.Online
+		}
+	}
+	return nil
+}
+
 type isAgentFrame_Frame interface {
 	isAgentFrame_Frame()
 }
@@ -460,6 +470,10 @@ type AgentFrame_Event struct {
 	Event *Event `protobuf:"bytes,5,opt,name=event,proto3,oneof"`
 }
 
+type AgentFrame_Online struct {
+	Online *OnlineReport `protobuf:"bytes,6,opt,name=online,proto3,oneof"`
+}
+
 func (*AgentFrame_Hello) isAgentFrame_Frame() {}
 
 func (*AgentFrame_Heartbeat) isAgentFrame_Frame() {}
@@ -469,6 +483,8 @@ func (*AgentFrame_Stats) isAgentFrame_Frame() {}
 func (*AgentFrame_ConfigAck) isAgentFrame_Frame() {}
 
 func (*AgentFrame_Event) isAgentFrame_Frame() {}
+
+func (*AgentFrame_Online) isAgentFrame_Frame() {}
 
 // Hello is the first frame after the stream is established.
 type Hello struct {
@@ -829,6 +845,191 @@ func (x *ConfigAck) GetError() string {
 	return ""
 }
 
+// OnlineReport lists the source addresses currently connected, per credential.
+//
+// This is an ABSOLUTE SNAPSHOT, and the deliberate exception to the delta rule
+// StatsReport follows. The two have opposite failure modes: traffic counters
+// reset to zero when Xray restarts, so absolute values would skew totals —
+// whereas an observation set that empties on restart means "we are not
+// observing", never "zero devices, lift the limit". Sending the whole set each
+// time is what lets Core tell those apart.
+//
+// Measured against Xray 26.3.27, and the reason for `complete`: a user's online
+// count is the number of DISTINCT SOURCE ADDRESSES, not sessions — three
+// concurrent connections from one address report as one. Loopback sources are
+// excluded from Xray's accounting entirely.
+type OnlineReport struct {
+	state  protoimpl.MessageState `protogen:"open.v1"`
+	AtUnix int64                  `protobuf:"varint,1,opt,name=at_unix,json=atUnix,proto3" json:"at_unix,omitempty"`
+	// False when the agent could not enumerate everything this round (a timeout
+	// partway through the fan-out). Core must skip such a round rather than read
+	// a truncated set as "these are all the addresses in use".
+	Complete bool `protobuf:"varint,2,opt,name=complete,proto3" json:"complete,omitempty"`
+	// Sent every round even when empty, so silence stays unambiguous. An empty
+	// list from Xray has three different causes — the policy is off, nobody is
+	// connected, or every source was loopback — and `xray api
+	// statsgetallonlineusers` answers all three with `{}` and exit 0.
+	Users         []*OnlineUser `protobuf:"bytes,3,rep,name=users,proto3" json:"users,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *OnlineReport) Reset() {
+	*x = OnlineReport{}
+	mi := &file_chiral_v1_agent_proto_msgTypes[8]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *OnlineReport) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*OnlineReport) ProtoMessage() {}
+
+func (x *OnlineReport) ProtoReflect() protoreflect.Message {
+	mi := &file_chiral_v1_agent_proto_msgTypes[8]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use OnlineReport.ProtoReflect.Descriptor instead.
+func (*OnlineReport) Descriptor() ([]byte, []int) {
+	return file_chiral_v1_agent_proto_rawDescGZIP(), []int{8}
+}
+
+func (x *OnlineReport) GetAtUnix() int64 {
+	if x != nil {
+		return x.AtUnix
+	}
+	return 0
+}
+
+func (x *OnlineReport) GetComplete() bool {
+	if x != nil {
+		return x.Complete
+	}
+	return false
+}
+
+func (x *OnlineReport) GetUsers() []*OnlineUser {
+	if x != nil {
+		return x.Users
+	}
+	return nil
+}
+
+type OnlineUser struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The per-credential stats key, i.e. user.StatsEmail.
+	Email         string      `protobuf:"bytes,1,opt,name=email,proto3" json:"email,omitempty"`
+	Ips           []*OnlineIP `protobuf:"bytes,2,rep,name=ips,proto3" json:"ips,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *OnlineUser) Reset() {
+	*x = OnlineUser{}
+	mi := &file_chiral_v1_agent_proto_msgTypes[9]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *OnlineUser) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*OnlineUser) ProtoMessage() {}
+
+func (x *OnlineUser) ProtoReflect() protoreflect.Message {
+	mi := &file_chiral_v1_agent_proto_msgTypes[9]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use OnlineUser.ProtoReflect.Descriptor instead.
+func (*OnlineUser) Descriptor() ([]byte, []int) {
+	return file_chiral_v1_agent_proto_rawDescGZIP(), []int{9}
+}
+
+func (x *OnlineUser) GetEmail() string {
+	if x != nil {
+		return x.Email
+	}
+	return ""
+}
+
+func (x *OnlineUser) GetIps() []*OnlineIP {
+	if x != nil {
+		return x.Ips
+	}
+	return nil
+}
+
+type OnlineIP struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Ip            string                 `protobuf:"bytes,1,opt,name=ip,proto3" json:"ip,omitempty"`
+	LastSeenUnix  int64                  `protobuf:"varint,2,opt,name=last_seen_unix,json=lastSeenUnix,proto3" json:"last_seen_unix,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *OnlineIP) Reset() {
+	*x = OnlineIP{}
+	mi := &file_chiral_v1_agent_proto_msgTypes[10]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *OnlineIP) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*OnlineIP) ProtoMessage() {}
+
+func (x *OnlineIP) ProtoReflect() protoreflect.Message {
+	mi := &file_chiral_v1_agent_proto_msgTypes[10]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use OnlineIP.ProtoReflect.Descriptor instead.
+func (*OnlineIP) Descriptor() ([]byte, []int) {
+	return file_chiral_v1_agent_proto_rawDescGZIP(), []int{10}
+}
+
+func (x *OnlineIP) GetIp() string {
+	if x != nil {
+		return x.Ip
+	}
+	return ""
+}
+
+func (x *OnlineIP) GetLastSeenUnix() int64 {
+	if x != nil {
+		return x.LastSeenUnix
+	}
+	return 0
+}
+
 type Event struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Kind          EventKind              `protobuf:"varint,1,opt,name=kind,proto3,enum=chiral.v1.EventKind" json:"kind,omitempty"`
@@ -840,7 +1041,7 @@ type Event struct {
 
 func (x *Event) Reset() {
 	*x = Event{}
-	mi := &file_chiral_v1_agent_proto_msgTypes[8]
+	mi := &file_chiral_v1_agent_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -852,7 +1053,7 @@ func (x *Event) String() string {
 func (*Event) ProtoMessage() {}
 
 func (x *Event) ProtoReflect() protoreflect.Message {
-	mi := &file_chiral_v1_agent_proto_msgTypes[8]
+	mi := &file_chiral_v1_agent_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -865,7 +1066,7 @@ func (x *Event) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Event.ProtoReflect.Descriptor instead.
 func (*Event) Descriptor() ([]byte, []int) {
-	return file_chiral_v1_agent_proto_rawDescGZIP(), []int{8}
+	return file_chiral_v1_agent_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *Event) GetKind() EventKind {
@@ -896,6 +1097,7 @@ type CoreFrame struct {
 	//	*CoreFrame_ConfigPush
 	//	*CoreFrame_UserOp
 	//	*CoreFrame_Command
+	//	*CoreFrame_OnlinePolicy
 	Frame         isCoreFrame_Frame `protobuf_oneof:"frame"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -903,7 +1105,7 @@ type CoreFrame struct {
 
 func (x *CoreFrame) Reset() {
 	*x = CoreFrame{}
-	mi := &file_chiral_v1_agent_proto_msgTypes[9]
+	mi := &file_chiral_v1_agent_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -915,7 +1117,7 @@ func (x *CoreFrame) String() string {
 func (*CoreFrame) ProtoMessage() {}
 
 func (x *CoreFrame) ProtoReflect() protoreflect.Message {
-	mi := &file_chiral_v1_agent_proto_msgTypes[9]
+	mi := &file_chiral_v1_agent_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -928,7 +1130,7 @@ func (x *CoreFrame) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CoreFrame.ProtoReflect.Descriptor instead.
 func (*CoreFrame) Descriptor() ([]byte, []int) {
-	return file_chiral_v1_agent_proto_rawDescGZIP(), []int{9}
+	return file_chiral_v1_agent_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *CoreFrame) GetFrame() isCoreFrame_Frame {
@@ -965,6 +1167,15 @@ func (x *CoreFrame) GetCommand() *Command {
 	return nil
 }
 
+func (x *CoreFrame) GetOnlinePolicy() *OnlinePolicy {
+	if x != nil {
+		if x, ok := x.Frame.(*CoreFrame_OnlinePolicy); ok {
+			return x.OnlinePolicy
+		}
+	}
+	return nil
+}
+
 type isCoreFrame_Frame interface {
 	isCoreFrame_Frame()
 }
@@ -981,11 +1192,84 @@ type CoreFrame_Command struct {
 	Command *Command `protobuf:"bytes,3,opt,name=command,proto3,oneof"`
 }
 
+type CoreFrame_OnlinePolicy struct {
+	OnlinePolicy *OnlinePolicy `protobuf:"bytes,4,opt,name=online_policy,json=onlinePolicy,proto3,oneof"`
+}
+
 func (*CoreFrame_ConfigPush) isCoreFrame_Frame() {}
 
 func (*CoreFrame_UserOp) isCoreFrame_Frame() {}
 
 func (*CoreFrame_Command) isCoreFrame_Frame() {}
+
+func (*CoreFrame_OnlinePolicy) isCoreFrame_Frame() {}
+
+// OnlinePolicy switches the agent's online-address polling on or off.
+//
+// Off by default and off unless Core says otherwise: polling costs one
+// `xray api` subprocess per round plus one per online user, and an operator
+// who has not asked for the feature should not pay for it.
+//
+// Deliberately carries no list of users to watch. Core knows which credentials
+// are limited, but sending that list would hand every rented VPS the display
+// names, user ids and profile ids of subscribers it does not serve — the
+// isolation that per-node credentials buy in the first place. The agent only
+// ever sees its own online users; the filtering happens at Core, for free.
+type OnlinePolicy struct {
+	state   protoimpl.MessageState `protogen:"open.v1"`
+	Enabled bool                   `protobuf:"varint,1,opt,name=enabled,proto3" json:"enabled,omitempty"`
+	// Seconds between rounds. The interval IS the sampling error: a session that
+	// opens and closes between two rounds is invisible, and Xray drops an address
+	// from the set within about two seconds of disconnection — there is no
+	// lingering window to catch it in.
+	IntervalSeconds int32 `protobuf:"varint,2,opt,name=interval_seconds,json=intervalSeconds,proto3" json:"interval_seconds,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *OnlinePolicy) Reset() {
+	*x = OnlinePolicy{}
+	mi := &file_chiral_v1_agent_proto_msgTypes[13]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *OnlinePolicy) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*OnlinePolicy) ProtoMessage() {}
+
+func (x *OnlinePolicy) ProtoReflect() protoreflect.Message {
+	mi := &file_chiral_v1_agent_proto_msgTypes[13]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use OnlinePolicy.ProtoReflect.Descriptor instead.
+func (*OnlinePolicy) Descriptor() ([]byte, []int) {
+	return file_chiral_v1_agent_proto_rawDescGZIP(), []int{13}
+}
+
+func (x *OnlinePolicy) GetEnabled() bool {
+	if x != nil {
+		return x.Enabled
+	}
+	return false
+}
+
+func (x *OnlinePolicy) GetIntervalSeconds() int32 {
+	if x != nil {
+		return x.IntervalSeconds
+	}
+	return 0
+}
 
 // ConfigPush delivers a complete config.json. Core has already validated it
 // with `xray -test` before pushing. Rollback is expressed as a ConfigPush of
@@ -1001,7 +1285,7 @@ type ConfigPush struct {
 
 func (x *ConfigPush) Reset() {
 	*x = ConfigPush{}
-	mi := &file_chiral_v1_agent_proto_msgTypes[10]
+	mi := &file_chiral_v1_agent_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1013,7 +1297,7 @@ func (x *ConfigPush) String() string {
 func (*ConfigPush) ProtoMessage() {}
 
 func (x *ConfigPush) ProtoReflect() protoreflect.Message {
-	mi := &file_chiral_v1_agent_proto_msgTypes[10]
+	mi := &file_chiral_v1_agent_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1026,7 +1310,7 @@ func (x *ConfigPush) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ConfigPush.ProtoReflect.Descriptor instead.
 func (*ConfigPush) Descriptor() ([]byte, []int) {
-	return file_chiral_v1_agent_proto_rawDescGZIP(), []int{10}
+	return file_chiral_v1_agent_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *ConfigPush) GetVersion() int64 {
@@ -1060,7 +1344,7 @@ type UserOp struct {
 
 func (x *UserOp) Reset() {
 	*x = UserOp{}
-	mi := &file_chiral_v1_agent_proto_msgTypes[11]
+	mi := &file_chiral_v1_agent_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1072,7 +1356,7 @@ func (x *UserOp) String() string {
 func (*UserOp) ProtoMessage() {}
 
 func (x *UserOp) ProtoReflect() protoreflect.Message {
-	mi := &file_chiral_v1_agent_proto_msgTypes[11]
+	mi := &file_chiral_v1_agent_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1085,7 +1369,7 @@ func (x *UserOp) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UserOp.ProtoReflect.Descriptor instead.
 func (*UserOp) Descriptor() ([]byte, []int) {
-	return file_chiral_v1_agent_proto_rawDescGZIP(), []int{11}
+	return file_chiral_v1_agent_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *UserOp) GetKind() UserOpKind {
@@ -1130,7 +1414,7 @@ type Command struct {
 
 func (x *Command) Reset() {
 	*x = Command{}
-	mi := &file_chiral_v1_agent_proto_msgTypes[12]
+	mi := &file_chiral_v1_agent_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1142,7 +1426,7 @@ func (x *Command) String() string {
 func (*Command) ProtoMessage() {}
 
 func (x *Command) ProtoReflect() protoreflect.Message {
-	mi := &file_chiral_v1_agent_proto_msgTypes[12]
+	mi := &file_chiral_v1_agent_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1155,7 +1439,7 @@ func (x *Command) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Command.ProtoReflect.Descriptor instead.
 func (*Command) Descriptor() ([]byte, []int) {
-	return file_chiral_v1_agent_proto_rawDescGZIP(), []int{12}
+	return file_chiral_v1_agent_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *Command) GetCmd() isCommand_Cmd {
@@ -1208,7 +1492,7 @@ type RestartXray struct {
 
 func (x *RestartXray) Reset() {
 	*x = RestartXray{}
-	mi := &file_chiral_v1_agent_proto_msgTypes[13]
+	mi := &file_chiral_v1_agent_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1220,7 +1504,7 @@ func (x *RestartXray) String() string {
 func (*RestartXray) ProtoMessage() {}
 
 func (x *RestartXray) ProtoReflect() protoreflect.Message {
-	mi := &file_chiral_v1_agent_proto_msgTypes[13]
+	mi := &file_chiral_v1_agent_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1233,7 +1517,7 @@ func (x *RestartXray) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RestartXray.ProtoReflect.Descriptor instead.
 func (*RestartXray) Descriptor() ([]byte, []int) {
-	return file_chiral_v1_agent_proto_rawDescGZIP(), []int{13}
+	return file_chiral_v1_agent_proto_rawDescGZIP(), []int{17}
 }
 
 // ReportNow asks the agent to send a Heartbeat (and StatsReport once
@@ -1246,7 +1530,7 @@ type ReportNow struct {
 
 func (x *ReportNow) Reset() {
 	*x = ReportNow{}
-	mi := &file_chiral_v1_agent_proto_msgTypes[14]
+	mi := &file_chiral_v1_agent_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1258,7 +1542,7 @@ func (x *ReportNow) String() string {
 func (*ReportNow) ProtoMessage() {}
 
 func (x *ReportNow) ProtoReflect() protoreflect.Message {
-	mi := &file_chiral_v1_agent_proto_msgTypes[14]
+	mi := &file_chiral_v1_agent_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1271,7 +1555,7 @@ func (x *ReportNow) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ReportNow.ProtoReflect.Descriptor instead.
 func (*ReportNow) Descriptor() ([]byte, []int) {
-	return file_chiral_v1_agent_proto_rawDescGZIP(), []int{14}
+	return file_chiral_v1_agent_proto_rawDescGZIP(), []int{18}
 }
 
 var File_chiral_v1_agent_proto protoreflect.FileDescriptor
@@ -1288,7 +1572,7 @@ const file_chiral_v1_agent_proto_rawDesc = "" +
 	"\anode_id\x18\x01 \x01(\tR\x06nodeId\x12\x1e\n" +
 	"\n" +
 	"credential\x18\x02 \x01(\tR\n" +
-	"credential\"\x86\x02\n" +
+	"credential\"\xb9\x02\n" +
 	"\n" +
 	"AgentFrame\x12(\n" +
 	"\x05hello\x18\x01 \x01(\v2\x10.chiral.v1.HelloH\x00R\x05hello\x124\n" +
@@ -1296,7 +1580,8 @@ const file_chiral_v1_agent_proto_rawDesc = "" +
 	"\x05stats\x18\x03 \x01(\v2\x16.chiral.v1.StatsReportH\x00R\x05stats\x125\n" +
 	"\n" +
 	"config_ack\x18\x04 \x01(\v2\x14.chiral.v1.ConfigAckH\x00R\tconfigAck\x12(\n" +
-	"\x05event\x18\x05 \x01(\v2\x10.chiral.v1.EventH\x00R\x05eventB\a\n" +
+	"\x05event\x18\x05 \x01(\v2\x10.chiral.v1.EventH\x00R\x05event\x121\n" +
+	"\x06online\x18\x06 \x01(\v2\x17.chiral.v1.OnlineReportH\x00R\x06onlineB\a\n" +
 	"\x05frame\"\x85\x01\n" +
 	"\x05Hello\x12\x17\n" +
 	"\anode_id\x18\x01 \x01(\tR\x06nodeId\x12#\n" +
@@ -1327,17 +1612,32 @@ const file_chiral_v1_agent_proto_rawDesc = "" +
 	"\tConfigAck\x12\x18\n" +
 	"\aversion\x18\x01 \x01(\x03R\aversion\x12\x18\n" +
 	"\aapplied\x18\x02 \x01(\bR\aapplied\x12\x14\n" +
-	"\x05error\x18\x03 \x01(\tR\x05error\"d\n" +
+	"\x05error\x18\x03 \x01(\tR\x05error\"p\n" +
+	"\fOnlineReport\x12\x17\n" +
+	"\aat_unix\x18\x01 \x01(\x03R\x06atUnix\x12\x1a\n" +
+	"\bcomplete\x18\x02 \x01(\bR\bcomplete\x12+\n" +
+	"\x05users\x18\x03 \x03(\v2\x15.chiral.v1.OnlineUserR\x05users\"I\n" +
+	"\n" +
+	"OnlineUser\x12\x14\n" +
+	"\x05email\x18\x01 \x01(\tR\x05email\x12%\n" +
+	"\x03ips\x18\x02 \x03(\v2\x13.chiral.v1.OnlineIPR\x03ips\"@\n" +
+	"\bOnlineIP\x12\x0e\n" +
+	"\x02ip\x18\x01 \x01(\tR\x02ip\x12$\n" +
+	"\x0elast_seen_unix\x18\x02 \x01(\x03R\flastSeenUnix\"d\n" +
 	"\x05Event\x12(\n" +
 	"\x04kind\x18\x01 \x01(\x0e2\x14.chiral.v1.EventKindR\x04kind\x12\x18\n" +
 	"\amessage\x18\x02 \x01(\tR\amessage\x12\x17\n" +
-	"\aat_unix\x18\x03 \x01(\x03R\x06atUnix\"\xac\x01\n" +
+	"\aat_unix\x18\x03 \x01(\x03R\x06atUnix\"\xec\x01\n" +
 	"\tCoreFrame\x128\n" +
 	"\vconfig_push\x18\x01 \x01(\v2\x15.chiral.v1.ConfigPushH\x00R\n" +
 	"configPush\x12,\n" +
 	"\auser_op\x18\x02 \x01(\v2\x11.chiral.v1.UserOpH\x00R\x06userOp\x12.\n" +
-	"\acommand\x18\x03 \x01(\v2\x12.chiral.v1.CommandH\x00R\acommandB\a\n" +
-	"\x05frame\"G\n" +
+	"\acommand\x18\x03 \x01(\v2\x12.chiral.v1.CommandH\x00R\acommand\x12>\n" +
+	"\ronline_policy\x18\x04 \x01(\v2\x17.chiral.v1.OnlinePolicyH\x00R\fonlinePolicyB\a\n" +
+	"\x05frame\"S\n" +
+	"\fOnlinePolicy\x12\x18\n" +
+	"\aenabled\x18\x01 \x01(\bR\aenabled\x12)\n" +
+	"\x10interval_seconds\x18\x02 \x01(\x05R\x0fintervalSeconds\"G\n" +
 	"\n" +
 	"ConfigPush\x12\x18\n" +
 	"\aversion\x18\x01 \x01(\x03R\aversion\x12\x1f\n" +
@@ -1393,7 +1693,7 @@ func file_chiral_v1_agent_proto_rawDescGZIP() []byte {
 }
 
 var file_chiral_v1_agent_proto_enumTypes = make([]protoimpl.EnumInfo, 4)
-var file_chiral_v1_agent_proto_msgTypes = make([]protoimpl.MessageInfo, 15)
+var file_chiral_v1_agent_proto_msgTypes = make([]protoimpl.MessageInfo, 19)
 var file_chiral_v1_agent_proto_goTypes = []any{
 	(XrayState)(0),           // 0: chiral.v1.XrayState
 	(StatScope)(0),           // 1: chiral.v1.StatScope
@@ -1407,39 +1707,47 @@ var file_chiral_v1_agent_proto_goTypes = []any{
 	(*StatsReport)(nil),      // 9: chiral.v1.StatsReport
 	(*StatEntry)(nil),        // 10: chiral.v1.StatEntry
 	(*ConfigAck)(nil),        // 11: chiral.v1.ConfigAck
-	(*Event)(nil),            // 12: chiral.v1.Event
-	(*CoreFrame)(nil),        // 13: chiral.v1.CoreFrame
-	(*ConfigPush)(nil),       // 14: chiral.v1.ConfigPush
-	(*UserOp)(nil),           // 15: chiral.v1.UserOp
-	(*Command)(nil),          // 16: chiral.v1.Command
-	(*RestartXray)(nil),      // 17: chiral.v1.RestartXray
-	(*ReportNow)(nil),        // 18: chiral.v1.ReportNow
+	(*OnlineReport)(nil),     // 12: chiral.v1.OnlineReport
+	(*OnlineUser)(nil),       // 13: chiral.v1.OnlineUser
+	(*OnlineIP)(nil),         // 14: chiral.v1.OnlineIP
+	(*Event)(nil),            // 15: chiral.v1.Event
+	(*CoreFrame)(nil),        // 16: chiral.v1.CoreFrame
+	(*OnlinePolicy)(nil),     // 17: chiral.v1.OnlinePolicy
+	(*ConfigPush)(nil),       // 18: chiral.v1.ConfigPush
+	(*UserOp)(nil),           // 19: chiral.v1.UserOp
+	(*Command)(nil),          // 20: chiral.v1.Command
+	(*RestartXray)(nil),      // 21: chiral.v1.RestartXray
+	(*ReportNow)(nil),        // 22: chiral.v1.ReportNow
 }
 var file_chiral_v1_agent_proto_depIdxs = []int32{
 	7,  // 0: chiral.v1.AgentFrame.hello:type_name -> chiral.v1.Hello
 	8,  // 1: chiral.v1.AgentFrame.heartbeat:type_name -> chiral.v1.Heartbeat
 	9,  // 2: chiral.v1.AgentFrame.stats:type_name -> chiral.v1.StatsReport
 	11, // 3: chiral.v1.AgentFrame.config_ack:type_name -> chiral.v1.ConfigAck
-	12, // 4: chiral.v1.AgentFrame.event:type_name -> chiral.v1.Event
-	0,  // 5: chiral.v1.Heartbeat.xray_state:type_name -> chiral.v1.XrayState
-	10, // 6: chiral.v1.StatsReport.entries:type_name -> chiral.v1.StatEntry
-	1,  // 7: chiral.v1.StatEntry.scope:type_name -> chiral.v1.StatScope
-	2,  // 8: chiral.v1.Event.kind:type_name -> chiral.v1.EventKind
-	14, // 9: chiral.v1.CoreFrame.config_push:type_name -> chiral.v1.ConfigPush
-	15, // 10: chiral.v1.CoreFrame.user_op:type_name -> chiral.v1.UserOp
-	16, // 11: chiral.v1.CoreFrame.command:type_name -> chiral.v1.Command
-	3,  // 12: chiral.v1.UserOp.kind:type_name -> chiral.v1.UserOpKind
-	17, // 13: chiral.v1.Command.restart_xray:type_name -> chiral.v1.RestartXray
-	18, // 14: chiral.v1.Command.report_now:type_name -> chiral.v1.ReportNow
-	4,  // 15: chiral.v1.AgentService.Register:input_type -> chiral.v1.RegisterRequest
-	6,  // 16: chiral.v1.AgentService.Channel:input_type -> chiral.v1.AgentFrame
-	5,  // 17: chiral.v1.AgentService.Register:output_type -> chiral.v1.RegisterResponse
-	13, // 18: chiral.v1.AgentService.Channel:output_type -> chiral.v1.CoreFrame
-	17, // [17:19] is the sub-list for method output_type
-	15, // [15:17] is the sub-list for method input_type
-	15, // [15:15] is the sub-list for extension type_name
-	15, // [15:15] is the sub-list for extension extendee
-	0,  // [0:15] is the sub-list for field type_name
+	15, // 4: chiral.v1.AgentFrame.event:type_name -> chiral.v1.Event
+	12, // 5: chiral.v1.AgentFrame.online:type_name -> chiral.v1.OnlineReport
+	0,  // 6: chiral.v1.Heartbeat.xray_state:type_name -> chiral.v1.XrayState
+	10, // 7: chiral.v1.StatsReport.entries:type_name -> chiral.v1.StatEntry
+	1,  // 8: chiral.v1.StatEntry.scope:type_name -> chiral.v1.StatScope
+	13, // 9: chiral.v1.OnlineReport.users:type_name -> chiral.v1.OnlineUser
+	14, // 10: chiral.v1.OnlineUser.ips:type_name -> chiral.v1.OnlineIP
+	2,  // 11: chiral.v1.Event.kind:type_name -> chiral.v1.EventKind
+	18, // 12: chiral.v1.CoreFrame.config_push:type_name -> chiral.v1.ConfigPush
+	19, // 13: chiral.v1.CoreFrame.user_op:type_name -> chiral.v1.UserOp
+	20, // 14: chiral.v1.CoreFrame.command:type_name -> chiral.v1.Command
+	17, // 15: chiral.v1.CoreFrame.online_policy:type_name -> chiral.v1.OnlinePolicy
+	3,  // 16: chiral.v1.UserOp.kind:type_name -> chiral.v1.UserOpKind
+	21, // 17: chiral.v1.Command.restart_xray:type_name -> chiral.v1.RestartXray
+	22, // 18: chiral.v1.Command.report_now:type_name -> chiral.v1.ReportNow
+	4,  // 19: chiral.v1.AgentService.Register:input_type -> chiral.v1.RegisterRequest
+	6,  // 20: chiral.v1.AgentService.Channel:input_type -> chiral.v1.AgentFrame
+	5,  // 21: chiral.v1.AgentService.Register:output_type -> chiral.v1.RegisterResponse
+	16, // 22: chiral.v1.AgentService.Channel:output_type -> chiral.v1.CoreFrame
+	21, // [21:23] is the sub-list for method output_type
+	19, // [19:21] is the sub-list for method input_type
+	19, // [19:19] is the sub-list for extension type_name
+	19, // [19:19] is the sub-list for extension extendee
+	0,  // [0:19] is the sub-list for field type_name
 }
 
 func init() { file_chiral_v1_agent_proto_init() }
@@ -1453,13 +1761,15 @@ func file_chiral_v1_agent_proto_init() {
 		(*AgentFrame_Stats)(nil),
 		(*AgentFrame_ConfigAck)(nil),
 		(*AgentFrame_Event)(nil),
+		(*AgentFrame_Online)(nil),
 	}
-	file_chiral_v1_agent_proto_msgTypes[9].OneofWrappers = []any{
+	file_chiral_v1_agent_proto_msgTypes[12].OneofWrappers = []any{
 		(*CoreFrame_ConfigPush)(nil),
 		(*CoreFrame_UserOp)(nil),
 		(*CoreFrame_Command)(nil),
+		(*CoreFrame_OnlinePolicy)(nil),
 	}
-	file_chiral_v1_agent_proto_msgTypes[12].OneofWrappers = []any{
+	file_chiral_v1_agent_proto_msgTypes[16].OneofWrappers = []any{
 		(*Command_RestartXray)(nil),
 		(*Command_ReportNow)(nil),
 	}
@@ -1469,7 +1779,7 @@ func file_chiral_v1_agent_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_chiral_v1_agent_proto_rawDesc), len(file_chiral_v1_agent_proto_rawDesc)),
 			NumEnums:      4,
-			NumMessages:   15,
+			NumMessages:   19,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

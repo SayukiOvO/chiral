@@ -15,6 +15,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
@@ -27,6 +28,7 @@ import (
 	"github.com/SayukiOvO/chiral/core/internal/auth"
 	"github.com/SayukiOvO/chiral/core/internal/mail"
 	"github.com/SayukiOvO/chiral/core/internal/node"
+	"github.com/SayukiOvO/chiral/core/internal/online"
 	"github.com/SayukiOvO/chiral/core/internal/passkey"
 	"github.com/SayukiOvO/chiral/core/internal/profile"
 	"github.com/SayukiOvO/chiral/core/internal/secret"
@@ -38,6 +40,27 @@ import (
 )
 
 const version = "0.1.0-dev"
+
+// onlineInterval is how often agents enumerate connected addresses.
+//
+// This interval IS the sampling error. Measured on Xray 26.3.27, an address
+// vanishes from the kernel's set within about two seconds of disconnecting —
+// there is no lingering window — so a session that opens and closes between
+// two rounds is never seen. Thirty seconds catches casual password sharing and
+// will not catch someone deliberately keeping sessions short. Shortening it
+// buys accuracy at one `xray api` subprocess per online user per round.
+const onlineInterval = 30 * time.Second
+
+// onlineEnabled reports whether the operator asked for source-address
+// recording. Off by default: it is the only feature that records where users
+// connect from, and that should be a decision, not a default.
+func onlineEnabled() bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv("CHIRAL_ONLINE_RECORD"))) {
+	case "1", "true", "on", "yes":
+		return true
+	}
+	return false
+}
 
 // enforceInterval is how often quota, expiry and renewal are reconciled onto
 // the nodes. It bounds how far a user can run past their quota.
@@ -106,6 +129,20 @@ func run(logger *slog.Logger, dbPath, grpcListen, httpListen, grpcPublic, public
 	mgr := node.NewManager(hbTimeout, logger)
 	svc := node.NewService(st, mgr, st, logger)
 
+	// Source-address recording, off unless asked for. With it off no agent
+	// polls, nothing is written, and user_devices stays empty — which is the
+	// whole point of the switch: this is the one feature that records where
+	// people connect from.
+	var onlineReg *online.Registry
+	if onlineEnabled() {
+		// The TTL must outlast the polling interval comfortably, or a user
+		// flickers offline between rounds.
+		onlineReg = online.New(3 * onlineInterval)
+		svc.EnableOnlineTracking(onlineReg, st, onlineInterval)
+		logger.Info("recording online source addresses",
+			"interval", onlineInterval, "retention", store.DeviceRetention)
+	}
+
 	// The panel keeps its own Xray binary to validate a rendered config
 	// before pushing it, and for key generators Go cannot implement.
 	xray := template.Xray{Bin: os.Getenv("CHIRAL_XRAY_BIN")}
@@ -154,6 +191,9 @@ func run(logger *slog.Logger, dbPath, grpcListen, httpListen, grpcPublic, public
 	}
 	apiServer := api.NewServer(st, mgr, profiles, subs, alerts, passkeys, mailer,
 		adminToken, grpcPublic, publicURL, tlsEnabled, xray.Available(), logger)
+	if onlineReg != nil {
+		apiServer.EnableOnlineTracking(onlineReg)
+	}
 	httpSrv := &http.Server{
 		Addr:    httpListen,
 		Handler: apiServer.Handler(),
@@ -207,6 +247,16 @@ func run(logger *slog.Logger, dbPath, grpcListen, httpListen, grpcPublic, public
 				}
 				if _, err := st.PruneAudit(time.Now()); err != nil {
 					logger.Error("pruning audit log failed", "err", err)
+				}
+				if onlineReg != nil {
+					// Addresses are personal data on a shorter clock than the
+					// rest of the history; see store.DeviceRetention.
+					if _, err := st.PruneDevices(time.Now()); err != nil {
+						logger.Error("pruning device history failed", "err", err)
+					}
+					// Drops the view of any node that stopped reporting
+					// without disconnecting.
+					onlineReg.Prune(time.Now())
 				}
 				apiServer.PruneLimiter(time.Now())
 				// Availability changes are announced from swept state rather

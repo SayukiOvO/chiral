@@ -142,6 +142,23 @@ const EN: Record<string, string> = {
   流量趋势: "Traffic over time",
   "按小时累计。": "Accumulated hourly.",
   "这段时间没有流量": "No traffic in this period",
+
+  // concurrent source addresses
+  //
+  // "Addresses", never "devices", in both languages. Xray counts distinct
+  // source addresses: a household behind one NAT is 1, and a phone moving
+  // between wifi and cellular is 2. Calling them devices would promise
+  // something the kernel does not measure.
+  并发地址: "Addresses",
+  并发地址上限: "Address limit",
+  "0 表示不限。仅作展示提醒，不会自动断开连接。":
+    "0 means unlimited. Shown as a hint only — nothing is disconnected.",
+  来源地址: "Source addresses",
+  "还没有记录到任何地址。": "No addresses recorded yet.",
+  "只有超级管理员能查看具体地址。": "Only a superadmin can view the addresses themselves.",
+  "每次查看都会记入审计日志。": "Every view is written to the audit log.",
+  "最近 {when}": "last seen {when}",
+  节点已删除: "node deleted",
   用户名: "Name",
   "流量配额 (GB)": "Quota (GB)",
   到期日: "Expires",

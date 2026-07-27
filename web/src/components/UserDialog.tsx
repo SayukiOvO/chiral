@@ -32,6 +32,7 @@ export function UserDialog({
   );
   const [expires, setExpires] = useState(unixToDate(user?.expires_at ?? 0));
   const [period, setPeriod] = useState(user?.renew_period ?? 0);
+  const [deviceLimit, setDeviceLimit] = useState(String(user?.device_limit ?? 0));
   const [enabled, setEnabled] = useState(user?.enabled ?? true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -48,6 +49,7 @@ export function UserDialog({
       quota_bytes: quota,
       expires_at: dateToUnix(expires),
       renew_period: period,
+      device_limit: Math.max(0, Math.round(Number(deviceLimit) || 0)),
       enabled,
     };
     setBusy(true);
@@ -144,6 +146,27 @@ export function UserDialog({
           </select>
           <span className="mt-1 block text-xs text-faint">
             {t("到期时顺延一个周期，并把已用流量清零")}
+          </span>
+        </label>
+
+        <label className="mt-4 block">
+          <span className="text-xs font-medium uppercase tracking-[0.07em] text-faint">
+            {t("并发地址上限")}
+          </span>
+          <input
+            type="number"
+            min="0"
+            step="1"
+            value={deviceLimit}
+            onChange={(e) => setDeviceLimit(e.target.value)}
+            className="mt-1.5 w-full rounded-xl border border-line-strong bg-surface px-3.5 py-2.5 font-mono text-sm outline-none transition-colors focus:border-signal"
+          />
+          {/* Deliberately not "devices": Xray counts distinct source
+              addresses, so one household behind NAT is 1 and one phone moving
+              between wifi and cellular is 2. Saying "devices" would promise
+              something the kernel cannot deliver. */}
+          <span className="mt-1 block text-xs text-faint">
+            {t("0 表示不限。仅作展示提醒，不会自动断开连接。")}
           </span>
         </label>
 

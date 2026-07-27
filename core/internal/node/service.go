@@ -13,6 +13,7 @@ import (
 	"google.golang.org/grpc/status"
 
 	"github.com/SayukiOvO/chiral/core/internal/auth"
+	"github.com/SayukiOvO/chiral/core/internal/online"
 	"github.com/SayukiOvO/chiral/core/internal/store"
 	chiralv1 "github.com/SayukiOvO/chiral/proto/chiral/v1"
 )
@@ -29,6 +30,18 @@ type TrafficRecorder interface {
 	AddCredentialTraffic(email string, up, down int64) error
 }
 
+// OnlineRegistry receives the fleet's current source addresses. An interface
+// for the same reason as TrafficRecorder; core/internal/online satisfies it.
+type OnlineRegistry interface {
+	Replace(nodeID string, obs []online.Observation, complete bool, now time.Time)
+	Forget(nodeID string)
+}
+
+// OnlineRecorder persists an observed address.
+type OnlineRecorder interface {
+	RecordDevice(userID, ip, nodeID string, at time.Time) error
+}
+
 // Service implements chiral.v1.AgentService.
 type Service struct {
 	chiralv1.UnimplementedAgentServiceServer
@@ -36,11 +49,24 @@ type Service struct {
 	st      *store.Store
 	mgr     *Manager
 	traffic TrafficRecorder
-	logger  *slog.Logger
+	// online and devices are nil when address recording is switched off, in
+	// which case agents are never asked to poll and reports are ignored.
+	online  OnlineRegistry
+	devices OnlineRecorder
+	// onlineInterval is the polling cadence pushed to agents.
+	onlineInterval time.Duration
+	logger         *slog.Logger
 }
 
 func NewService(st *store.Store, mgr *Manager, traffic TrafficRecorder, logger *slog.Logger) *Service {
 	return &Service{st: st, mgr: mgr, traffic: traffic, logger: logger}
+}
+
+// EnableOnlineTracking switches on source-address recording. Called at startup
+// only when the operator asked for it; left alone, nothing polls and
+// user_devices stays empty.
+func (s *Service) EnableOnlineTracking(reg OnlineRegistry, rec OnlineRecorder, interval time.Duration) {
+	s.online, s.devices, s.onlineInterval = reg, rec, interval
 }
 
 // Register exchanges a one-time join token for the node's long-term
@@ -100,6 +126,12 @@ func (s *Service) Channel(stream chiralv1.AgentService_ChannelServer) error {
 		// in a buffer nobody drains.
 		sess.close()
 		s.mgr.detach(n.ID, sess)
+		// A node that is gone is not observing. Drop its addresses now rather
+		// than letting them age out, or a user stays "online" through a node
+		// that plainly is not.
+		if s.online != nil {
+			s.online.Forget(n.ID)
+		}
 		if err := s.st.TouchLastSeen(n.ID, time.Now().Unix()); err != nil {
 			s.logger.Error("touch last_seen failed", "node", n.ID, "err", err)
 		}
@@ -127,6 +159,18 @@ func (s *Service) Channel(stream chiralv1.AgentService_ChannelServer) error {
 	// without operator action (the agent skips the apply if it already runs
 	// identical content). Configs rejected by `xray -test` are not re-pushed.
 	s.reconcileConfig(n.ID, sess, -1)
+
+	// Tell the agent whether to poll. Sent on every connect because the agent
+	// keeps no policy across reconnects — it starts idle, which is the safe
+	// default if this frame is ever lost.
+	if s.online != nil {
+		if err := s.mgr.SendOnlinePolicy(n.ID, &chiralv1.OnlinePolicy{
+			Enabled:         true,
+			IntervalSeconds: int32(s.onlineInterval.Seconds()),
+		}); err != nil {
+			s.logger.Warn("pushing online policy failed", "node", n.ID, "err", err)
+		}
+	}
 
 	// Reader loop. Recv runs in its own goroutine so replacement via
 	// sess.done can end the handler even while Recv is blocked.
@@ -215,6 +259,9 @@ func (s *Service) handleFrame(nodeID string, sess *Session, f *chiralv1.AgentFra
 	case *chiralv1.AgentFrame_Stats:
 		sess.touch(nil)
 		s.recordStats(nodeID, fr.Stats)
+	case *chiralv1.AgentFrame_Online:
+		sess.touch(nil)
+		s.recordOnline(nodeID, fr.Online)
 	case *chiralv1.AgentFrame_Hello:
 		s.logger.Warn("unexpected Hello after stream start", "node", nodeID)
 	}
@@ -292,6 +339,71 @@ func (s *Service) recordTrafficHistory(nodeID, email string, up, down int64) {
 	if err := s.st.AddTraffic(credNodeID, userID, time.Now(), up, down); err != nil {
 		s.logger.Error("recording traffic history failed", "node", nodeID, "err", err)
 	}
+}
+
+// recordOnline installs one node's view of who is connected, and files the
+// addresses into the durable record.
+//
+// Every entry is checked against the credential it names. A node may only
+// speak for credentials issued FOR it: without that check, one compromised
+// VPS could invent two hundred addresses for any subscriber it likes, and
+// those addresses would land in user_devices — the very table an operator
+// later reads as evidence of account sharing. Fabricated evidence against an
+// innocent user is a worse outcome than losing the feature.
+func (s *Service) recordOnline(nodeID string, report *chiralv1.OnlineReport) {
+	if s.online == nil {
+		return // recording is off; the agent should not be sending these
+	}
+	now := time.Now()
+	obs := make([]online.Observation, 0, len(report.GetUsers()))
+	forged := 0
+
+	for _, u := range report.GetUsers() {
+		email := u.GetEmail()
+		if email == "" {
+			continue
+		}
+		userID, credNodeID, err := s.st.CredentialOwner(email)
+		if err != nil {
+			if !store.IsNotFound(err) {
+				s.logger.Error("resolving credential owner failed", "email", email, "err", err)
+			}
+			// An unknown credential is ordinary right after a revocation, and
+			// there is no user to attribute it to either way.
+			continue
+		}
+		if credNodeID != nodeID {
+			// This node is reporting on a credential that belongs to another
+			// node. An agent has no legitimate way to learn such a name.
+			forged++
+			continue
+		}
+		for _, ip := range u.GetIps() {
+			addr := ip.GetIp()
+			if addr == "" {
+				continue
+			}
+			at := time.Unix(ip.GetLastSeenUnix(), 0)
+			// A timestamp from the future, or from before this panel existed,
+			// is the agent's clock being wrong; the observation is still real,
+			// so keep it and use our own clock.
+			if ip.GetLastSeenUnix() <= 0 || at.After(now) {
+				at = now
+			}
+			obs = append(obs, online.Observation{UserID: userID, IP: addr, At: at})
+			if s.devices != nil {
+				if err := s.devices.RecordDevice(userID, addr, nodeID, at); err != nil {
+					s.logger.Error("recording device failed", "node", nodeID, "err", err)
+				}
+			}
+		}
+	}
+
+	if forged > 0 {
+		s.logger.Warn("agent reported addresses for credentials that are not its own",
+			"node", nodeID, "entries", forged)
+	}
+	s.online.Replace(nodeID, obs, report.GetComplete(), now)
 }
 
 func (s *Service) authenticate(ctx context.Context) (store.Node, error) {

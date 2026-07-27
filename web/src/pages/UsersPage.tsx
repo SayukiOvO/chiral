@@ -4,6 +4,7 @@ import { expiryLabel, periodLabel } from "../format";
 import { cn } from "../lib/cn";
 import { QuotaBar } from "../components/QuotaBar";
 import { UserTraffic } from "../components/UserTraffic";
+import { UserDevices } from "../components/UserDevices";
 import { UserDialog } from "../components/UserDialog";
 import { SubscriptionDialog } from "../components/SubscriptionDialog";
 import { Button, IconButton } from "../components/ui";
@@ -237,6 +238,14 @@ function UserCard({
         <Field label={t("状态")}>
           <AccessLabel user={user} />
         </Field>
+        {/* Only when recording is on. An absent count and a count of zero mean
+            different things, and the API distinguishes them with an omitted
+            field rather than a 0. */}
+        {user.online_devices !== undefined && (
+          <Field label={t("并发地址")}>
+            <ConcurrentAddresses count={user.online_devices} limit={user.device_limit} />
+          </Field>
+        )}
       </div>
 
       {expanded && (
@@ -279,9 +288,36 @@ function UserCard({
             </div>
             <UserTraffic userId={user.id} />
           </div>
+
+          {user.online_devices !== undefined && (
+            <div className="mt-5">
+              <div className="mb-2 text-[11px] font-medium uppercase tracking-[0.07em] text-faint">
+                {t("来源地址")}
+              </div>
+              <UserDevices userId={user.id} />
+            </div>
+          )}
         </div>
       )}
     </article>
+  );
+}
+
+/**
+ * Concurrent source addresses against the operator's expectation.
+ *
+ * Over the limit is amber, not red: nothing is broken and nothing was blocked.
+ * The number is a hint that an account may be shared more widely than intended,
+ * and an address is a poor proxy for a device — one household behind NAT counts
+ * as one, one phone switching between wifi and cellular counts as two.
+ */
+function ConcurrentAddresses({ count, limit }: { count: number; limit: number }) {
+  const over = limit > 0 && count > limit;
+  return (
+    <span className="font-mono text-sm tnum">
+      <span className={over ? "text-warn" : count > 0 ? "text-online" : "text-faint"}>{count}</span>
+      {limit > 0 && <span className="text-faint"> / {limit}</span>}
+    </span>
   );
 }
 

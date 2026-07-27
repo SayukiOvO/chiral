@@ -142,6 +142,15 @@ func (m *Manager) SendCommand(nodeID string, cmd *chiralv1.Command) error {
 	})
 }
 
+// SendOnlinePolicy queues the address-polling policy to the node's live
+// session. Agents start idle and keep no policy across reconnects, so this is
+// sent on every connect rather than only on change.
+func (m *Manager) SendOnlinePolicy(nodeID string, p *chiralv1.OnlinePolicy) error {
+	return m.enqueue(nodeID, &chiralv1.CoreFrame{
+		Frame: &chiralv1.CoreFrame_OnlinePolicy{OnlinePolicy: p},
+	})
+}
+
 // CloseSession force-closes a node's live session, e.g. after the node (and
 // with it the credential) is deleted.
 func (m *Manager) CloseSession(nodeID string) {

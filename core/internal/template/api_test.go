@@ -31,6 +31,7 @@ func TestAssemblyInjectsTheManagementAPI(t *testing.T) {
 			Levels map[string]struct {
 				StatsUserUplink   bool `json:"statsUserUplink"`
 				StatsUserDownlink bool `json:"statsUserDownlink"`
+				StatsUserOnline   bool `json:"statsUserOnline"`
 			} `json:"levels"`
 		} `json:"policy"`
 	}
@@ -40,8 +41,10 @@ func TestAssemblyInjectsTheManagementAPI(t *testing.T) {
 	if cfg.API.Tag != APIHandlerTag {
 		t.Errorf("api tag = %q", cfg.API.Tag)
 	}
-	if strings.Join(cfg.API.Services, ",") != "HandlerService,StatsService" {
-		t.Errorf("api services = %v; both are required (users and stats)", cfg.API.Services)
+	// RoutingService is not called yet; it is here so that turning on source
+	// blocking later does not need a second fleet-wide Xray restart.
+	if strings.Join(cfg.API.Services, ",") != "HandlerService,StatsService,RoutingService" {
+		t.Errorf("api services = %v; users, stats and routing are all required", cfg.API.Services)
 	}
 	if cfg.Stats == nil {
 		t.Error("stats block missing; counters stay off without it")
@@ -49,6 +52,12 @@ func TestAssemblyInjectsTheManagementAPI(t *testing.T) {
 	// Per-user counters only exist if the policy level asks for them.
 	if lvl, ok := cfg.Policy.Levels["0"]; !ok || !lvl.StatsUserUplink || !lvl.StatsUserDownlink {
 		t.Errorf("level 0 must enable per-user stats, got %+v", cfg.Policy.Levels)
+	}
+	// Without statsUserOnline, the online commands fail silently: NotFound for
+	// two of them and `{}` with exit 0 for the third, while `xray -test` still
+	// says the config is fine. Nothing else in the system would notice.
+	if lvl := cfg.Policy.Levels["0"]; !lvl.StatsUserOnline {
+		t.Errorf("level 0 must enable statsUserOnline, got %+v", cfg.Policy.Levels)
 	}
 }
 

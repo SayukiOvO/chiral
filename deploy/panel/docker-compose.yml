@@ -42,6 +42,14 @@ services:
       # caller can pick their own bucket with one header and the limits stop
       # meaning anything.
       CHIRAL_TRUSTED_PROXY: ${CHIRAL_TRUSTED_PROXY:-}
+      # Record which source addresses each user connects from. Off by
+      # default: it is the only feature that records where people connect
+      # from, and that should be a decision rather than a default.
+      #
+      # Switching it on injects statsUserOnline into every node's config,
+      # which is a new config version and therefore one Xray restart per node
+      # — dropping every live connection on that node, once.
+      CHIRAL_ONLINE_RECORD: ${CHIRAL_ONLINE_RECORD:-off}
       # CHIRAL_TLS_CERT: /certs/fullchain.pem
       # CHIRAL_TLS_KEY: /certs/privkey.pem
     volumes:

@@ -40,6 +40,7 @@ message AgentFrame {
     StatsReport stats = 3;
     ConfigAck config_ack = 4;
     Event event = 5;
+    OnlineReport online = 6;
   }
 }
 
@@ -104,6 +105,43 @@ message ConfigAck {
   string error = 3;
 }
 
+// OnlineReport lists the source addresses currently connected, per credential.
+//
+// This is an ABSOLUTE SNAPSHOT, and the deliberate exception to the delta rule
+// StatsReport follows. The two have opposite failure modes: traffic counters
+// reset to zero when Xray restarts, so absolute values would skew totals —
+// whereas an observation set that empties on restart means "we are not
+// observing", never "zero devices, lift the limit". Sending the whole set each
+// time is what lets Core tell those apart.
+//
+// Measured against Xray 26.3.27, and the reason for `complete`: a user's online
+// count is the number of DISTINCT SOURCE ADDRESSES, not sessions — three
+// concurrent connections from one address report as one. Loopback sources are
+// excluded from Xray's accounting entirely.
+message OnlineReport {
+  int64 at_unix = 1;
+  // False when the agent could not enumerate everything this round (a timeout
+  // partway through the fan-out). Core must skip such a round rather than read
+  // a truncated set as "these are all the addresses in use".
+  bool complete = 2;
+  // Sent every round even when empty, so silence stays unambiguous. An empty
+  // list from Xray has three different causes — the policy is off, nobody is
+  // connected, or every source was loopback — and `xray api
+  // statsgetallonlineusers` answers all three with `{}` and exit 0.
+  repeated OnlineUser users = 3;
+}
+
+message OnlineUser {
+  // The per-credential stats key, i.e. user.StatsEmail.
+  string email = 1;
+  repeated OnlineIP ips = 2;
+}
+
+message OnlineIP {
+  string ip = 1;
+  int64 last_seen_unix = 2;
+}
+
 message Event {
   EventKind kind = 1;
   string message = 2;
@@ -124,7 +162,28 @@ message CoreFrame {
     ConfigPush config_push = 1;
     UserOp user_op = 2;
     Command command = 3;
+    OnlinePolicy online_policy = 4;
   }
+}
+
+// OnlinePolicy switches the agent's online-address polling on or off.
+//
+// Off by default and off unless Core says otherwise: polling costs one
+// `xray api` subprocess per round plus one per online user, and an operator
+// who has not asked for the feature should not pay for it.
+//
+// Deliberately carries no list of users to watch. Core knows which credentials
+// are limited, but sending that list would hand every rented VPS the display
+// names, user ids and profile ids of subscribers it does not serve — the
+// isolation that per-node credentials buy in the first place. The agent only
+// ever sees its own online users; the filtering happens at Core, for free.
+message OnlinePolicy {
+  bool enabled = 1;
+  // Seconds between rounds. The interval IS the sampling error: a session that
+  // opens and closes between two rounds is invisible, and Xray drops an address
+  // from the set within about two seconds of disconnection — there is no
+  // lingering window to catch it in.
+  int32 interval_seconds = 2;
 }
 
 // ConfigPush delivers a complete config.json. Core has already validated it

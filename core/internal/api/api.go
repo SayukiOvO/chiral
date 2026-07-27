@@ -56,8 +56,15 @@ type Server struct {
 	// limiter budgets the routes that answer before any credential has been
 	// checked. See ratelimit.go.
 	limiter *limiter
-	logger  *slog.Logger
+	// online is nil unless source-address recording is switched on, in which
+	// case the panel reports counts as "not recording" rather than as zero.
+	online OnlineSource
+	logger *slog.Logger
 }
+
+// EnableOnlineTracking wires in the address registry. Called at startup only
+// when the operator asked for recording.
+func (s *Server) EnableOnlineTracking(src OnlineSource) { s.online = src }
 
 func NewServer(st *store.Store, mgr *node.Manager, profiles *profile.Service, subs *subscription.Service,
 	alerts *alert.Service, passkeys *passkey.Service, mailer *mail.Sender,
@@ -112,6 +119,12 @@ func (s *Server) Handler() http.Handler {
 
 	mux.Handle("GET /api/nodes/{id}/samples", s.requireAdmin(s.nodeSamples))
 	mux.Handle("GET /api/traffic", s.requireAdmin(s.trafficSeries))
+
+	// How many addresses, versus which addresses. The first is an operations
+	// question; the second is "where does this person live", so it takes the
+	// highest role and writes an audit entry. See online.go.
+	mux.Handle("GET /api/users/{id}/online", s.requireAdmin(s.userOnline))
+	mux.Handle("GET /api/users/{id}/devices", s.requireSuperadmin(s.userDevices))
 
 	// Authentication. Login is the only unauthenticated /api route.
 	// Every route below answers before any credential has been checked, so
