@@ -7,8 +7,23 @@ const LABEL: Record<string, string> = {
   ERROR: "异常",
 };
 
-/** Xray-core kernel state + version. Running carries the signal accent. */
-export function KernelState({ state, version }: { state?: string; version?: string }) {
+/**
+ * Xray-core kernel state + version. Running carries the signal accent.
+ *
+ * `installed` is shown only when it differs from what is running, which is the
+ * one case worth a glance: the binary has been swapped and the process has not
+ * restarted into it yet, or it restarted and fell back. In the steady state the
+ * two are equal and a second version number would be noise.
+ */
+export function KernelState({
+  state,
+  version,
+  installed,
+}: {
+  state?: string;
+  version?: string;
+  installed?: string;
+}) {
   const { t } = useT();
   if (!state || state === "UNSPECIFIED") {
     return <span className="text-faint text-sm">—</span>;
@@ -37,6 +52,14 @@ export function KernelState({ state, version }: { state?: string; version?: stri
         {t(LABEL[state] ?? state)}
       </span>
       {version && <span className="font-mono text-xs text-faint">{version}</span>}
+      {installed && installed !== version && (
+        <span
+          className="font-mono text-xs text-muted"
+          title={t("磁盘上是 {v}，但运行中的进程还是旧版本；重启内核后才会生效").replace("{v}", installed)}
+        >
+          →{installed}
+        </span>
+      )}
     </span>
   );
 }

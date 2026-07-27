@@ -205,6 +205,8 @@ const EN: Record<string, string> = {
   下发: "Apply",
   "xray -test 通过": "xray -test passed",
   "xray -test 未通过": "xray -test failed",
+  "磁盘上是 {v}，但运行中的进程还是旧版本；重启内核后才会生效":
+    "{v} is on disk, but the running process is still the older build; it takes effect after a kernel restart",
 
   // subscription dialog
   订阅链接: "subscription link",

@@ -168,7 +168,11 @@ function NodeCard({
 
       <div className="mt-4 flex flex-wrap items-end gap-x-8 gap-y-3 pl-[22px]">
         <Field label={t("内核")}>
-          <KernelState state={node.xray_state} version={node.xray_version} />
+          <KernelState
+            state={node.xray_state}
+            version={node.xray_version}
+            installed={node.xray_installed_version}
+          />
         </Field>
         <Field label={t("流量 ↑↓")}>
           <div className="flex items-center gap-3">

@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"log/slog"
 
+	"github.com/SayukiOvO/chiral/core/internal/kernel"
 	"github.com/SayukiOvO/chiral/core/internal/store"
 	"github.com/SayukiOvO/chiral/core/internal/template"
 	"github.com/SayukiOvO/chiral/core/internal/user"
@@ -24,17 +25,46 @@ type Pusher interface {
 	PushConfig(nodeID string, version int64, configJSON []byte) error
 }
 
+// Kernels resolves a version to the binary that should judge it. Satisfied by
+// *kernel.Registry; an interface here so this package does not have to own the
+// on-disk layout.
+type Kernels interface {
+	For(version string) kernel.Resolution
+	Baked() template.Xray
+}
+
 type Service struct {
 	st      *store.Store
-	xray    template.Xray
+	kernels Kernels
 	push    Pusher
 	userOps UserOpPusher
 	users   *user.Service
 	logger  *slog.Logger
 }
 
-func NewService(st *store.Store, xray template.Xray, push Pusher, userOps UserOpPusher, users *user.Service, logger *slog.Logger) *Service {
-	return &Service{st: st, xray: xray, push: push, userOps: userOps, users: users, logger: logger}
+func NewService(st *store.Store, kernels Kernels, push Pusher, userOps UserOpPusher, users *user.Service, logger *slog.Logger) *Service {
+	return &Service{st: st, kernels: kernels, push: push, userOps: userOps, users: users, logger: logger}
+}
+
+// kernelFor picks the binary to validate a node's config with: the one that
+// node's Xray will actually be started from.
+//
+// It reads xray_installed_version, not xray_version. The question here is
+// "which kernel will run this config", and after a swap that is the installed
+// one — a config pushed now is applied by restarting into it. Using the
+// running version would validate against the build that is about to be
+// replaced, which is exactly backwards during the window that matters.
+func (s *Service) kernelFor(nodeID string) kernel.Resolution {
+	n, err := s.st.GetNode(nodeID)
+	if err != nil {
+		// A node we cannot read gets the floor and an honest Exact=false.
+		return s.kernels.For("")
+	}
+	want := n.XrayInstalledVersion
+	if want == "" {
+		want = n.XrayVersion
+	}
+	return s.kernels.For(want)
 }
 
 // contextFor builds the render context for one profile on one node, merging
@@ -180,6 +210,17 @@ type Preview struct {
 	// binary is configured, and a preview that was not tested must not be
 	// presented as verified.
 	Tested bool
+	// KernelVersion is the version that judged it, and KernelExact whether that
+	// is the version the node itself runs.
+	//
+	// Carried out to the caller rather than kept as a log line because "passed
+	// validation" means two different things depending on this flag, and the
+	// weaker one — tested against a build the node does not have — is the one
+	// an operator mid-upgrade most needs to not mistake for the stronger.
+	KernelVersion string
+	KernelExact   bool
+	// KernelNote explains an inexact match in words, empty when exact.
+	KernelNote string
 }
 
 func (s *Service) Preview(ctx context.Context, nodeID string) (Preview, error) {
@@ -189,9 +230,14 @@ func (s *Service) Preview(ctx context.Context, nodeID string) (Preview, error) {
 	}
 	tags, _ := template.InboundTags(cfg)
 	p := Preview{Config: cfg, InboundTags: tags}
-	if s.xray.Available() {
+	res := s.kernelFor(nodeID)
+	p.KernelVersion, p.KernelExact = res.Version, res.Exact
+	if !res.Exact {
+		p.KernelNote = res.Describe()
+	}
+	if res.Xray.Available() {
 		p.Tested = true
-		if err := s.xray.TestConfig(ctx, cfg); err != nil {
+		if err := res.Xray.TestConfig(ctx, cfg); err != nil {
 			p.TestError = err.Error()
 		}
 	}
@@ -207,13 +253,24 @@ func (s *Service) Apply(ctx context.Context, nodeID string) (int64, error) {
 	if err != nil {
 		return 0, err
 	}
-	if s.xray.Available() {
-		if err := s.xray.TestConfig(ctx, cfg); err != nil {
+	res := s.kernelFor(nodeID)
+	switch {
+	case res.Xray.Available():
+		if err := res.Xray.TestConfig(ctx, cfg); err != nil {
 			return 0, err
 		}
-	} else {
-		// The agent validates again before applying, so this is a degraded
-		// mode rather than an unsafe one — but say so.
+		// An inexact match is not a reason to refuse. The agent runs
+		// `xray -test` again with the node's own binary and will not apply a
+		// config that fails, so that check — not this one — is the guarantee;
+		// this one is an early warning that saves a round trip and keeps most
+		// broken renders out of the version history. Refusing here would
+		// instead strand any node the panel has not caught up with, which is
+		// every node in the middle of an upgrade.
+		if !res.Exact {
+			s.logger.Warn("validated against a different kernel than the node runs",
+				"node", nodeID, "detail", res.Describe())
+		}
+	default:
 		s.logger.Warn("no panel-side Xray binary; pushing without pre-validation", "node", nodeID)
 	}
 
@@ -246,9 +303,9 @@ func (s *Service) Rollback(ctx context.Context, nodeID string, version int64) (i
 	if err != nil {
 		return 0, err
 	}
-	if s.xray.Available() {
-		if err := s.xray.TestConfig(ctx, []byte(old.Config)); err != nil {
-			return 0, fmt.Errorf("version %d no longer passes xray -test: %w", version, err)
+	if res := s.kernelFor(nodeID); res.Xray.Available() {
+		if err := res.Xray.TestConfig(ctx, []byte(old.Config)); err != nil {
+			return 0, fmt.Errorf("version %d no longer passes xray -test on %s: %w", version, res.Describe(), err)
 		}
 	}
 	c, err := s.st.InsertConfig(nodeID, old.Config)
@@ -283,7 +340,7 @@ func (s *Service) GenerateVariable(name, scope string, profileID, nodeID sql.Nul
 	var group template.Group
 	var err error
 	if template.NeedsXray(gen) {
-		group, err = s.xray.GenerateMLDSA65()
+		group, err = s.kernels.Baked().GenerateMLDSA65()
 	} else {
 		group, err = template.Generate(gen)
 	}

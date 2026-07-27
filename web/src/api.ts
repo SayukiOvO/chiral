@@ -33,6 +33,7 @@ export interface Node {
   public_ip: string;
   agent_version: string;
   xray_version: string;
+  xray_installed_version: string;
   created_at: number;
   registered_at?: number;
   last_seen_at?: number;
@@ -281,6 +282,10 @@ export interface ConfigPreview {
   inbound_tags: string[];
   tested: boolean;
   test_error: string;
+  /** Which kernel judged it, and whether that is the one the node runs. */
+  kernel_version: string;
+  kernel_exact: boolean;
+  kernel_note: string;
 }
 
 export const api = {

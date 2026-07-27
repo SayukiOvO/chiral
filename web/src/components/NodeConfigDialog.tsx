@@ -131,7 +131,15 @@ export function NodeConfigDialog({ node, onClose }: { node: Node; onClose: () =>
             {t("装配预览")}
           </h4>
           <div className="flex items-center gap-2">
-            {preview && <TestBadge tested={preview.tested} error={preview.test_error} />}
+            {preview && (
+              <TestBadge
+                tested={preview.tested}
+                error={preview.test_error}
+                kernelVersion={preview.kernel_version}
+                kernelExact={preview.kernel_exact}
+                kernelNote={preview.kernel_note}
+              />
+            )}
             <Button
               size="sm"
               variant="primary"
@@ -179,7 +187,25 @@ export function NodeConfigDialog({ node, onClose }: { node: Node; onClose: () =>
   );
 }
 
-function TestBadge({ tested, error }: { tested: boolean; error: string }) {
+/**
+ * "Passed" means two different things depending on which kernel ran the test,
+ * and the weaker one — judged by a build this node does not have — is exactly
+ * what an operator mid-upgrade must not read as the stronger. So a pass against
+ * a mismatched kernel is styled as a caution, not as green.
+ */
+function TestBadge({
+  tested,
+  error,
+  kernelVersion,
+  kernelExact,
+  kernelNote,
+}: {
+  tested: boolean;
+  error: string;
+  kernelVersion: string;
+  kernelExact: boolean;
+  kernelNote: string;
+}) {
   const { t } = useT();
   if (!tested) {
     return (
@@ -188,12 +214,19 @@ function TestBadge({ tested, error }: { tested: boolean; error: string }) {
       </span>
     );
   }
+  const label = error ? t("xray -test 未通过") : t("xray -test 通过");
+  const tone = error ? "text-danger" : kernelExact ? "text-online" : "text-muted";
   return (
     <span
-      className={cn("text-xs", error ? "text-danger" : "text-online")}
-      title={error || t("xray -test 通过")}
+      className={cn("text-xs", tone)}
+      title={error || kernelNote || t("xray -test 通过")}
     >
-      {error ? t("xray -test 未通过") : t("xray -test 通过")}
+      {label}
+      {kernelVersion && (
+        <span className="ml-1 font-mono text-[11px] text-faint">
+          {kernelExact ? kernelVersion : `${kernelVersion}*`}
+        </span>
+      )}
     </span>
   );
 }

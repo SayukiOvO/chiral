@@ -27,6 +27,7 @@ import (
 	"github.com/SayukiOvO/chiral/core/internal/alert"
 	"github.com/SayukiOvO/chiral/core/internal/api"
 	"github.com/SayukiOvO/chiral/core/internal/auth"
+	"github.com/SayukiOvO/chiral/core/internal/kernel"
 	"github.com/SayukiOvO/chiral/core/internal/mail"
 	"github.com/SayukiOvO/chiral/core/internal/node"
 	"github.com/SayukiOvO/chiral/core/internal/online"
@@ -209,14 +210,18 @@ func run(logger *slog.Logger, dbPath, grpcListen, httpListen, grpcPublic, public
 			"interval", onlineInterval, "retention", store.DeviceRetention)
 	}
 
-	// The panel keeps its own Xray binary to validate a rendered config
-	// before pushing it, and for key generators Go cannot implement.
-	xray := template.Xray{Bin: os.Getenv("CHIRAL_XRAY_BIN")}
-	if !xray.Available() {
+	// The panel keeps Xray binaries to validate a rendered config before
+	// pushing it, and for key generators Go cannot implement. Plural, because
+	// `xray -test` only answers for the build that runs it and nodes no longer
+	// all run the same one — see core/internal/kernel.
+	baked := template.Xray{Bin: os.Getenv("CHIRAL_XRAY_BIN")}
+	if !baked.Available() {
 		logger.Warn("no Xray binary (CHIRAL_XRAY_BIN); configs are pushed without panel-side validation and ML-DSA-65 is unavailable")
 	}
+	kernels := kernel.New(envOr("CHIRAL_KERNEL_DIR", "/var/lib/chiral/kernels"), baked)
+	logger.Info("xray kernels available for validation", "versions", kernels.Versions())
 	users := user.NewService(st, logger)
-	profiles := profile.NewService(st, xray, mgr, mgr, users, logger)
+	profiles := profile.NewService(st, kernels, mgr, mgr, users, logger)
 	subs := subscription.NewService(st, profiles)
 
 	// Passkeys need a secure context; without a usable public URL they are
@@ -256,7 +261,7 @@ func run(logger *slog.Logger, dbPath, grpcListen, httpListen, grpcPublic, public
 		return err
 	}
 	apiServer := api.NewServer(st, mgr, profiles, subs, alerts, passkeys, mailer,
-		adminToken, grpcPublic, publicURL, tlsEnabled, xray.Available(), logger)
+		adminToken, grpcPublic, publicURL, tlsEnabled, baked.Available(), logger)
 	if onlineReg != nil {
 		apiServer.EnableOnlineTracking(onlineReg)
 	}

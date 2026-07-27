@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/SayukiOvO/chiral/core/internal/kernel"
 	"github.com/SayukiOvO/chiral/core/internal/secret"
 	"github.com/SayukiOvO/chiral/core/internal/store"
 	"github.com/SayukiOvO/chiral/core/internal/template"
@@ -80,7 +81,7 @@ func newFixture(t *testing.T) (*Service, *store.Store, *fakePusher) {
 	t.Cleanup(func() { st.Close() })
 	push := &fakePusher{}
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	return NewService(st, template.Xray{Bin: xrayBin()}, push, push, user.NewService(st, logger), logger), st, push
+	return NewService(st, kernel.New("", template.Xray{Bin: xrayBin()}), push, push, user.NewService(st, logger), logger), st, push
 }
 
 // realityProfile wires up a profile whose inbound is a genuine VLESS+REALITY

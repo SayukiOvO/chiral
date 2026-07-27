@@ -437,6 +437,12 @@ func (s *Server) previewNodeConfig(w http.ResponseWriter, r *http.Request) {
 		"inbound_tags": pv.InboundTags,
 		"tested":       pv.Tested,
 		"test_error":   pv.TestError,
+		// Which kernel judged it. "Passed" means something weaker when the
+		// panel does not have the node's own build, and the operator has to be
+		// able to see which of the two they were told.
+		"kernel_version": pv.KernelVersion,
+		"kernel_exact":   pv.KernelExact,
+		"kernel_note":    pv.KernelNote,
 	})
 }
 
