@@ -321,8 +321,9 @@ func (m *Manager) OnlineUsers(ctx context.Context) ([]OnlineUser, bool, error) {
 		ipOut, err := m.runAPI(ctx, addr, "statsonlineiplist", "-email="+email)
 		if err != nil {
 			// The roster is already stale by the time we walk it, so a user who
-			// disconnected mid-round is ordinary. Report what we have and let
-			// Core discard the round rather than treating a short list as fact.
+			// disconnected mid-round is ordinary. Report what we have and say
+			// the enumeration was short, so Core marks the count a floor rather
+			// than treating a truncated list as a total.
 			m.logger.Warn("reading online addresses failed", "email", email, "err", err)
 			return users, false, nil
 		}

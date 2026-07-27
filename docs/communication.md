@@ -30,11 +30,13 @@
 - `StatsReport`：**增量**流量，按 inbound / outbound / user（email）维度。
 - `ConfigAck`：config 版本号、`xray -test` 结果、是否已生效。
 - `Event`：Xray-core 崩溃 / 重启、错误摘要等。
+- `OnlineReport`（M5）：当前每个凭证的在线来源地址集合。**绝对快照，是对上面「增量」规则的明确豁免**——流量计数器因 Xray 重启归零所以必须报增量，而观测集合归零的含义相反：它意味着「没在观测」，绝不能读成「零设备」。即使没人在线也每轮发一个空的 `complete=true` 帧，让沉默保持有歧义这件事不发生。
 
 **Core → Agent**
 - `ConfigPush`：完整 config.json + 版本号（Core 已在推送前 `xray -test` 通过）。
 - `UserOp`：在线 `AddUser` / `RemoveUser`（走 Xray-core HandlerService，不重启）。
 - `Command`：重启 Xray-core、立即上报一次指标等。**回滚不是独立指令**：版本历史存在 Core 侧，回滚 = Core 把旧版本内容作为新的 `ConfigPush` 重推，Agent 无需理解回滚概念、不存本地历史。
+- `OnlinePolicy`（M5）：在线地址轮询的开关与间隔。Agent 启动时不轮询，每次建流由 Core 重新下发——所以关掉这个功能后 Agent 会在下一次重连时停下，而不是等到进程退出。刻意**不**携带「受限用户名单」：统计 email 的形状是 `name.userID@profileID.nodeID`，把名单发给每台租来的 VPS 等于交出它并不服务的订阅者的用户 id 与 profile id。
 
 ## 安全
 
@@ -44,4 +46,4 @@
 
 ## proto
 
-定义在 [`../proto/chiral/v1/agent.proto`](../proto/chiral/v1/agent.proto)，Core 与 Agent 共享同一份生成代码。工具链 **buf**（remote 插件），**生成代码提交入库**——克隆即可 `go build`，无需本地装 protoc；CI 校验生成物与 proto 同步。`StatsReport` / `UserOp` 的字段是占位草案，M3 定稿。
+定义在 [`../proto/chiral/v1/agent.proto`](../proto/chiral/v1/agent.proto)，Core 与 Agent 共享同一份生成代码。工具链 **buf**（remote 插件），**生成代码提交入库**——克隆即可 `go build`，无需本地装 protoc；CI 校验生成物与 proto 同步。

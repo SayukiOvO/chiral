@@ -15,8 +15,12 @@ import (
 // unauthenticated apart from the token in the path: subscription URLs are
 // pasted into clients that cannot log in.
 //
-// The token is treated as a credential — only its hash is stored, and an
+// The token is treated as a credential: lookup is by hash alone, and an
 // unknown one gets a flat 404 with no hint about whether the user exists.
+//
+// It used to be true that only the hash was stored. Migration 0009 added a
+// sealed copy so the portal can show someone their own link; the lookup path
+// here is unchanged and never opens it.
 func (s *Server) serveSubscription(w http.ResponseWriter, r *http.Request) {
 	token := r.PathValue("token")
 	if token == "" {

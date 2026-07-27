@@ -9,8 +9,8 @@ Chiral 是一个 Xray 管理面板，定位类似 Remnawave：采用 **Panel + A
 ## 2. 架构与术语（务必分清）
 
 - **Panel（面板，中心侧）** = 前端 + Core，两者合称。
-  - **前端**：React SPA。
-  - **Core**：Go 后端二进制，承载 Panel 的全部后端功能——REST/WS API、订阅 API、模板渲染、鉴权 / RBAC、SQLite 持久化、与各 Agent 的长连接管理。**本项目里 "core" 专指 Panel 后端，不是 Xray 内核。**
+  - **前端**：两个 Vite 入口的 React 应用——订阅者门户在 `/`，运维控制台在 `/admin/`。
+  - **Core**：Go 后端二进制，承载 Panel 的全部后端功能——管理 REST API、门户 API、订阅 API、模板渲染、鉴权 / RBAC、SQLite 持久化、静态资源伺服、与各 Agent 的长连接管理。**没有 WebSocket**（早期草图写过，从未实现，前端一直是轮询）。**本项目里 "core" 专指 Panel 后端，不是 Xray 内核。**
 - **Agent（节点侧守护进程）**：Go 二进制，跑在每台节点主机上，主动连回 Core。负责管理本机 **Xray-core** 进程、应用 Core 下发的 config.json、采集指标与流量、上报心跳。
 - **Xray-core（被管理的代理内核）**：Xray 官方内核二进制，由 Agent 作为子进程管理，不是我们要写的程序。
 
@@ -19,7 +19,7 @@ Chiral 是一个 Xray 管理面板，定位类似 Remnawave：采用 **Panel + A
 ## 3. 技术栈（已定）
 
 - 后端 Core + Agent：Go
-- 前端：React + Vite + TailwindCSS + shadcn/ui（Radix 底座）
+- 前端：React + Vite + TailwindCSS。shadcn/ui 曾定为组件底座，实际是手写原语（`web/src/components/ui.tsx` 与 `primitives.tsx`）；下沉到 shadcn 属重构，见 §5
 - 数据库：SQLite（WAL 模式）
 - Core ↔ Agent 通信：gRPC 双向流 over TLS
 - 部署：Docker + docker-compose
@@ -38,11 +38,15 @@ Chiral 是一个 Xray 管理面板，定位类似 Remnawave：采用 **Panel + A
 10. **私钥类变量静态加密**：AES-GCM，密钥来自独立环境变量 `CHIRAL_SECRET_KEY`（不设则明文入库并告警）。威胁模型是「数据库文件外流」，不防已能在面板机执行代码的攻击者。
 11. **订阅 token 改为可恢复存储**（M5 定稿，**推翻 0003 迁移里「从不存储」的原决策**）：`users.sub_token_enc` 用 AES-GCM 密封，AAD 绑定行。门户的核心价值之一就是随时能看到自己的链接，而「只能重新生成」会炸掉用户已配置的所有客户端。`sub_token_hash` 与查找路径一个字节不变。代价说清楚：从「我们想拿也拿不回」降级为「持有 `CHIRAL_SECRET_KEY` 就能拿回」——面板本来就以同样形式持有每个用户的每一条代理凭证，边际损失很小。配套硬约束：**门户开启且无 `CHIRAL_SECRET_KEY` 时 Core 拒绝启动**，不是告警。
 12. **`OnlineReport` 是绝对快照，对增量规则的明确豁免**（M5）：流量计数器因 Xray 重启归零，所以必须报增量；而观测集合归零的含义相反——它意味着「没在观测」，绝不能读成「零设备」。即使没人在线也每轮发一个空的 `complete=true` 帧，让沉默保持有歧义这件事不发生。
-13. **端用户与管理员是两类主体，边界靠构造而非小心**（M5）：`portal.Identity` **永远不带 Role**，`auth.rank()` **永远不新增 `>= 1` 的值**。一旦有人给 rank 加了「user: 1」，`requireAdmin` 覆盖的节点 / 用户 / 变量 / 审计 / 尤其是返回含 REALITY 私钥与全部凭证明文的 `config/preview` 就全部对客户开放。门户 handler 拿到的是作用域化的 `portal.View`，**拿不到 `*store.Store`**——接错守卫和越权取数都是编译错误。
+13. **端用户与管理员是两类主体，边界靠构造而非小心**（M5）：`portal.Identity` **永远不带 Role**，`auth.rank()` **永远不新增 `>= 1` 的值**。一旦有人给 rank 加了「user: 1」，`requireAdmin`（= viewer 档）覆盖的节点列表、用户列表、变量、Profile、流量、审计日志就全部对客户开放。（`config/preview` 不在此列——M5-2 已把它提到 `requireWrite`，正因为它返回含 REALITY 私钥与全部凭证明文的完整 config。）
+    编译期能保证的部分要说准：**接错守卫是编译错误**（`portalHandler` 多收一个 `portal.Identity`，两种签名不统一）；**`package portal` 内部够不到 store**，所以越权取数在 `View` 这条路径上不可能。但 `package api` 里的门户 handler 是 `*Server` 的方法，仍持有 `s.st`（`portalLogin`、`portalChangePassword` 就在用它读写自己的账号行）——在那里写 `s.st.ListNodes()` 是能编译过的。**规矩是：凡是要展示机队信息，一律走 `View`。**
 
 ## 5. 搁置 / 待议
 
-- **Profile 抽象**（把 服务端 inbound 模板 + 共享参数 + 各客户端模板 打包成一个单元）：用户暂未采纳，等实现模板系统时用具体例子重新演示后再定。`docs/template-system.md` 现有内容为参考稿，非定稿。
+- **回滚 UI**：后端能力早已具备（旧版本作为新 `ConfigPush` 重推），前端还没有入口。
+- **shadcn/ui 组件化下沉**：当前是手写原语，功能与观感已达标，属重构而非缺口。
+- **端用户 MFA**：不做。它守的东西比 `/sub/{token}` 已经免费给出去的还少。`portal_challenges` 的 CHECK 已预留 purpose，将来加不用重建表。
+- **超限自动断线**：做不到，不是不做——实测 `rmu` 与 `sib` 都掐不断已建立的会话（见 `docs/user-portal.md` §8）。
 - 其余待补功能见 `docs/roadmap.md`。
 
 ## 6. 仓库结构
@@ -65,11 +69,11 @@ Chiral 是一个 Xray 管理面板，定位类似 Remnawave：采用 **Panel + A
 - **自实现密钥派生必须与 xray 二进制交叉验证**：格式差一点，`xray -test` 不会报警，只在运行时静默握手失败。见 `core/internal/template/generator_test.go`。无法验证的分量宁可不产出。
 - **流量统计**：Agent 上报增量而非绝对值，防 Xray-core 重启导致计数器归零。
 - **变量泄露防护**：客户端模板只能引用「可公开」变量，私钥类变量在客户端渲染上下文中不可见。
-- **前端**：日 / 夜 / 跟随系统 三态切换，移动端自适应；i18n 中 / 英。视觉方向 **"信号控制台"（clean minimalism，参考 Revolut）**，配色是**传统黑灰夜间基调**：灰阶打底，chrome 全走黑白灰高对比（主按钮 `--signal` = 黑/白反色），**唯一彩色是克制的绿色**（`--online`），只留给"活着的东西"——在线节点、运行中内核、其实时流量折线（黑底绿线的经典监控观感）。**忌用紫色 / 钴蓝**（Mai 明确讨厌，见记忆 mai-frontend-aesthetic）。字体 Space Grotesk（标题）+ Inter（正文）+ Space Mono（遥测数据，自托管不依赖 CDN）；签名元素是每节点实时流量迷你折线。设计 token 在 `web/src/index.css`（`@theme inline` + CSS 变量运行时换肤）。
+- **前端**：**两个 Vite 入口**——订阅者门户在 `/`（`src/portal/`），运维控制台在 `/admin/`（`src/pages/`）。门户侧不得 import `src/api.ts` 或 `src/pages/`，否则整个管理端会被打进门户包（实测门户 209 kB、Monaco 不可达）。两边共用 `src/components/` `src/lib/` `src/format.ts`，各自持有不同的 localStorage token 键。日 / 夜 / 跟随系统 三态切换，移动端自适应；i18n 中 / 英。视觉方向 **"信号控制台"（clean minimalism，参考 Revolut）**，配色是**传统黑灰夜间基调**：灰阶打底，chrome 全走黑白灰高对比（主按钮 `--signal` = 黑/白反色），**唯一彩色是克制的绿色**（`--online`），只留给"活着的东西"——在线节点、运行中内核、其实时流量折线（黑底绿线的经典监控观感）。**忌用紫色 / 钴蓝**（Mai 明确讨厌，见记忆 mai-frontend-aesthetic）。字体 Space Grotesk（标题）+ Inter（正文）+ Space Mono（遥测数据，自托管不依赖 CDN）；签名元素是每节点实时流量迷你折线。设计 token 在 `web/src/index.css`（`@theme inline` + CSS 变量运行时换肤）。
 
 ## 8. 开发里程碑
 
-见 `docs/roadmap.md`。当前从 M1（Core↔Agent 骨架）开始。
+见 `docs/roadmap.md`。M1–M5 均已完成：骨架、模板/变量系统、用户与订阅、UI 打磨与 i18n、端用户门户与在线地址记录。
 
 ## 9. 协作方式
 

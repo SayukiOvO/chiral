@@ -121,8 +121,14 @@ message ConfigAck {
 message OnlineReport {
   int64 at_unix = 1;
   // False when the agent could not enumerate everything this round (a timeout
-  // partway through the fan-out). Core must skip such a round rather than read
-  // a truncated set as "these are all the addresses in use".
+  // partway through the fan-out).
+  //
+  // Core keeps what such a round did contain and marks the resulting count
+  // partial, rather than discarding it: the addresses it DID see are real, and
+  // dropping the round would make a persistently slow node look quiet instead
+  // of unreliable. What the flag forbids is reading a truncated set as "these
+  // are all the addresses in use" — so the count travels with `partial` and is
+  // documented as a floor, never a total.
   bool complete = 2;
   // Sent every round even when empty, so silence stays unambiguous. An empty
   // list from Xray has three different causes — the policy is off, nobody is

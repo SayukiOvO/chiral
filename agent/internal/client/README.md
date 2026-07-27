@@ -1,5 +1,16 @@
 # client — 到 Core 的长连接
 
-建立并维持 gRPC 双向流：注册换凭证、心跳保活、断线指数退避重连；接收 `ConfigPush` / `UserOp` / `Command`；上报 `Heartbeat` / `StatsReport` / `ConfigAck` / `Event`。
+建立并维持 gRPC 双向流：一次性 join token 换长期凭证、心跳保活、断线指数退避重连。
 
-**状态**：待实现（M1）。
+- **收**：`ConfigPush`、`UserOp`（在线增删用户）、`Command`（重启 / 立即上报）、`OnlinePolicy`（在线地址轮询的开关与间隔）。
+- **发**：`Hello`（首帧）、`Heartbeat`、`StatsReport`、`ConfigAck`、`Event`、`OnlineReport`。
+
+## 关键决策
+
+- **`Hello` 同步发，不经写协程**。协议要求它是建流后的第一帧，而断线期间缓冲的 `Event` 正等在写协程里——让两者竞争第一帧的位置，协议就会随机地坏掉。
+- **写只有一个协程**。gRPC 的流禁止并发 `Send`，所以心跳、流量、在线、事件全部经 `sendCh` 汇到一处。
+- **注册前先探 state 目录可写**。join token 是一次性的：先花掉再发现写不了盘，这个节点就废了，只能回面板重开一个。
+- **凭证被拒绝不重试**。`PermissionDenied` / `Unauthenticated` 意味着节点被删或凭证被吊销，退避重连只会刷日志——直接退出，让容器重启策略或运维看见。
+- **流量与心跳分开节奏**。每次读流量都会 `-reset` 内核计数器，所以那个间隔就是记账粒度，也是 Agent 崩溃时会丢掉的窗口；读得更勤只是多开子进程。
+- **在线轮询策略每条流重置**。`OnlinePolicy` 是 Core 的决定且每次建流重发；跨重连保留它意味着运维关掉功能后 Agent 还在轮询，直到进程退出才停。空闲是安全的默认值。
+- **重连抖动 ±20%**，免得整个机队在 Core 重启后齐步涌回。

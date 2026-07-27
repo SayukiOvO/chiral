@@ -129,7 +129,7 @@ vless://{{user.uuid}}@{{node.address}}:{{port}}?security=reality&sni={{sni}}&pbk
 - **只支持 `{{变量}}` 替换**，不支持条件 / 循环。遍历节点 × 用户、组装 clients 数组、按客户端类型拼装订阅——都由 Core 用代码完成，不进模板。心智负担最小、最难写错、无注入面。
 - 变量名合法字符 `[a-zA-Z0-9_.]`；`{{ name }}` 允许内部空白；未定义变量或客户端上下文引用私钥 → 渲染报错。
 
-## 7. 实现现状（M2）
+## 7. 实现现状
 
 | 部件 | 位置 | 说明 |
 |---|---|---|
@@ -137,6 +137,7 @@ vless://{{user.uuid}}@{{node.address}}:{{port}}?security=reality&sni={{sni}}&pbk
 | 生成器 | `template/generator.go` | uuid / x25519 / short_id / password / mlkem768，**与 xray 交叉验证** |
 | ML-DSA-65 + 校验器 | `template/xray.go` | 种子自生成、派生交给 xray 二进制；`TestConfig` 跑 `xray -test` |
 | config 装配 | `template/assemble.go` | 骨架 + 各 Profile 渲染出的 inbound 追加进 `inbounds`；手写 inbound 保留 |
+| 管理面注入 | `template/api.go` | 每份装配出的 config 都补上 `api` 块（HandlerService / StatsService / RoutingService）、`stats` 块、loopback-only 的 api inbound 与首条路由规则，以及 `policy.levels."0"` 的 `statsUserUplink` / `statsUserDownlink` / `statsUserOnline`。已有 `api` 块的骨架整块保留 |
 | 私钥加密 | `core/internal/secret/` | AES-GCM，密钥来自 `CHIRAL_SECRET_KEY`，AAD 绑定到具体行 |
 | 数据模型 | `core/migrations/0002_template.sql` | profiles / profile_client_templates / profile_nodes / variables / variable_components |
 | 编排 | `core/internal/profile/` | 解析变量池 → 渲染 → 装配 → `xray -test` → 存版本 → 下发 |
@@ -147,6 +148,7 @@ vless://{{user.uuid}}@{{node.address}}:{{port}}?security=reality&sni={{sni}}&pbk
 - `xray -test` 不通过的配置**既不存版本也不下发**（实测验证），错误把 Xray 的诊断原样返回给操作者。
 - API 返回变量时**私钥分量一律遮蔽**为 `••••••••`。
 - **加密覆盖到渲染产物**：私钥分量、`node_configs.config`、`nodes.config_skeleton` 三者都加密。渲染后的 config 按设计含私钥明文，只加密变量表等于白做——拿到库文件就能 `select config from node_configs` 读出每个节点的密钥。
+- **`statsUserOnline` 缺了会静默失效**：实测 Xray 26.3.27，少这一行时每用户流量统计照常、`xray -test` 照过，但 `statsonline` / `statsonlineiplist` 返回 NotFound、`statsgetallonlineusers` 返回 `{}` 且 exit 0——面板会永远显示所有账号零地址，全系统没有任何地方报错。所以由 `EnsureAPI` 注入而不是指望运维记得写。
 - **面板侧校验环境是钉死的**：`xray -test` 子进程只拿到固定的 `XRAY_LOCATION_ASSET`（geo 资源必须随镜像走，否则 `geosite:` / `geoip:` 路由规则会被误拒），且不继承面板的其它环境变量——在这里能过的配置，到节点上必须是同一个意思。
 
 ### 部署所需环境变量
@@ -157,6 +159,4 @@ vless://{{user.uuid}}@{{node.address}}:{{port}}?security=reality&sni={{sni}}&pbk
 ## 待办
 
 - [ ] ML-KEM-768 的 `Hash32` 分量：xray 会打印，但其派生方式未能复现，**暂不产出**（不发无法验证的值）。用到再补。
-- [ ] 节点 config 骨架的 Monaco 编辑器（`{{变量}}` 高亮 + 校验提示）与 Profile 编辑界面。
 - [ ] 密钥轮换流程（换 `CHIRAL_SECRET_KEY` 后批量重新封装）。
-- [ ] 客户端模板渲染与订阅（M3）。

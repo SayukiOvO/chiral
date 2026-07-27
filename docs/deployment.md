@@ -6,21 +6,30 @@
 
 单个 `docker-compose.yml`（见 [`../deploy/panel/`](../deploy/panel/)），包含：
 - `core` 容器：Go 后端，挂载 SQLite 数据卷。
-- 前端静态资源：由 core 一并伺服，或独立静态容器。
-- 可选 `caddy` / `nginx`：TLS 终止（建议 ACME 自动签发证书）。
+- 前端静态资源：镜像里已打包构建产物，core 经 `CHIRAL_WEB_DIR` 一并伺服。**门户在 `/`，运维控制台在 `/admin/`**；留空该变量则 core 完全不伺服静态文件，交给反代。
+- 可选 `caddy` / `nginx`：TLS 终止（建议 ACME 自动签发证书）。用反代时**必须**设 `CHIRAL_TRUSTED_PROXY`，见下。
 
 关键环境变量：
 
 | 变量 | 说明 |
 |---|---|
-| `CHIRAL_ADMIN_TOKEN` | 管理 API 的 bearer token（必需） |
-| `CHIRAL_SECRET_KEY` | 私钥类变量的静态加密密钥；**不设则私钥明文入库**（启动告警）。`openssl rand -base64 32` |
+| `CHIRAL_ADMIN_TOKEN` | 破窗用的 bearer token（必需）。与账号密码并行，密码全丢了也还能进 |
+| `CHIRAL_ADMIN_USER` / `CHIRAL_ADMIN_PASSWORD` | **首个管理员账号**。仅在库里一个管理员都没有时生效。用户名默认 `admin`；**密码留空则随机生成并在启动日志里打印一次**，之后再也拿不到——生产部署应显式设置 |
+| `CHIRAL_SECRET_KEY` | 静态加密密钥；**不设则私钥类数据明文入库**（启动告警）。开启门户时它是**硬性要求**，见下。`openssl rand -base64 32` |
 | `CHIRAL_GRPC_PUBLIC_ADDR` | Agent 拨回的 `host:port`，写进「新增节点」生成的 compose |
 | `CHIRAL_XRAY_BIN` | 面板侧 Xray 二进制（镜像内已打包）。下发前 `xray -test` 校验、ML-DSA-65 生成都靠它 |
 | `CHIRAL_DB_PATH` / `CHIRAL_HTTP_LISTEN` / `CHIRAL_GRPC_LISTEN` | 路径与监听地址 |
 | `CHIRAL_TLS_CERT` / `CHIRAL_TLS_KEY` | gRPC 端 TLS（生产必需） |
+| `CHIRAL_TRUSTED_PROXY` | **有反代时必需**。逗号分隔的地址或 CIDR，只写 core 前面那一层。不设则限流按对端地址计（反代后就是所有人共用一个桶）；设错则任何调用方一个 `X-Forwarded-For` 就能自选桶，限流形同虚设 |
+| `CHIRAL_WEB_DIR` | 前端构建产物目录（镜像内已设）。留空则不伺服静态文件 |
+| `CHIRAL_PORTAL_MODE` | 端用户门户：`off`（默认）/ `closed`（仅登录，账号靠认领链接发放）/ `open`（开放注册） |
+| `CHIRAL_PORTAL_INVITE_CODE` | 开放注册时的共享注册码；留空则任何人都能注册 |
+| `CHIRAL_ONLINE_RECORD` | 记录每个用户的来源地址，默认 `off`。打开会给每个节点注入 `statsUserOnline`，即一次配置版本变更 + 一次 Xray 重启（该节点上的活连接会断一次） |
+| `CHIRAL_SMTP_HOST` / `_PORT` / `_USER` / `_PASSWORD` / `_FROM` / `_TLS` | 邮箱验证与登录验证码。`HOST` 留空即不提供邮件因素 |
 
 > **Panel 镜像里也带 Xray 二进制**：不是用来跑代理，而是用来在下发前校验渲染出的 config，以及派生 Go 标准库没有的后量子密钥。
+
+> **`CHIRAL_PORTAL_MODE != off` 时 `CHIRAL_SECRET_KEY` 是硬性要求，缺了 core 会拒绝启动**（不是告警）。门户要能把订阅链接展示给用户，所以订阅 token 是可恢复存储的；那是一条公网可用的 bearer URL，明文入库意味着一份被拖走的 `chiral.db` 直接产出全部用户的可用链接。
 
 ## 节点侧
 
@@ -47,5 +56,6 @@ Core:  推送首份 config → Agent 落盘 + xray -test + 拉起 Xray-core → 
 
 - [x] 起草 `deploy/panel/docker-compose.yml`
 - [x] 起草 `deploy/agent/docker-compose.yml.tmpl`（Core 渲染用）
-- [x] Dockerfile（core / agent 草案；web 待前端就绪）
-- [ ] Xray-core 二进制：草案按随镜像打包（pin 版本），是否支持运行时拉取 / 在线升级待议
+- [x] Dockerfile（core / agent；core 镜像含 node 构建阶段，前端两个入口一并打包）
+- [ ] `.env` 示例
+- [ ] Xray-core 二进制：现按随镜像打包（可 `--build-arg XRAY_VERSION` pin 版本），是否支持运行时拉取 / 在线升级待议

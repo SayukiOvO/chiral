@@ -43,6 +43,10 @@ var (
 	// Claim links are guessable only in the sense that any 32-byte token is;
 	// this bounds the guessing rather than the legitimate use.
 	limitClaim = limit{n: 10, window: time.Hour}
+	// The portal's config read is a handful of static booleans, fetched once
+	// per page load. Loose enough never to bother a reader reloading, tight
+	// enough that it cannot be used as a free request amplifier.
+	limitConfig = limit{n: 60, window: time.Minute}
 	// Subscriptions are polled by clients on a schedule; this is an abuse
 	// ceiling, not a usage limit. Note that everyone behind one NAT shares
 	// this bucket, which is why it is set well above what any single client

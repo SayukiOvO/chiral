@@ -49,8 +49,13 @@ type Subscriptions interface {
 // Written out explicitly rather than taking *store.Store, because the
 // signature trick above only stops a handler being mounted on the wrong guard
 // — it does nothing to stop a correctly-guarded handler from calling
-// ListNodes() and serialising the whole fleet. With the store absent from the
-// portal's reach, over-fetching is a compile error too.
+// ListNodes() and serialising the whole fleet.
+//
+// The scope of what this buys: inside THIS package the store is unreachable,
+// so a query for another user's data does not compile. It does not extend to
+// the handlers in package api, which are methods on a Server that holds the
+// store. The rule that keeps the guarantee real is therefore a habit, not a
+// type: anything a portal handler shows about the fleet comes through View.
 type Data interface {
 	GetUser(id string) (store.User, error)
 	UserProfileIDs(userID string) ([]string, error)

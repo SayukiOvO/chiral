@@ -1,35 +1,33 @@
-# template — 模板引擎与变量池
+# template — 模板引擎、变量生成器与 config 装配
 
-变量池（全局 / 节点 / Profile / 用户 四作用域 + 生成器）、config 模板渲染、客户端模板渲染、`xray -test` 校验、config 版本化与回滚。
+`{{变量}}` 渲染、密钥组生成、节点 config.json 装配、`xray -test` 校验。本包是纯逻辑，不认识 `store`——读库、存版本、下发由 [`../profile/`](../profile/) 编排。变量的持久化与私钥分量加密见 `../store/template.go` + [`../secret/`](../secret/)。
 
-设计见 [`../../../docs/template-system.md`](../../../docs/template-system.md)（Profile 抽象**已定稿**）。
+设计见 [`../../../docs/template-system.md`](../../../docs/template-system.md)。
 
-## 已实现
+| 文件 | 职责 |
+| --- | --- |
+| `engine.go` | `{{变量}}` 替换；四作用域 `Merge()`（用户 > 节点 > Profile > 全局）；`ForClient()`；`Validate()` 一次报全部问题 |
+| `generator.go` | 变量组生成器：`uuid` / `x25519` / `short_id` / `password` / `mlkem768` |
+| `xray.go` | 包裹 xray 二进制：`-test` 校验、`mldsa65` 派生 |
+| `assemble.go` | 骨架 + 各 Profile 渲染出的 inbound + clients 数组 → 完整 config.json |
+| `api.go` | 往 config 里补 Xray **自己的** gRPC 管理 API、stats 与 policy（不是面板的 REST API） |
 
-- `engine.go` — **只做 `{{变量}}` 替换**，不支持条件 / 循环（遍历节点 × 用户由调用方用 Go 完成）。
-  - 四作用域合并 `Merge()`，优先级 用户 > 节点 > Profile > 全局。
-  - 未定义变量 → 渲染失败且**不返回半渲染结果**（半渲染的 config 可能仍是合法 JSON 且能过 `xray -test`，比直接拒绝危险得多）。
-  - `ForClient()` 把私钥类分量**从上下文里整个删掉**，不只是渲染时报错。
-  - `Validate()` 一次报出模板的全部问题，供编辑器展示。
-- `generator.go` — 变量组生成器：`uuid` / `x25519` / `short_id` / `password` / `mlkem768`。
-  - 生成**组**而非单值：服务端引 `{{reality.private}}`、客户端引 `{{reality.public}}`，同一次生成的两个分量，天然配对。
+## 关键决策
 
-## 为什么生成器必须与 xray 二进制交叉验证
+- **引擎只做替换，没有条件与循环**：遍历 节点 × 用户、拼 clients 数组由调用方用 Go 完成，模板因此无法「被编程」。
+- **渲染失败绝不返回半成品**：未定义变量、或客户端模板引用私钥类变量，一律报错。半渲染的 config 往往仍是合法 JSON、能过 `xray -test`，比直接拒绝危险得多。
+- **`ForClient()` 把私钥分量从上下文里整个删掉**，不是渲染时才拦——别处写出 bug 也读不到。
+- **生成的是「组」不是单值**：服务端引 `{{reality.private}}`、客户端引 `{{reality.public}}`，是同一次生成的两个分量。
+- **`EnsureAPI` 只补缺的那部分**：操作员手写了 `api` 块就保留，但 `policy.levels.0` 的三个 stats 开关照样补齐。少了 `statsUserOnline`，`statsgetallonlineusers` 会返回 `{}` 并退出 0，和「没人在线」一模一样。
 
-实测：`xray -test` **无法发现「两边都是合法密钥但不是一对」**，只会在运行时静默握手失败。所以自行实现的密钥派生一旦与 Xray 有出入，配置校验不会报任何警。
+## `xray -test` 查不出密钥对不匹配
 
-`generator_test.go` 因此把 Go 生成的私钥喂给 `xray x25519 -i`，逐字节比对公钥。**这条测试在开发时立刻抓到了一个真实的派生不一致**（ML-KEM 的 Hash32 分量对不上），该分量遂改为不产出，而不是产出一个猜的值。
+实测：两边都是合法密钥但**不是一对**时，`xray -test` 一声不吭，只在运行时静默握手失败。所以服务端与客户端必须引用**同一个变量组的不同分量**——这是唯一可靠的保证，不是风格偏好。
+
+同理，自实现的密钥派生与 Xray 有出入也不会有任何告警。`generator_test.go` 因此把 Go 生成的私钥喂给 `xray x25519 -i` 逐字节比对公钥；这条测试当场抓到 ML-KEM 的 `Hash32` 分量派生对不上，该分量遂**不产出**，而不是产出一个猜的值。ML-DSA-65 索性整个交给二进制（`xray mldsa65 -i <seed>`），只有 seed 仍出自我们自己的 CSPRNG。
 
 ```bash
 CHIRAL_XRAY_BIN=/path/to/xray go test ./core/internal/template/
 ```
 
-未设 `CHIRAL_XRAY_BIN` 且 PATH 里没有 `xray` 时，交叉验证用例会 skip（CI 不因此变红），其余用例照跑。
-
-## 待实现
-
-- ML-DSA-65 生成器（后量子 REALITY 签名，Go 标准库无）。
-- 变量在 SQLite 的存储 / 加密（私钥类加密）。
-- Profile / 变量 / 绑定的数据模型与渲染编排、`xray -test` 校验与下发。
-
-**状态**：M2 进行中（引擎 + 生成器已完成）。
+未设 `CHIRAL_XRAY_BIN` 且 PATH 里没有 `xray` 时，交叉验证用例会 skip，其余用例照跑。

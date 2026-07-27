@@ -26,10 +26,18 @@ import (
 //     `s.requireAdmin(s.portalMe)` and `s.requireUser(s.listNodes)` are both
 //     compile errors.
 //
-//  3. Scoped data. A portal handler gets a *portal.View built from its own
-//     identity, never the store. This is the layer that matters most, because
-//     (2) only stops the wrong GUARD — it does nothing about a correctly
-//     guarded handler calling ListNodes() and serialising the fleet.
+//  3. Scoped data. Everything a portal handler shows about the fleet comes
+//     from a *portal.View built from its own identity, and package portal
+//     cannot reach the store at all — it is handed a narrow portal.Data
+//     interface, so a query for someone else's data is a compile error THERE.
+//
+//     Be precise about the limit of this: handlers in THIS package are methods
+//     on *Server and so still hold s.st. portalLogin and portalChangePassword
+//     use it deliberately, for their own account rows. Nothing stops a future
+//     handler here from calling s.st.ListNodes() — (2) stops the wrong guard,
+//     not a correctly guarded handler fetching too much. Route fleet data
+//     through View and that stays impossible; reach for s.st and you are on
+//     your own.
 //
 //  4. A route-prefix assertion in both middlewares, so a misregistration is a
 //     loudly broken route rather than a silent hole.
@@ -132,8 +140,11 @@ func (s *Server) routePortal(mux *http.ServeMux) {
 	}
 
 	// Unauthenticated, and every one of them throttled: these answer before
-	// any credential exists, exactly like the admin login routes.
-	mux.HandleFunc("GET /api/portal/config", s.portalConfig)
+	// any credential exists, exactly like the admin login routes. config is
+	// only a few static booleans, but it is on the list so the rule stays
+	// "every route in this block has a budget" rather than "every route except
+	// the ones someone judged cheap".
+	mux.HandleFunc("GET /api/portal/config", s.throttle("portal-config", limitConfig, s.portalConfig))
 	mux.HandleFunc("POST /api/portal/register", s.throttle("portal-register", limitRegister, s.portalRegister))
 	mux.HandleFunc("POST /api/portal/login", s.throttle("portal-login", limitLogin, s.portalLogin))
 	mux.HandleFunc("POST /api/portal/claim/lookup", s.throttle("portal-claim", limitClaim, s.portalClaimLookup))

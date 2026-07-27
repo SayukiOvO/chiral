@@ -1,5 +1,10 @@
-# collector — 指标采集
+# collector — 宿主机系统指标
 
-系统资源（gopsutil：CPU / 内存 / 磁盘 / 网速）+ Xray-core 流量（gRPC StatsService，按 inbound / outbound / user）。上报**增量**。
+gopsutil 采 CPU / 内存 / 根分区用量 / 网卡吞吐，填进 `Heartbeat` 的系统字段。Xray 状态与 config 版本由调用方补齐。
 
-**状态**：待实现（M1 系统指标 / M3 流量）。
+**这里没有流量统计**：每用户流量归 `xray` 包（`xray api statsquery -reset`），与本包无关。
+
+## 关键决策
+
+- **单个探针失败只让对应字段留零，不让整条心跳失败**：一台机器读不到磁盘用量，不该把 CPU 和存活信号一起丢掉。
+- **网速是两次调用之间的字节差 / 秒**，所以 `New()` 里先空跑一次预热基线。没预热时 `netPrimed` 为 false，那一次只记基线并返回 0——面板宁可少一个点，也不要一个假的尖峰。
