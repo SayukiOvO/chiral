@@ -6,7 +6,7 @@ import { AddNodeDialog } from "../components/AddNodeDialog";
 import { NodeConfigDialog } from "../components/NodeConfigDialog";
 import { Button } from "../components/ui";
 import { PlusIcon } from "../components/icons";
-import { ErrorBar } from "./VariablesPage";
+import { ErrorBar } from "../components/primitives";
 import { useT } from "../lib/i18n";
 
 const REFRESH_MS = 3000;

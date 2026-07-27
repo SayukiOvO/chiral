@@ -3,7 +3,7 @@ import { api, type ConfigPreview, type Node } from "../api";
 import { Button } from "./ui";
 import { TemplateEditor } from "./TemplateEditor";
 import { useIsDark } from "../lib/theme";
-import { Modal } from "../pages/VariablesPage";
+import { Modal } from "./primitives";
 import { cn } from "../lib/cn";
 import { useT } from "../lib/i18n";
 

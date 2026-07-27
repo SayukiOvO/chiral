@@ -368,6 +368,86 @@ const EN: Record<string, string> = {
   新密码: "New password",
   再输一次: "Repeat it",
   "两次输入不一致。": "Those do not match.",
+
+  // --- portal (the subscriber's side) ---
+  //
+  // Written for someone who bought a subscription, not for an operator: no
+  // "node", no "profile", no "sync". A line is a 线路 / line, and what gets
+  // counted are addresses, never devices.
+  //
+  // Where a portal string needs different English from an identical console
+  // string, the CHINESE key differs too — the dictionary is keyed by the
+  // source text, so one key cannot carry two meanings. 可用 is the console's
+  // "Active" (a user's admission state); a line that is reachable is 正常.
+  "密码（至少 8 位）": "Password (8 characters or more)",
+  "新密码（至少 8 位）": "New password (8 characters or more)",
+  注册码: "Registration code",
+  "登录中…": "Signing in…",
+  "提交中…": "Submitting…",
+  "设置中…": "Saving…",
+  "刷新中…": "Refreshing…",
+  刷新: "Refresh",
+  注册: "Sign up",
+  "还没有账号？": "No account yet?",
+  "已经有账号？": "Already have an account?",
+  "查看你的订阅、线路与用量。": "Your subscription, lines and usage.",
+  "注册后请联系管理员开通线路。": "After signing up, ask the operator to enable your lines.",
+  "忘记密码请联系管理员重置。": "Forgotten your password? Ask the operator to reset it.",
+  "这个面板暂不开放注册。": "This panel is not accepting new accounts.",
+  可以登录了: "Ready to sign in",
+  "如果这个邮箱还没被注册，账号已经建好。":
+    "If that address was not already registered, the account is ready.",
+  去登录: "Go to sign in",
+  账户: "Account",
+  外观: "Appearance",
+  退出登录: "Sign out",
+
+  // claim / reset
+  设置密码: "Set a password",
+  "这个链接属于账号 {name}。": "This link is for the account {name}.",
+  "邮箱（首次设置时填写）": "Email (only when setting up)",
+  设置密码并登录: "Set password and sign in",
+  链接无效: "That link does not work",
+  "这个链接已失效或已被使用。请向管理员再要一个。":
+    "It has expired or already been used. Ask the operator for another.",
+
+  // home
+  已用流量: "Used",
+  "续期时清零": "resets on renewal",
+  线路: "Lines",
+  "线路 {n}": "Line {n}",
+  正常: "available",
+  开通中: "being set up",
+  暂不可用: "unavailable",
+  "你的账户还没有开通任何线路。": "No lines have been enabled on your account yet.",
+  "最近 24 小时": "Last 24 hours",
+  "最近 24 小时没有流量": "No traffic in the last 24 hours",
+
+  // subscription
+  我的订阅链接: "Subscription link",
+  "复制到你的客户端，它会自动获取全部线路。":
+    "Paste it into your client; it will pull every line automatically.",
+  通用: "Generic",
+  分享链接: "Share link",
+  显示二维码: "Show QR code",
+  收起二维码: "Hide QR code",
+  "二维码包含你的订阅密钥，不要分享截图。":
+    "This code contains your subscription key — do not share a screenshot.",
+  "这个账户的订阅链接是旧版本创建的，面板无法显示。请联系管理员重新生成。":
+    "This account's link predates the panel being able to show it. Ask the operator to regenerate it.",
+
+  // status banners
+  "账户已停用，请联系管理员。": "This account has been suspended. Please contact the operator.",
+  "订阅已到期，请联系管理员续期。": "Your subscription has expired. Please contact the operator.",
+  "本期流量已用完。": "You have used all of this period's traffic.",
+  "账户已创建，但还没有开通线路。请联系管理员。":
+    "Your account exists but no lines have been enabled yet. Please contact the operator.",
+
+  // addresses
+  "最近连接过的来源地址。": "Source addresses seen recently.",
+  "最近连接过的来源地址，上限 {n} 个。":
+    "Source addresses seen recently. The limit is {n}.",
+  "最近没有记录到连接。": "No connections recorded recently.",
 };
 
 const DICT: Record<Lang, Record<string, string>> = { zh: {}, en: EN };

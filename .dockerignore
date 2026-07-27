@@ -1,0 +1,19 @@
+# Keep the build context small and the image reproducible.
+#
+# node_modules matters most: the web stage runs `npm ci` from the lockfile, so
+# copying a developer's already-installed tree in would both slow the build
+# down by hundreds of megabytes and risk baking in whatever happened to be on
+# that machine.
+node_modules/
+web/node_modules/
+web/dist/
+
+bin/
+*.db
+*.db-wal
+*.db-shm
+
+.git/
+.github/
+.claude/
+docs/

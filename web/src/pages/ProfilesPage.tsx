@@ -6,7 +6,7 @@ import { TemplateEditor } from "../components/TemplateEditor";
 import { cn } from "../lib/cn";
 import { href, navigate } from "../lib/router";
 import { useIsDark } from "../lib/theme";
-import { Empty, ErrorBar, Field, Modal, inputCls } from "./VariablesPage";
+import { Empty, ErrorBar, Field, Modal, inputCls } from "../components/primitives";
 import { useT } from "../lib/i18n";
 
 /** Injected by the Core for every render; see profile.contextFor. */

@@ -3,7 +3,7 @@ import { api, type MfaFactor, type MfaStatus, type Whoami } from "../api";
 import { Button, IconButton } from "../components/ui";
 import { CheckIcon, CopyIcon, PlusIcon, TrashIcon } from "../components/icons";
 import { QRCode } from "../components/QRCode";
-import { Empty, ErrorBar, Field, Modal, inputCls } from "./VariablesPage";
+import { Empty, ErrorBar, Field, Modal, inputCls } from "../components/primitives";
 import { relativeTime } from "../format";
 import { cn } from "../lib/cn";
 import { useT } from "../lib/i18n";

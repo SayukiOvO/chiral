@@ -1,5 +1,13 @@
-// Minimal typed client for the Core REST API. The admin token is kept in
-// localStorage for this M1 UI; proper login replaces it later.
+// Typed client for the operator console's half of the Core REST API.
+//
+// The portal has its own client under portal/, with its own storage key. They
+// share only lib/http.ts: an operator and a customer in the same browser must
+// not overwrite each other's session, and a portal build that imported this
+// file would send console tokens to console endpoints.
+
+import { makeRequest } from "./lib/http";
+
+export { ApiError } from "./lib/http";
 
 export interface NodeMetrics {
   cpu_percent: number;
@@ -187,40 +195,7 @@ export function setToken(token: string) {
   localStorage.setItem(TOKEN_KEY, token);
 }
 
-/**
- * Carries the status alongside the message. A 401 means two different things
- * — an expired session on a console page, a rejected credential on the login
- * page — and only the caller knows which; the message stays the server's, so
- * "that code is not valid" reaches the person who typed it.
- */
-export class ApiError extends Error {
-  constructor(
-    public status: number,
-    message: string,
-  ) {
-    super(message);
-  }
-}
-
-async function req<T>(method: string, path: string, body?: unknown): Promise<T> {
-  const res = await fetch(path, {
-    method,
-    headers: {
-      Authorization: `Bearer ${getToken()}`,
-      ...(body ? { "Content-Type": "application/json" } : {}),
-    },
-    body: body ? JSON.stringify(body) : undefined,
-  });
-  if (!res.ok) {
-    const detail = await res.json().catch(() => ({}));
-    throw new ApiError(
-      res.status,
-      (detail as { error?: string }).error ?? `HTTP ${res.status}`,
-    );
-  }
-  if (res.status === 204) return undefined as T;
-  return res.json() as Promise<T>;
-}
+const req = makeRequest(getToken);
 
 export type Scope = "global" | "profile" | "node";
 

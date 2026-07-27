@@ -61,6 +61,10 @@ services:
       # link, and Core refuses to start rather than keep those in the clear.
       CHIRAL_PORTAL_MODE: ${CHIRAL_PORTAL_MODE:-off}
       CHIRAL_PORTAL_INVITE_CODE: ${CHIRAL_PORTAL_INVITE_CODE:-}
+      # Directory of built frontend assets. Empty means Core serves no files
+      # at all — right for development (vite has its own server) and for a
+      # deployment that terminates static content at nginx or Caddy.
+      CHIRAL_WEB_DIR: ${CHIRAL_WEB_DIR:-/usr/share/chiral/web}
       # CHIRAL_TLS_CERT: /certs/fullchain.pem
       # CHIRAL_TLS_KEY: /certs/privkey.pem
     volumes:
