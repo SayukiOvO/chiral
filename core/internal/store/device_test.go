@@ -148,12 +148,17 @@ func TestASealedAddressCannotBeMovedBetweenUsers(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	// The AAD does not match, so it cannot open. Either outcome is acceptable
+	// as long as the address does not come out: an error (every row failed) or
+	// an empty list. What must never happen is b seeing a's address.
 	devices, err := s.UserDevices(b.ID)
-	if err != nil {
-		t.Fatal(err)
+	for _, d := range devices {
+		if d.IP == "203.0.113.7" {
+			t.Fatalf("a transplanted address opened for the wrong user: %v", devices)
+		}
 	}
-	if len(devices) != 0 {
-		t.Fatalf("a transplanted address opened for the wrong user: %v", devices)
+	if err == nil && len(devices) != 0 {
+		t.Fatalf("expected no readable addresses for b, got %v", devices)
 	}
 }
 

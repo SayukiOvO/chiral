@@ -82,6 +82,20 @@ func (b *Box) Seal(name, value string) (string, error) {
 	return encPrefix + b.keyID + ":" + base64.RawStdEncoding.EncodeToString(ct), nil
 }
 
+// Owns reports whether this Box sealed the stored value.
+//
+// Distinguishes the two reasons Open can succeed: the value is ours, or it is
+// plaintext from a panel that ran with no key. A key rotation has to tell
+// those apart — the first is already done, the second still needs sealing.
+func (b *Box) Owns(stored string) bool {
+	rest, ok := strings.CutPrefix(stored, encPrefix)
+	if !ok || !b.Enabled() {
+		return false
+	}
+	keyID, _, ok := strings.Cut(rest, ":")
+	return ok && keyID == b.keyID
+}
+
 // Open decrypts a stored value. It accepts values written in the clear (by a
 // panel with no key configured) so enabling encryption later is not a
 // breaking change; such values are simply returned as-is.

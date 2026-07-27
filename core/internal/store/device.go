@@ -93,6 +93,8 @@ func (s *Store) UserDevices(userID string) ([]Device, error) {
 	defer rows.Close()
 
 	var out []Device
+	unreadable := 0
+	var firstErr error
 	for rows.Next() {
 		var d Device
 		var ipHash, sealed string
@@ -101,12 +103,25 @@ func (s *Store) UserDevices(userID string) ([]Device, error) {
 		}
 		ip, err := s.box.Open(deviceAAD(userID, ipHash), sealed)
 		if err != nil {
+			unreadable++
+			if firstErr == nil {
+				firstErr = err
+			}
 			continue
 		}
 		d.IP = ip
 		out = append(out, d)
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	// One bad row is worth skipping; every row failing means the key is wrong,
+	// and answering "no addresses recorded" to that would be a lie the
+	// operator has no way to see through.
+	if len(out) == 0 && unreadable > 0 {
+		return nil, fmt.Errorf("none of %d recorded addresses could be decrypted: %w", unreadable, firstErr)
+	}
+	return out, nil
 }
 
 // PruneDevices drops observations past DeviceRetention.

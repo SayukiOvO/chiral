@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { api, type ConfigPreview, type Node } from "../api";
 import { Button } from "./ui";
 import { TemplateEditor } from "./TemplateEditor";
+import { ConfigHistory } from "./ConfigHistory";
 import { useIsDark } from "../lib/theme";
 import { Modal } from "./primitives";
 import { cn } from "../lib/cn";
@@ -166,6 +167,13 @@ export function NodeConfigDialog({ node, onClose }: { node: Node; onClose: () =>
             {t("无法装配。先绑定接入配置，并确认模板里的变量都已定义。")}
           </p>
         )}
+      </div>
+
+      <div className="mt-6">
+        <h4 className="mb-2 text-[11px] font-medium uppercase tracking-[0.07em] text-faint">
+          {t("下发历史")}
+        </h4>
+        <ConfigHistory nodeId={node.id} onRolledBack={loadPreview} />
       </div>
     </Modal>
   );

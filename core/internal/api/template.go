@@ -3,6 +3,7 @@ package api
 import (
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strings"
 
@@ -37,6 +38,10 @@ func (s *Server) routeTemplates(mux *http.ServeMux) {
 	// listVariables can, because it masks secret components on the way out.
 	mux.Handle("GET /api/nodes/{id}/config/preview", s.requireWrite(s.previewNodeConfig))
 	mux.Handle("POST /api/nodes/{id}/config/apply", s.requireWrite(s.applyNodeConfig))
+	// The history is metadata only — no config bodies, which are the thing
+	// preview is guarded for.
+	mux.Handle("GET /api/nodes/{id}/config/versions", s.requireAdmin(s.nodeConfigVersions))
+	mux.Handle("POST /api/nodes/{id}/config/rollback", s.requireWrite(s.rollbackNodeConfig))
 }
 
 // --- variables ---
@@ -433,6 +438,43 @@ func (s *Server) previewNodeConfig(w http.ResponseWriter, r *http.Request) {
 		"tested":       pv.Tested,
 		"test_error":   pv.TestError,
 	})
+}
+
+func (s *Server) nodeConfigVersions(w http.ResponseWriter, r *http.Request) {
+	versions, err := s.st.ConfigVersions(r.PathValue("id"), 20)
+	if err != nil {
+		s.internalErr(w, "list config versions", err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"versions": versions,
+		"depth":    store.ConfigHistoryDepth,
+	})
+}
+
+// rollbackNodeConfig re-pushes an older version as a new one.
+func (s *Server) rollbackNodeConfig(w http.ResponseWriter, r *http.Request) {
+	nodeID := r.PathValue("id")
+	var req struct {
+		Version int64 `json:"version"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Version <= 0 {
+		writeErr(w, http.StatusBadRequest, `body must be JSON with a "version"`)
+		return
+	}
+	version, err := s.profiles.Rollback(r.Context(), nodeID, req.Version)
+	if err != nil {
+		if store.IsNotFound(err) {
+			writeErr(w, http.StatusNotFound, "no such node or version")
+			return
+		}
+		// A version that no longer passes xray -test is the operator's to see
+		// verbatim; it is usually a kernel upgrade, not a panel bug.
+		writeErr(w, http.StatusUnprocessableEntity, err.Error())
+		return
+	}
+	s.audit(r, "node.rollback", "node", nodeID, "", fmt.Sprintf("%d -> %d", req.Version, version))
+	writeJSON(w, http.StatusOK, map[string]any{"version": version})
 }
 
 func (s *Server) applyNodeConfig(w http.ResponseWriter, r *http.Request) {

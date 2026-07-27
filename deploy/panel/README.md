@@ -24,6 +24,6 @@
 
 - [x] `docker-compose.yml`
 - [x] Dockerfile.core（含 Xray；web 前端就绪后并入或单独起容器）
-- [ ] `.env` 示例
+- [x] `.env` 示例（[`.env.example`](.env.example)）
 
 **状态**：草案，随各里程碑修订。

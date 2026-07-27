@@ -159,4 +159,4 @@ vless://{{user.uuid}}@{{node.address}}:{{port}}?security=reality&sni={{sni}}&pbk
 ## 待办
 
 - [ ] ML-KEM-768 的 `Hash32` 分量：xray 会打印，但其派生方式未能复现，**暂不产出**（不发无法验证的值）。用到再补。
-- [ ] 密钥轮换流程（换 `CHIRAL_SECRET_KEY` 后批量重新封装）。
+- [x] 密钥轮换流程：`chiral-core -rotate-secret-key`，单事务重封八处密文，见 [deployment.md](deployment.md)。

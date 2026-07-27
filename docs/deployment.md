@@ -31,6 +31,24 @@
 
 > **`CHIRAL_PORTAL_MODE != off` 时 `CHIRAL_SECRET_KEY` 是硬性要求，缺了 core 会拒绝启动**（不是告警）。门户要能把订阅链接展示给用户，所以订阅 token 是可恢复存储的；那是一条公网可用的 bearer URL，明文入库意味着一份被拖走的 `chiral.db` 直接产出全部用户的可用链接。
 
+### 轮换 `CHIRAL_SECRET_KEY`
+
+密钥泄露、或只是想定期换，都走同一条路。**面板必须停机**——轮换要独占数据库，它会在一个事务里重写每一条密文。
+
+```bash
+docker compose down
+cp /var/lib/chiral/chiral.db /var/lib/chiral/chiral.db.bak   # 先备份
+CHIRAL_SECRET_KEY=<当前密钥> \
+CHIRAL_SECRET_KEY_NEW=<新密钥> \
+  docker compose run --rm core chiral-core -rotate-secret-key
+# 把 .env 里的 CHIRAL_SECRET_KEY 改成新密钥
+docker compose up -d
+```
+
+覆盖八处密文：变量私钥分量、渲染后的节点 config、config 骨架、用户凭证、告警目标配置、MFA 密钥、来源地址、订阅 token。**全在一个事务里**——半轮换的数据库比任何一端都糟，那会导致没有任何一个 `CHIRAL_SECRET_KEY` 能把面板启起来。
+
+跑第二遍是安全的（已是新密钥的值会被跳过）。轮换到空密钥会被拒绝。
+
 ## 节点侧
 
 不手写 compose——在 Panel「新增节点」时，Core **自动生成**一段 `docker-compose.yml`（模板见 [`../deploy/agent/`](../deploy/agent/)）+ 一次性 join token，用户复制到节点机器执行：
@@ -57,5 +75,5 @@ Core:  推送首份 config → Agent 落盘 + xray -test + 拉起 Xray-core → 
 - [x] 起草 `deploy/panel/docker-compose.yml`
 - [x] 起草 `deploy/agent/docker-compose.yml.tmpl`（Core 渲染用）
 - [x] Dockerfile（core / agent；core 镜像含 node 构建阶段，前端两个入口一并打包）
-- [ ] `.env` 示例
+- [x] `.env` 示例（[`../deploy/panel/.env.example`](../deploy/panel/.env.example)）
 - [ ] Xray-core 二进制：现按随镜像打包（可 `--build-arg XRAY_VERSION` pin 版本），是否支持运行时拉取 / 在线升级待议

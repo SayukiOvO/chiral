@@ -9,6 +9,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"flag"
+	"fmt"
 	"log/slog"
 	"net"
 	"net/http"
@@ -76,6 +77,8 @@ func main() {
 		tlsCert    = flag.String("tls-cert", os.Getenv("CHIRAL_TLS_CERT"), "TLS certificate for the gRPC endpoint (plaintext if empty; dev only)")
 		tlsKey     = flag.String("tls-key", os.Getenv("CHIRAL_TLS_KEY"), "TLS key for the gRPC endpoint")
 		hbTimeout  = flag.Duration("heartbeat-timeout", 30*time.Second, "a node with no frames for this long counts as offline")
+		rotate     = flag.Bool("rotate-secret-key", false,
+			"re-seal every encrypted value from CHIRAL_SECRET_KEY to CHIRAL_SECRET_KEY_NEW, then exit")
 	)
 	flag.Parse()
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
@@ -83,10 +86,61 @@ func main() {
 	// Env only, never a flag: command lines leak via `ps` and shell history.
 	adminToken := os.Getenv("CHIRAL_ADMIN_TOKEN")
 
+	if *rotate {
+		if err := rotateSecretKey(logger, *dbPath); err != nil {
+			logger.Error("key rotation failed; the database is unchanged", "err", err)
+			os.Exit(1)
+		}
+		return
+	}
+
 	if err := run(logger, *dbPath, *grpcListen, *httpListen, *grpcPublic, *publicURL, *tlsCert, *tlsKey, adminToken, *hbTimeout); err != nil {
 		logger.Error("fatal", "err", err)
 		os.Exit(1)
 	}
+}
+
+// rotateSecretKey re-seals the database from the current key to a new one.
+//
+// A separate mode rather than something the running panel does, because it
+// must have the database to itself: it rewrites every ciphertext in one
+// transaction, and a Core serving traffic alongside would be reading rows it
+// is about to invalidate.
+//
+// Both keys come from the environment for the same reason the admin token
+// does — a key on a command line is in `ps` and in shell history.
+func rotateSecretKey(logger *slog.Logger, dbPath string) error {
+	oldKey, newKey := os.Getenv("CHIRAL_SECRET_KEY"), os.Getenv("CHIRAL_SECRET_KEY_NEW")
+	if newKey == "" {
+		return errors.New("set CHIRAL_SECRET_KEY_NEW to the key you are rotating TO " +
+			"(CHIRAL_SECRET_KEY stays the current one)")
+	}
+	if newKey == oldKey {
+		return errors.New("CHIRAL_SECRET_KEY_NEW is the same as the current key; nothing to do")
+	}
+	oldBox, err := secret.NewBox(oldKey)
+	if err != nil {
+		return fmt.Errorf("current key: %w", err)
+	}
+	newBox, err := secret.NewBox(newKey)
+	if err != nil {
+		return fmt.Errorf("new key: %w", err)
+	}
+
+	st, err := store.Open(dbPath, oldBox)
+	if err != nil {
+		return err
+	}
+	defer st.Close()
+
+	logger.Info("re-sealing; take a copy of the database first if you have not", "db", dbPath)
+	moved, err := st.RotateSecretKey(newBox)
+	if err != nil {
+		return err
+	}
+	logger.Info("rotation complete — set CHIRAL_SECRET_KEY to the new key and start normally",
+		"values_resealed", moved)
+	return nil
 }
 
 func run(logger *slog.Logger, dbPath, grpcListen, httpListen, grpcPublic, publicURL, tlsCert, tlsKey, adminToken string, hbTimeout time.Duration) error {
@@ -264,6 +318,13 @@ func run(logger *slog.Logger, dbPath, grpcListen, httpListen, grpcPublic, public
 				}
 				if _, err := st.PruneAudit(time.Now()); err != nil {
 					logger.Error("pruning audit log failed", "err", err)
+				}
+				// node_configs was never bounded before: every apply left a
+				// full sealed config behind forever.
+				if n, err := st.PruneConfigs(); err != nil {
+					logger.Error("pruning config history failed", "err", err)
+				} else if n > 0 {
+					logger.Info("pruned old config versions", "rows", n)
 				}
 				if portalCfg.Enabled() {
 					if _, err := st.PrunePortalSessions(time.Now()); err != nil {

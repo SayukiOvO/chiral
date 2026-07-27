@@ -229,6 +229,39 @@ func (s *Service) Apply(ctx context.Context, nodeID string) (int64, error) {
 	return c.Version, nil
 }
 
+// Rollback re-pushes an older version's content as a NEW version.
+//
+// Not a distinct agent instruction, by design (CLAUDE.md decision 7): the
+// agent keeps no history and does not need to understand the word. What it
+// receives is an ordinary ConfigPush whose bytes happen to be old, so the
+// stored config stays the single source of truth and a reconnect reconciles
+// to it like any other.
+//
+// The old content is validated again rather than trusted. It passed once, but
+// the panel's Xray may have been upgraded since, and pushing a config the
+// current kernel rejects would take the node down for as long as it takes
+// someone to notice.
+func (s *Service) Rollback(ctx context.Context, nodeID string, version int64) (int64, error) {
+	old, err := s.st.ConfigAt(nodeID, version)
+	if err != nil {
+		return 0, err
+	}
+	if s.xray.Available() {
+		if err := s.xray.TestConfig(ctx, []byte(old.Config)); err != nil {
+			return 0, fmt.Errorf("version %d no longer passes xray -test: %w", version, err)
+		}
+	}
+	c, err := s.st.InsertConfig(nodeID, old.Config)
+	if err != nil {
+		return 0, err
+	}
+	if err := s.push.PushConfig(nodeID, c.Version, []byte(c.Config)); err != nil {
+		s.logger.Warn("rollback stored but not pushed", "node", nodeID, "version", c.Version, "err", err)
+	}
+	s.logger.Info("rolled back", "node", nodeID, "from_version", version, "new_version", c.Version)
+	return c.Version, nil
+}
+
 // ApplyBoundNodes re-applies every node bound to a profile — what you want
 // after editing that profile's template or variables.
 func (s *Service) ApplyBoundNodes(ctx context.Context, profileID string) (map[string]error, error) {

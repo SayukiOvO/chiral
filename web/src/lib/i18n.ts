@@ -369,6 +369,19 @@ const EN: Record<string, string> = {
   再输一次: "Repeat it",
   "两次输入不一致。": "Those do not match.",
 
+  // config rollback
+  下发历史: "Push history",
+  "还没有下发过配置。": "No config has been pushed yet.",
+  当前: "current",
+  节点拒绝: "rejected by the node",
+  等待确认: "awaiting ack",
+  回滚到此版本: "Roll back to this",
+  "回滚中…": "Rolling back…",
+  "回滚到版本 {v}？它会作为一个新版本重新下发。":
+    "Roll back to v{v}? It gets pushed again as a new version.",
+  "只保留最近 {n} 个版本。回滚会重新跑一次 xray -test——内核升级过之后，老配置未必还合法。":
+    "The last {n} versions are kept. A rollback re-runs xray -test — after a kernel upgrade an old config is not necessarily still valid.",
+
   // alerts page
   告警: "Alerts",
   "节点上线 / 掉线的通知去处。状态要稳定两分钟才播报，避免抖动刷屏。":

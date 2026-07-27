@@ -292,6 +292,71 @@ func (s *Store) InsertConfig(nodeID, config string) (NodeConfig, error) {
 	return c, tx.Commit()
 }
 
+// ConfigVersion is one entry of a node's config history, without the config
+// itself — the bodies are large and sealed, and a version list does not need
+// them.
+type ConfigVersion struct {
+	Version   int64  `json:"version"`
+	CreatedAt int64  `json:"created_at"`
+	Applied   int    `json:"applied"`
+	Error     string `json:"error"`
+}
+
+// ConfigVersions lists a node's history, newest first.
+func (s *Store) ConfigVersions(nodeID string, limit int) ([]ConfigVersion, error) {
+	if limit <= 0 || limit > 100 {
+		limit = 20
+	}
+	rows, err := s.db.Query(`
+		SELECT version, created_at, applied, error FROM node_configs
+		WHERE node_id = ? ORDER BY version DESC LIMIT ?`, nodeID, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []ConfigVersion{}
+	for rows.Next() {
+		var v ConfigVersion
+		if err := rows.Scan(&v.Version, &v.CreatedAt, &v.Applied, &v.Error); err != nil {
+			return nil, err
+		}
+		out = append(out, v)
+	}
+	return out, rows.Err()
+}
+
+// ConfigAt returns one stored version, decrypted.
+func (s *Store) ConfigAt(nodeID string, version int64) (NodeConfig, error) {
+	return s.scanConfig(s.db.QueryRow(
+		`SELECT node_id, version, config, created_at, applied, error FROM node_configs
+		 WHERE node_id = ? AND version = ?`, nodeID, version))
+}
+
+// ConfigHistoryDepth is how many versions per node survive the sweep.
+//
+// The table was never pruned before, so every apply left a full config blob
+// behind forever. Twenty is far more than anyone rolls back through and keeps
+// the growth bounded; the newest is always the one a reconnecting agent gets,
+// so pruning can never strand a node.
+const ConfigHistoryDepth = 20
+
+// PruneConfigs drops all but the newest ConfigHistoryDepth versions per node.
+func (s *Store) PruneConfigs() (int64, error) {
+	res, err := s.db.Exec(`
+		DELETE FROM node_configs WHERE (node_id, version) IN (
+			SELECT node_id, version FROM (
+				SELECT node_id, version,
+				       ROW_NUMBER() OVER (PARTITION BY node_id ORDER BY version DESC) AS rn
+				FROM node_configs
+			) WHERE rn > ?
+		)`, ConfigHistoryDepth)
+	if err != nil {
+		return 0, err
+	}
+	n, _ := res.RowsAffected()
+	return n, nil
+}
+
 func (s *Store) LatestConfig(nodeID string) (NodeConfig, error) {
 	return s.scanConfig(s.db.QueryRow(
 		`SELECT node_id, version, config, created_at, applied, error FROM node_configs WHERE node_id = ? ORDER BY version DESC LIMIT 1`, nodeID))

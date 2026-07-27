@@ -267,6 +267,15 @@ export interface Profile {
   updated_at: number;
 }
 
+/** One entry of a node's config history. Metadata only — no config body. */
+export interface ConfigVersion {
+  version: number;
+  created_at: number;
+  /** 0 pending, 1 applied, -1 the node rejected it (error holds the reason). */
+  applied: number;
+  error: string;
+}
+
 export interface ConfigPreview {
   config: unknown;
   inbound_tags: string[];
@@ -450,6 +459,13 @@ export const api = {
   // --- node config assembly ---
   putSkeleton: (id: string, skeleton: unknown) =>
     req<void>("PUT", `/api/nodes/${id}/skeleton`, skeleton),
+  configVersions: (id: string) =>
+    req<{ versions: ConfigVersion[]; depth: number }>(
+      "GET",
+      `/api/nodes/${id}/config/versions`,
+    ),
+  rollbackConfig: (id: string, version: number) =>
+    req<{ version: number }>("POST", `/api/nodes/${id}/config/rollback`, { version }),
   previewConfig: (id: string) =>
     req<ConfigPreview>("GET", `/api/nodes/${id}/config/preview`),
   applyConfig: (id: string) =>
