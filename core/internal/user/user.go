@@ -22,21 +22,40 @@ func NewService(st *store.Store, logger *slog.Logger) *Service {
 	return &Service{st: st, logger: logger}
 }
 
+// Reasons a user's credentials should not be working. Empty means they should.
+const (
+	ReasonSuspended      = "suspended"
+	ReasonExpired        = "expired"
+	ReasonQuotaExhausted = "quota_exhausted"
+)
+
+// Reason reports why a user is not entitled to working credentials, or "" if
+// they are.
+//
+// The portal needs to tell someone WHICH condition stopped them, not just
+// that one did. Rather than keeping a second copy of these conditions there —
+// which would drift the first time a fourth is added — Allowed is defined in
+// terms of this, so the two cannot disagree by construction.
+//
+// Order matters where conditions overlap: an operator switching someone off is
+// a more useful thing to say than a quota that also happens to be spent.
+func Reason(u store.User, now int64) string {
+	if !u.Enabled {
+		return ReasonSuspended
+	}
+	if u.ExpiresAt != 0 && now >= u.ExpiresAt {
+		return ReasonExpired
+	}
+	if u.QuotaBytes != 0 && u.UsedBytes >= u.QuotaBytes {
+		return ReasonQuotaExhausted
+	}
+	return ""
+}
+
 // Allowed reports whether a user should currently have working credentials.
 // Kept in one place so assembly, enforcement, and the subscription endpoint
 // cannot disagree about who is entitled to what.
-func Allowed(u store.User, now int64) bool {
-	if !u.Enabled {
-		return false
-	}
-	if u.ExpiresAt != 0 && now >= u.ExpiresAt {
-		return false
-	}
-	if u.QuotaBytes != 0 && u.UsedBytes >= u.QuotaBytes {
-		return false
-	}
-	return true
-}
+func Allowed(u store.User, now int64) bool { return Reason(u, now) == "" }
 
 // StatsEmail builds the key Xray reports traffic under.
 //

@@ -36,6 +36,13 @@ var (
 	limitMFA = limit{n: 30, window: 5 * time.Minute}
 	// Sending mail costs an outbound connection and someone else's inbox.
 	limitEmailCode = limit{n: 5, window: 15 * time.Minute}
+	// Registration creates rows and costs a password hash, and the portal may
+	// be open to the internet. Three an hour is plenty for a real person and
+	// useless for filling the database.
+	limitRegister = limit{n: 3, window: time.Hour}
+	// Claim links are guessable only in the sense that any 32-byte token is;
+	// this bounds the guessing rather than the legitimate use.
+	limitClaim = limit{n: 10, window: time.Hour}
 	// Subscriptions are polled by clients on a schedule; this is an abuse
 	// ceiling, not a usage limit. Note that everyone behind one NAT shares
 	// this bucket, which is why it is set well above what any single client

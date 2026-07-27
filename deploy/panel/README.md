@@ -16,6 +16,8 @@
 | `CHIRAL_TRUSTED_PROXY` | 有反代时必需 | 逗号分隔的地址或 CIDR，只写 Core 前面那层反代。**不设**则限流按对端地址计；**设错**则任何调用方一个请求头就能自选桶，限流形同虚设 |
 | `CHIRAL_SMTP_*` | 可选 | 邮箱验证与登录验证码；`HOST` 留空即不提供邮件因素 |
 | `CHIRAL_ONLINE_RECORD` | 默认 off | 记录每个用户的来源地址。打开会给每个节点注入 `statsUserOnline`，即一次配置版本变更 + 一次 Xray 重启（该节点上的活连接会断一次） |
+| `CHIRAL_PORTAL_MODE` | 默认 off | 用户门户：`off` / `closed`（仅登录，账号靠认领链接发放）/ `open`（开放注册）。**非 off 时必须设 `CHIRAL_SECRET_KEY`**，否则 Core 拒绝启动——门户要可恢复地存订阅 token |
+| `CHIRAL_PORTAL_INVITE_CODE` | 可选 | 开放注册时的共享注册码；留空则任何人都能注册 |
 
 ## 待办
 

@@ -59,8 +59,14 @@ type Server struct {
 	// online is nil unless source-address recording is switched on, in which
 	// case the panel reports counts as "not recording" rather than as zero.
 	online OnlineSource
+	// portal configures the end-user tree. With Mode off, none of its routes
+	// are registered at all.
+	portal PortalConfig
 	logger *slog.Logger
 }
+
+// EnablePortal switches on the end-user tree. Called at startup.
+func (s *Server) EnablePortal(cfg PortalConfig) { s.portal = cfg }
 
 // EnableOnlineTracking wires in the address registry. Called at startup only
 // when the operator asked for recording.
@@ -116,6 +122,9 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("POST /api/users/{id}/sub-token", s.requireWrite(s.resetSubToken))
 	mux.Handle("POST /api/users/{id}/profiles/{profileID}", s.requireWrite(s.bindUserProfile))
 	mux.Handle("DELETE /api/users/{id}/profiles/{profileID}", s.requireWrite(s.unbindUserProfile))
+	// Hands the operator a one-time link a subscriber uses to set their own
+	// password, so nobody has to send a password by hand.
+	mux.Handle("POST /api/users/{id}/portal-link", s.requireWrite(s.issuePortalLink))
 
 	mux.Handle("GET /api/nodes/{id}/samples", s.requireAdmin(s.nodeSamples))
 	mux.Handle("GET /api/traffic", s.requireAdmin(s.trafficSeries))
@@ -167,6 +176,11 @@ func (s *Server) Handler() http.Handler {
 
 	// The one route end users reach, authenticated by the token in the path.
 	mux.HandleFunc("GET /sub/{token}", s.throttle("sub", limitSubscription, s.serveSubscription))
+
+	// The end user's tree, registered as a unit and only when the portal is
+	// switched on. Every route in it is guarded by requireUser, whose handler
+	// signature does not unify with the admin guards above.
+	s.routePortal(mux)
 	return mux
 }
 

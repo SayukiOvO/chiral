@@ -104,6 +104,18 @@ func run(logger *slog.Logger, dbPath, grpcListen, httpListen, grpcPublic, public
 		logger.Warn("CHIRAL_SECRET_KEY not set; private key material is stored UNENCRYPTED. Generate one with `openssl rand -base64 32`")
 	}
 
+	// The portal stores each subscription token in a form it can read back, so
+	// it can show someone their own link. That is a bearer credential for a
+	// public URL: without encryption, a copy of chiral.db is a working link for
+	// every subscriber. A refusal rather than another warning — a warning
+	// scrolls past, and this one cannot be undone after the fact.
+	portalCfg := api.PortalFromEnv(publicURL)
+	if portalCfg.Enabled() && !box.Enabled() {
+		return errors.New("CHIRAL_PORTAL_MODE is set but CHIRAL_SECRET_KEY is empty: " +
+			"the portal stores recoverable subscription tokens and will not do so in the clear. " +
+			"Generate a key with `openssl rand -base64 32`")
+	}
+
 	st, err := store.Open(dbPath, box)
 	if err != nil {
 		return err
@@ -194,6 +206,11 @@ func run(logger *slog.Logger, dbPath, grpcListen, httpListen, grpcPublic, public
 	if onlineReg != nil {
 		apiServer.EnableOnlineTracking(onlineReg)
 	}
+	if portalCfg.Enabled() {
+		apiServer.EnablePortal(portalCfg)
+		logger.Info("end-user portal enabled", "mode", portalCfg.Mode,
+			"invite_code", portalCfg.InviteCode != "")
+	}
 	httpSrv := &http.Server{
 		Addr:    httpListen,
 		Handler: apiServer.Handler(),
@@ -247,6 +264,14 @@ func run(logger *slog.Logger, dbPath, grpcListen, httpListen, grpcPublic, public
 				}
 				if _, err := st.PruneAudit(time.Now()); err != nil {
 					logger.Error("pruning audit log failed", "err", err)
+				}
+				if portalCfg.Enabled() {
+					if _, err := st.PrunePortalSessions(time.Now()); err != nil {
+						logger.Error("pruning portal sessions failed", "err", err)
+					}
+					if _, err := st.PrunePortalChallenges(time.Now()); err != nil {
+						logger.Error("pruning portal challenges failed", "err", err)
+					}
 				}
 				if onlineReg != nil {
 					// Addresses are personal data on a shorter clock than the

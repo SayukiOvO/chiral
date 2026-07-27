@@ -50,6 +50,17 @@ services:
       # which is a new config version and therefore one Xray restart per node
       # — dropping every live connection on that node, once.
       CHIRAL_ONLINE_RECORD: ${CHIRAL_ONLINE_RECORD:-off}
+      # End-user portal: off | closed | open.
+      #   off    — the /api/portal/* routes are not registered at all.
+      #   closed — subscribers sign in; registration is refused. Accounts are
+      #            handed out with one-time claim links from the users page.
+      #   open   — anyone may register, optionally gated by the shared code
+      #            below.
+      # Anything other than off REQUIRES CHIRAL_SECRET_KEY: the portal stores
+      # each subscription token recoverably so it can show someone their own
+      # link, and Core refuses to start rather than keep those in the clear.
+      CHIRAL_PORTAL_MODE: ${CHIRAL_PORTAL_MODE:-off}
+      CHIRAL_PORTAL_INVITE_CODE: ${CHIRAL_PORTAL_INVITE_CODE:-}
       # CHIRAL_TLS_CERT: /certs/fullchain.pem
       # CHIRAL_TLS_KEY: /certs/privkey.pem
     volumes:

@@ -36,6 +36,9 @@ Chiral 是一个 Xray 管理面板，定位类似 Remnawave：采用 **Panel + A
 8. **Profile 抽象已采纳**（M2 定稿）：Profile = 服务端 inbound 骨架 + 每用户 client-entry 模板 + 各客户端渲染模板。模板引擎**只做 `{{变量}}` 替换**，不支持条件 / 循环——遍历节点 × 用户由 Core 用 Go 完成。详见 `docs/template-system.md`。
 9. **Xray 用快照（prerelease）通道**：xhttp 上下行分离、后量子等特性只在快照版有，稳定版发布很稀疏。Panel 与 Agent 镜像都打包 Xray 二进制（Panel 用它做下发前校验 + ML-DSA-65 派生）。
 10. **私钥类变量静态加密**：AES-GCM，密钥来自独立环境变量 `CHIRAL_SECRET_KEY`（不设则明文入库并告警）。威胁模型是「数据库文件外流」，不防已能在面板机执行代码的攻击者。
+11. **订阅 token 改为可恢复存储**（M5 定稿，**推翻 0003 迁移里「从不存储」的原决策**）：`users.sub_token_enc` 用 AES-GCM 密封，AAD 绑定行。门户的核心价值之一就是随时能看到自己的链接，而「只能重新生成」会炸掉用户已配置的所有客户端。`sub_token_hash` 与查找路径一个字节不变。代价说清楚：从「我们想拿也拿不回」降级为「持有 `CHIRAL_SECRET_KEY` 就能拿回」——面板本来就以同样形式持有每个用户的每一条代理凭证，边际损失很小。配套硬约束：**门户开启且无 `CHIRAL_SECRET_KEY` 时 Core 拒绝启动**，不是告警。
+12. **`OnlineReport` 是绝对快照，对增量规则的明确豁免**（M5）：流量计数器因 Xray 重启归零，所以必须报增量；而观测集合归零的含义相反——它意味着「没在观测」，绝不能读成「零设备」。即使没人在线也每轮发一个空的 `complete=true` 帧，让沉默保持有歧义这件事不发生。
+13. **端用户与管理员是两类主体，边界靠构造而非小心**（M5）：`portal.Identity` **永远不带 Role**，`auth.rank()` **永远不新增 `>= 1` 的值**。一旦有人给 rank 加了「user: 1」，`requireAdmin` 覆盖的节点 / 用户 / 变量 / 审计 / 尤其是返回含 REALITY 私钥与全部凭证明文的 `config/preview` 就全部对客户开放。门户 handler 拿到的是作用域化的 `portal.View`，**拿不到 `*store.Store`**——接错守卫和越权取数都是编译错误。
 
 ## 5. 搁置 / 待议
 

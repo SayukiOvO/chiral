@@ -4,9 +4,13 @@
 CREATE TABLE users (
     id         TEXT PRIMARY KEY,
     name       TEXT NOT NULL UNIQUE,
-    -- Hash of the subscription token; the token itself is shown once at
-    -- creation and on explicit reset, never stored. Same treatment as node
-    -- credentials (core/internal/auth).
+    -- Hash of the subscription token, used to resolve /sub/{token}.
+    --
+    -- This originally said the token itself was never stored. Migration 0009
+    -- reverses that and adds sub_token_enc, a sealed copy, so the end-user
+    -- portal can show someone their own link — the alternative was "regenerate
+    -- to see it", which breaks every client they have already configured. The
+    -- lookup path here is unchanged. See CLAUDE.md §4.11.
     sub_token_hash TEXT NOT NULL,
     -- 0 means unlimited. Counted across every credential the user holds.
     quota_bytes    INTEGER NOT NULL DEFAULT 0,

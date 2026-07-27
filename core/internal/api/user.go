@@ -100,14 +100,14 @@ func (s *Server) createUser(w http.ResponseWriter, r *http.Request) {
 		enabled = *req.Enabled
 	}
 	token, hash := auth.NewSecret()
-	u, err := s.st.CreateUser(store.User{
+	u, err := s.st.CreateUserWithToken(store.User{
 		Name:        strings.TrimSpace(req.Name),
 		QuotaBytes:  req.QuotaBytes,
 		ExpiresAt:   req.ExpiresAt,
 		RenewPeriod: req.RenewPeriod,
 		Enabled:     enabled,
 		DeviceLimit: req.DeviceLimit,
-	}, hash)
+	}, token, hash)
 	if err != nil {
 		if isConflict(err) {
 			writeErr(w, http.StatusConflict, "a user with that name already exists")
@@ -235,11 +235,19 @@ func (s *Server) deleteUser(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) resetSubToken(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
+	u, err := s.st.GetUser(id)
+	if err != nil {
+		s.notFoundOr(w, "load user", err, "no such user")
+		return
+	}
 	token, hash := auth.NewSecret()
-	if err := s.st.ResetSubToken(id, hash); err != nil {
+	if err := s.st.ResetSubToken(id, token, hash); err != nil {
 		s.notFoundOr(w, "reset subscription token", err, "no such user")
 		return
 	}
+	// Worth auditing: this invalidates every client the person has configured,
+	// and none of the proxy-user operations recorded anything until now.
+	s.audit(r, "user.sub_token_reset", "user", u.ID, u.Name, "")
 	writeJSON(w, http.StatusOK, map[string]any{"subscription_url": s.subscriptionURL(token)})
 }
 

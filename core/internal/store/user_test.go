@@ -68,7 +68,7 @@ func TestSubTokenIsOnlyStoredAsAHash(t *testing.T) {
 func TestResetSubTokenInvalidatesTheOldLink(t *testing.T) {
 	s := testStore(t, storeTestKey)
 	u := seedUser(t, s, "alice")
-	if err := s.ResetSubToken(u.ID, "new-hash"); err != nil {
+	if err := s.ResetSubToken(u.ID, "new-token", "new-hash"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := s.FindUserBySubTokenHash("hash-alice"); !IsNotFound(err) {

@@ -57,17 +57,43 @@ func scanUser(row interface{ Scan(...any) error }) (User, error) {
 	return u, err
 }
 
-// CreateUser inserts a user. subTokenHash is stored; the raw token is the
-// caller's to show once and then forget.
+// CreateUser inserts a user together with their subscription token.
+//
+// The token is stored twice: hashed for the /sub/{token} lookup, and sealed so
+// the portal can show the person their own link. Storing the sealed copy
+// reverses what 0003_users.sql said, deliberately — see migration 0009.
+//
+// subToken may be empty in tests that do not care about subscriptions; then
+// nothing is sealed and the hash is whatever the caller passed.
 func (s *Store) CreateUser(u User, subTokenHash string) (User, error) {
+	return s.createUser(u, subTokenHash, "")
+}
+
+// CreateUserWithToken is CreateUser plus the raw token, so it can be sealed.
+func (s *Store) CreateUserWithToken(u User, subToken, subTokenHash string) (User, error) {
+	return s.createUser(u, subTokenHash, subToken)
+}
+
+func (s *Store) createUser(u User, subTokenHash, subToken string) (User, error) {
 	u.ID = NewID()
 	now := time.Now().Unix()
 	u.CreatedAt, u.UpdatedAt = now, now
+
+	sealed := ""
+	if subToken != "" {
+		if !s.box.Enabled() {
+			return User{}, errPlaintextSubToken
+		}
+		var err error
+		if sealed, err = s.box.Seal(subTokenAAD(u.ID), subToken); err != nil {
+			return User{}, err
+		}
+	}
 	_, err := s.db.Exec(`
-		INSERT INTO users (id, name, sub_token_hash, quota_bytes, used_bytes, expires_at,
-			renew_period, enabled, active, device_limit, created_at, updated_at)
-		VALUES (?, ?, ?, ?, 0, ?, ?, ?, 0, ?, ?, ?)`,
-		u.ID, u.Name, subTokenHash, u.QuotaBytes, u.ExpiresAt, u.RenewPeriod,
+		INSERT INTO users (id, name, sub_token_hash, sub_token_enc, quota_bytes, used_bytes,
+			expires_at, renew_period, enabled, active, device_limit, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, 0, ?, ?, ?, 0, ?, ?, ?)`,
+		u.ID, u.Name, subTokenHash, sealed, u.QuotaBytes, u.ExpiresAt, u.RenewPeriod,
 		u.Enabled, u.DeviceLimit, u.CreatedAt, u.UpdatedAt)
 	return u, err
 }
@@ -122,9 +148,22 @@ func (s *Store) SetUserActive(id string, active bool) error {
 }
 
 // ResetSubToken replaces the subscription token hash, invalidating the old link.
-func (s *Store) ResetSubToken(id, subTokenHash string) error {
-	res, err := s.db.Exec(`UPDATE users SET sub_token_hash = ?, updated_at = ? WHERE id = ?`,
-		subTokenHash, time.Now().Unix(), id)
+// ResetSubToken replaces a user's subscription token, storing both the lookup
+// hash and the sealed copy the portal displays.
+func (s *Store) ResetSubToken(id, subToken, subTokenHash string) error {
+	sealed := ""
+	if subToken != "" {
+		if !s.box.Enabled() {
+			return errPlaintextSubToken
+		}
+		var err error
+		if sealed, err = s.box.Seal(subTokenAAD(id), subToken); err != nil {
+			return err
+		}
+	}
+	res, err := s.db.Exec(
+		`UPDATE users SET sub_token_hash = ?, sub_token_enc = ?, updated_at = ? WHERE id = ?`,
+		subTokenHash, sealed, time.Now().Unix(), id)
 	if err != nil {
 		return err
 	}
