@@ -34,6 +34,12 @@ FROM alpine:3.20
 COPY --from=build /out/chiral-agent /usr/local/bin/chiral-agent
 COPY --from=xray /opt/xray/xray /usr/local/bin/xray
 COPY --from=xray /opt/xray/geoip.dat /opt/xray/geosite.dat /usr/local/share/xray/
-ENV XRAY_LOCATION_ASSET=/usr/local/share/xray
+ENV XRAY_LOCATION_ASSET=/usr/local/share/xray \
+    CHIRAL_XRAY_BIN=/usr/local/bin/xray \
+    CHIRAL_STATE_DIR=/var/lib/chiral-agent
+# Holds the node's identity, its applied config, and every kernel version it has
+# been upgraded to — including the `active` pointer that keeps a restart from
+# dropping back to the binary above. Lose this volume and the node re-registers
+# from scratch on the image's Xray.
 VOLUME /var/lib/chiral-agent
 ENTRYPOINT ["chiral-agent"]

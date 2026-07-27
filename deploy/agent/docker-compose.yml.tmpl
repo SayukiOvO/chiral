@@ -11,6 +11,12 @@ services:
     environment:
       PANEL_URL: "{{PANEL_URL}}"
       JOIN_TOKEN: "{{JOIN_TOKEN}}"
+      # Identity, the applied config, and every Xray version this node has been
+      # upgraded to. Must match the volume below: the agent records which
+      # kernel it activated here, and losing that means a container restart
+      # silently drops back to the version baked into the image while the panel
+      # still believes the node is upgraded.
+      CHIRAL_STATE_DIR: /var/lib/chiral-agent
       # Rendered in only when the panel's gRPC endpoint has no TLS (dev):
       # CHIRAL_INSECURE: "1"
     volumes:

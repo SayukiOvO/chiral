@@ -4,6 +4,8 @@
 
 镜像里**同时打包 Xray 二进制**：面板在存储 / 下发前要用 `xray -test` 校验渲染出的 config，并用它派生 Go 标准库没有的 ML-DSA-65 密钥。与 Agent 镜像同走快照通道。
 
+镜像里这一份是**地板**。M6 之后面板会为机队里在跑的**每一个版本**各存一份二进制（`CHIRAL_KERNEL_DIR`，必须在数据卷上），按节点挑选——因为 `xray -test` 只对跑它的那个 build 有效。详见 [`../../docs/xray-upgrade.md`](../../docs/xray-upgrade.md)。
+
 ## 关键环境变量
 
 | 变量 | 必需 | 说明 |
@@ -26,4 +28,4 @@
 - [x] Dockerfile.core（含 Xray；web 前端就绪后并入或单独起容器）
 - [x] `.env` 示例（[`.env.example`](.env.example)）
 
-**状态**：草案，随各里程碑修订。
+**状态**：M1–M6 已落地。未在本机构建过镜像（开发机没有容器运行时），Dockerfile 与 compose 的环境变量已与代码逐条核对过。

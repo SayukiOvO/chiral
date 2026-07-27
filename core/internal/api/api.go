@@ -363,7 +363,11 @@ func (s *Server) composeSnippet(joinToken string) string {
     network_mode: host
     environment:
       PANEL_URL: %q
-      JOIN_TOKEN: %q%s
+      JOIN_TOKEN: %q
+      # Identity, the applied config, and every Xray version this node has been
+      # upgraded to — must match the volume below, or a container restart drops
+      # the node back to the kernel baked into the image.
+      CHIRAL_STATE_DIR: /var/lib/chiral-agent%s
     volumes:
       - chiral-agent-data:/var/lib/chiral-agent
 volumes:

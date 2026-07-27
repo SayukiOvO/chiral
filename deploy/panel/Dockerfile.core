@@ -58,6 +58,7 @@ USER chiral
 VOLUME /var/lib/chiral
 ENV CHIRAL_DB_PATH=/var/lib/chiral/chiral.db \
     CHIRAL_XRAY_BIN=/usr/local/bin/xray \
+    CHIRAL_KERNEL_DIR=/var/lib/chiral/kernels \
     XRAY_LOCATION_ASSET=/usr/local/share/xray \
     CHIRAL_WEB_DIR=/usr/share/chiral/web
 EXPOSE 8080 8443
