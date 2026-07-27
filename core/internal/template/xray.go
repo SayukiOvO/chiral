@@ -59,9 +59,25 @@ func (x Xray) Version() string {
 	}
 	line, _, _ := strings.Cut(string(out), "\n")
 	if f := strings.Fields(line); len(f) >= 2 {
-		return f[1]
+		return NormalizeVersion(f[1])
 	}
 	return ""
+}
+
+// NormalizeVersion is the one place a version string is put into canonical
+// form, which is WITHOUT the leading "v".
+//
+// There are two namespaces and they do not match: `xray version` prints
+// "Xray 26.3.27", while GitHub tags and asset URLs are "v26.7.11". Comparing
+// one against the other is a guaranteed false negative, and the comparison is
+// what decides whether a node needs upgrading — so it would fail by always
+// claiming an upgrade is due.
+//
+// The invariant, enforced by using this at every boundary: the database, the
+// wire and every comparison hold the bare form. Only the download URL puts the
+// "v" back, in releaseAssetURL.
+func NormalizeVersion(v string) string {
+	return strings.TrimPrefix(strings.TrimSpace(v), "v")
 }
 
 // TestConfig runs `xray -test` over a rendered config. A non-nil error

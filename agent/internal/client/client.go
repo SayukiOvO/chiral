@@ -304,6 +304,11 @@ func (c *Client) runStream(ctx context.Context, svc chiralv1.AgentServiceClient)
 
 	// Heartbeat ticker.
 	go func() {
+		// One immediately, before the first tick. Hello carries only what the
+		// binary on disk says; everything else Core shows for a freshly
+		// reconnected node — its metrics, its state, which kernel is actually
+		// running — would otherwise stay stale for a full interval.
+		trySend(streamCtx, sendCh, c.heartbeatFrame())
 		t := time.NewTicker(c.cfg.HeartbeatInterval)
 		defer t.Stop()
 		for {
@@ -511,6 +516,8 @@ func (c *Client) heartbeatFrame() *chiralv1.AgentFrame {
 	hb := c.col.Sample()
 	hb.XrayState = c.xr.State()
 	hb.ConfigVersion = c.xr.ConfigVersion()
+	hb.XrayVersion = c.xr.RunningVersion()
+	hb.InstalledXrayVersion = c.xr.BinaryVersion()
 	return &chiralv1.AgentFrame{Frame: &chiralv1.AgentFrame_Heartbeat{Heartbeat: hb}}
 }
 

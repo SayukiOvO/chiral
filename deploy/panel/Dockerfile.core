@@ -49,6 +49,11 @@ COPY --from=xray /opt/xray/xray /usr/local/bin/xray
 # valid on the node.
 COPY --from=xray /opt/xray/geoip.dat /opt/xray/geosite.dat /usr/local/share/xray/
 COPY --from=web /web/dist /usr/share/chiral/web
+# Create and own the data directory BEFORE dropping privileges. A named volume
+# inherits the image's ownership of its mountpoint, so without this a fresh
+# volume is root-owned and the unprivileged process cannot open the database —
+# surfacing as a confusing SQLite error rather than a permissions one.
+RUN mkdir -p /var/lib/chiral && chown chiral:chiral /var/lib/chiral
 USER chiral
 VOLUME /var/lib/chiral
 ENV CHIRAL_DB_PATH=/var/lib/chiral/chiral.db \

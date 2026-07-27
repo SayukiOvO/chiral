@@ -204,10 +204,14 @@ type nodeView struct {
 	Hostname     string `json:"hostname"`
 	PublicIP     string `json:"public_ip"`
 	AgentVersion string `json:"agent_version"`
-	XrayVersion  string `json:"xray_version"`
-	CreatedAt    int64  `json:"created_at"`
-	RegisteredAt int64  `json:"registered_at,omitempty"`
-	LastSeenAt   int64  `json:"last_seen_at,omitempty"`
+	// XrayVersion is what the live kernel process was started from;
+	// XrayInstalledVersion is what the next start would use. They differ only
+	// while an upgrade is mid-flight or has failed to take.
+	XrayVersion          string `json:"xray_version"`
+	XrayInstalledVersion string `json:"xray_installed_version"`
+	CreatedAt            int64  `json:"created_at"`
+	RegisteredAt         int64  `json:"registered_at,omitempty"`
+	LastSeenAt           int64  `json:"last_seen_at,omitempty"`
 
 	Online    bool       `json:"online"`
 	XrayState string     `json:"xray_state,omitempty"`
@@ -227,16 +231,17 @@ type metricsIn struct {
 
 func (s *Server) view(n store.Node) nodeView {
 	v := nodeView{
-		ID:           n.ID,
-		Name:         n.Name,
-		DisplayName:  n.DisplayName,
-		Hostname:     n.Hostname,
-		PublicIP:     n.PublicIP,
-		AgentVersion: n.AgentVersion,
-		XrayVersion:  n.XrayVersion,
-		CreatedAt:    n.CreatedAt,
-		RegisteredAt: n.RegisteredAt.Int64,
-		LastSeenAt:   n.LastSeenAt.Int64,
+		ID:                   n.ID,
+		Name:                 n.Name,
+		DisplayName:          n.DisplayName,
+		Hostname:             n.Hostname,
+		PublicIP:             n.PublicIP,
+		AgentVersion:         n.AgentVersion,
+		XrayVersion:          n.XrayVersion,
+		XrayInstalledVersion: n.XrayInstalledVersion,
+		CreatedAt:            n.CreatedAt,
+		RegisteredAt:         n.RegisteredAt.Int64,
+		LastSeenAt:           n.LastSeenAt.Int64,
 	}
 	st := s.mgr.State(n.ID)
 	v.Online = st.Online

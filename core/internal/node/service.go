@@ -243,6 +243,7 @@ func (s *Service) handleFrame(nodeID string, sess *Session, f *chiralv1.AgentFra
 			s.logger.Error("touch last_seen failed", "node", nodeID, "err", err)
 		}
 		s.recordSample(nodeID, fr.Heartbeat)
+		s.recordXrayVersions(nodeID, fr.Heartbeat)
 		// Heartbeats report the applied config version; reconcile drift so a
 		// dropped or out-of-order push heals automatically.
 		s.reconcileConfig(nodeID, sess, fr.Heartbeat.GetConfigVersion())
@@ -264,6 +265,26 @@ func (s *Service) handleFrame(nodeID string, sess *Session, f *chiralv1.AgentFra
 		s.recordOnline(nodeID, fr.Online)
 	case *chiralv1.AgentFrame_Hello:
 		s.logger.Warn("unexpected Hello after stream start", "node", nodeID)
+	}
+}
+
+// recordXrayVersions keeps Core's picture of which kernel a node is running
+// current between Hello frames.
+//
+// Hello alone was enough while the binary could not change under a live agent.
+// A runtime upgrade does not drop the stream, so without this the recorded
+// version would describe whatever was installed when the node last connected —
+// and every judgement about whether an upgrade took would be made against a
+// number that cannot have moved.
+func (s *Service) recordXrayVersions(nodeID string, hb *chiralv1.Heartbeat) {
+	changed, err := s.st.SetXrayVersions(nodeID, hb.GetXrayVersion(), hb.GetInstalledXrayVersion())
+	if err != nil {
+		s.logger.Error("recording xray versions failed", "node", nodeID, "err", err)
+		return
+	}
+	if changed {
+		s.logger.Info("xray version changed", "node", nodeID,
+			"running", hb.GetXrayVersion(), "installed", hb.GetInstalledXrayVersion())
 	}
 }
 

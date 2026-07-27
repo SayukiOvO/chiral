@@ -66,6 +66,25 @@ message Heartbeat {
   XrayState xray_state = 8;
   // Version of the currently applied config; 0 if none applied yet.
   int64 config_version = 9;
+  // Version of the Xray-core binary the RUNNING process was started from,
+  // canonical form (no leading "v"). Empty when nothing is running.
+  //
+  // Hello carries a version too, but Hello only happens at stream setup. An
+  // in-place binary upgrade does not drop the stream, so without it here Core
+  // could never observe that an upgrade landed — it would be judging the
+  // outcome of a change it cannot see.
+  string xray_version = 10;
+
+  // Version of the binary the NEXT start would use.
+  //
+  // Two fields rather than one because the two answer different questions and
+  // the upgrade path needs both: "did the new kernel actually take over?" is
+  // about the running process, while "which kernel do I validate this config
+  // against?" is about the one on disk. They agree in the steady state and
+  // disagree exactly when something has gone wrong — a swap that did not
+  // restart, a rollback, a crash-looping kernel — which is precisely when
+  // collapsing them into one number would report the reassuring half.
+  string installed_xray_version = 11;
 }
 
 enum XrayState {

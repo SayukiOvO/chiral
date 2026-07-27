@@ -105,10 +105,15 @@ type Node struct {
 	Hostname     string
 	PublicIP     string
 	AgentVersion string
-	XrayVersion  string
-	CreatedAt    int64
-	RegisteredAt sql.NullInt64
-	LastSeenAt   sql.NullInt64
+	// XrayVersion is the version the node's LIVE Xray process was started
+	// from; empty when nothing is running. XrayInstalledVersion is what the
+	// next start would use. See migration 0010 for why one column could not be
+	// both.
+	XrayVersion          string
+	XrayInstalledVersion string
+	CreatedAt            int64
+	RegisteredAt         sql.NullInt64
+	LastSeenAt           sql.NullInt64
 	// ConfigSkeleton is the node's config.json minus its inbounds, which are
 	// rendered from the profiles bound to the node. Empty means the default.
 	ConfigSkeleton string
@@ -119,7 +124,7 @@ type Node struct {
 	DisplayName string
 }
 
-const nodeCols = `id, name, hostname, public_ip, agent_version, xray_version, created_at, registered_at, last_seen_at, config_skeleton, display_name`
+const nodeCols = `id, name, hostname, public_ip, agent_version, xray_version, xray_installed_version, created_at, registered_at, last_seen_at, config_skeleton, display_name`
 
 // skeletonAAD / configAAD bind a ciphertext to the exact row that holds it.
 func skeletonAAD(nodeID string) string { return "node-skeleton:" + nodeID }
@@ -131,7 +136,7 @@ func configAAD(nodeID string, version int64) string {
 // carry credentials of its own (an outbound to an upstream proxy, say).
 func (s *Store) scanNode(row interface{ Scan(...any) error }) (Node, error) {
 	var n Node
-	err := row.Scan(&n.ID, &n.Name, &n.Hostname, &n.PublicIP, &n.AgentVersion, &n.XrayVersion, &n.CreatedAt, &n.RegisteredAt, &n.LastSeenAt, &n.ConfigSkeleton, &n.DisplayName)
+	err := row.Scan(&n.ID, &n.Name, &n.Hostname, &n.PublicIP, &n.AgentVersion, &n.XrayVersion, &n.XrayInstalledVersion, &n.CreatedAt, &n.RegisteredAt, &n.LastSeenAt, &n.ConfigSkeleton, &n.DisplayName)
 	if err != nil {
 		return n, err
 	}
@@ -246,9 +251,36 @@ func (s *Store) ResetJoinToken(id, joinTokenHash string) error {
 // UpdateHello refreshes node facts reported in the stream's Hello frame.
 // Empty publicIP keeps the previously recorded value.
 func (s *Store) UpdateHello(id, publicIP, agentVersion, xrayVersion string) error {
-	_, err := s.db.Exec(`UPDATE nodes SET public_ip = CASE WHEN ? = '' THEN public_ip ELSE ? END, agent_version = ?, xray_version = ? WHERE id = ?`,
-		publicIP, publicIP, agentVersion, xrayVersion, id)
+	_, err := s.db.Exec(`UPDATE nodes SET public_ip = CASE WHEN ? = '' THEN public_ip ELSE ? END, agent_version = ?, xray_version = ?, xray_installed_version = ? WHERE id = ?`,
+		publicIP, publicIP, agentVersion, xrayVersion, xrayVersion, id)
 	return err
+}
+
+// SetXrayVersions records what a heartbeat reported, and returns whether that
+// changed anything.
+//
+// Guarded by the WHERE clause rather than by a read-then-write: heartbeats
+// arrive every few seconds per node against a handle pinned to a single
+// connection, and the steady state is "no change". The returned bool is what
+// the upgrade state machine watches — a version that changed without anybody
+// asking is the signal that a node restarted into something unexpected.
+func (s *Store) SetXrayVersions(id, running, installed string) (bool, error) {
+	// An agent too old to report either field sends both empty. Writing that
+	// through would blank what Hello established and make every pre-upgrade
+	// node look like it has no kernel installed — a Core newer than its agents
+	// is the normal state of a panel whose job is rolling upgrades out.
+	if running == "" && installed == "" {
+		return false, nil
+	}
+	res, err := s.db.Exec(`
+		UPDATE nodes SET xray_version = ?, xray_installed_version = ?
+		WHERE id = ? AND (xray_version != ? OR xray_installed_version != ?)`,
+		running, installed, id, running, installed)
+	if err != nil {
+		return false, err
+	}
+	n, _ := res.RowsAffected()
+	return n > 0, nil
 }
 
 func (s *Store) TouchLastSeen(id string, ts int64) error {

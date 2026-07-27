@@ -12,6 +12,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/SayukiOvO/chiral/agent/internal/agentlock"
 	"github.com/SayukiOvO/chiral/agent/internal/client"
 	"github.com/SayukiOvO/chiral/agent/internal/collector"
 	"github.com/SayukiOvO/chiral/agent/internal/xray"
@@ -38,6 +39,16 @@ func main() {
 		logger.Error("PANEL_URL (or -panel) is required")
 		os.Exit(2)
 	}
+
+	// One agent per state dir. Held for the whole run; see agentlock for why
+	// two supervisors over one directory is unrecoverable rather than merely
+	// noisy.
+	unlock, err := agentlock.Acquire(*stateDir)
+	if err != nil {
+		logger.Error("could not lock the state directory", "dir", *stateDir, "err", err)
+		os.Exit(2)
+	}
+	defer unlock()
 
 	col := collector.New()
 	// The event hook is wired after the client exists; xray only holds the
@@ -70,7 +81,7 @@ func main() {
 		}
 	}
 
-	err := cl.Run(ctx)
+	err = cl.Run(ctx)
 	xr.Stop()
 	if err != nil {
 		logger.Error("fatal", "err", err)

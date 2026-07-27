@@ -387,7 +387,12 @@ func (m *Manager) runAPI(ctx context.Context, addr, sub string, args ...string) 
 	ctx, cancel := context.WithTimeout(ctx, apiTimeout)
 	defer cancel()
 	full := append([]string{"api", sub, "--server=" + addr}, args...)
-	cmd := exec.CommandContext(ctx, m.bin, full...)
+	// The CLI half of an `xray api` call speaks to the running kernel's gRPC
+	// service, so it has to come from the binary that kernel was started from.
+	// After an upgrade the configured path names a different build, and a
+	// client one release ahead of its server is how a silently-changed API
+	// surface turns into an unexplained failure.
+	cmd := exec.CommandContext(ctx, m.apiBin(), full...)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		if ctx.Err() != nil {

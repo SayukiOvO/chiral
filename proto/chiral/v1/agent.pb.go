@@ -570,8 +570,26 @@ type Heartbeat struct {
 	XrayState XrayState `protobuf:"varint,8,opt,name=xray_state,json=xrayState,proto3,enum=chiral.v1.XrayState" json:"xray_state,omitempty"`
 	// Version of the currently applied config; 0 if none applied yet.
 	ConfigVersion int64 `protobuf:"varint,9,opt,name=config_version,json=configVersion,proto3" json:"config_version,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	// Version of the Xray-core binary the RUNNING process was started from,
+	// canonical form (no leading "v"). Empty when nothing is running.
+	//
+	// Hello carries a version too, but Hello only happens at stream setup. An
+	// in-place binary upgrade does not drop the stream, so without it here Core
+	// could never observe that an upgrade landed — it would be judging the
+	// outcome of a change it cannot see.
+	XrayVersion string `protobuf:"bytes,10,opt,name=xray_version,json=xrayVersion,proto3" json:"xray_version,omitempty"`
+	// Version of the binary the NEXT start would use.
+	//
+	// Two fields rather than one because the two answer different questions and
+	// the upgrade path needs both: "did the new kernel actually take over?" is
+	// about the running process, while "which kernel do I validate this config
+	// against?" is about the one on disk. They agree in the steady state and
+	// disagree exactly when something has gone wrong — a swap that did not
+	// restart, a rollback, a crash-looping kernel — which is precisely when
+	// collapsing them into one number would report the reassuring half.
+	InstalledXrayVersion string `protobuf:"bytes,11,opt,name=installed_xray_version,json=installedXrayVersion,proto3" json:"installed_xray_version,omitempty"`
+	unknownFields        protoimpl.UnknownFields
+	sizeCache            protoimpl.SizeCache
 }
 
 func (x *Heartbeat) Reset() {
@@ -665,6 +683,20 @@ func (x *Heartbeat) GetConfigVersion() int64 {
 		return x.ConfigVersion
 	}
 	return 0
+}
+
+func (x *Heartbeat) GetXrayVersion() string {
+	if x != nil {
+		return x.XrayVersion
+	}
+	return ""
+}
+
+func (x *Heartbeat) GetInstalledXrayVersion() string {
+	if x != nil {
+		return x.InstalledXrayVersion
+	}
+	return ""
 }
 
 // StatsReport carries traffic deltas since the previous report, never
@@ -862,8 +894,14 @@ type OnlineReport struct {
 	state  protoimpl.MessageState `protogen:"open.v1"`
 	AtUnix int64                  `protobuf:"varint,1,opt,name=at_unix,json=atUnix,proto3" json:"at_unix,omitempty"`
 	// False when the agent could not enumerate everything this round (a timeout
-	// partway through the fan-out). Core must skip such a round rather than read
-	// a truncated set as "these are all the addresses in use".
+	// partway through the fan-out).
+	//
+	// Core keeps what such a round did contain and marks the resulting count
+	// partial, rather than discarding it: the addresses it DID see are real, and
+	// dropping the round would make a persistently slow node look quiet instead
+	// of unreliable. What the flag forbids is reading a truncated set as "these
+	// are all the addresses in use" — so the count travels with `partial` and is
+	// documented as a floor, never a total.
 	Complete bool `protobuf:"varint,2,opt,name=complete,proto3" json:"complete,omitempty"`
 	// Sent every round even when empty, so silence stays unambiguous. An empty
 	// list from Xray has three different causes — the policy is off, nobody is
@@ -1587,7 +1625,7 @@ const file_chiral_v1_agent_proto_rawDesc = "" +
 	"\anode_id\x18\x01 \x01(\tR\x06nodeId\x12#\n" +
 	"\ragent_version\x18\x02 \x01(\tR\fagentVersion\x12!\n" +
 	"\fxray_version\x18\x03 \x01(\tR\vxrayVersion\x12\x1b\n" +
-	"\tpublic_ip\x18\x04 \x01(\tR\bpublicIp\"\xe4\x02\n" +
+	"\tpublic_ip\x18\x04 \x01(\tR\bpublicIp\"\xbd\x03\n" +
 	"\tHeartbeat\x12\x1f\n" +
 	"\vcpu_percent\x18\x01 \x01(\x01R\n" +
 	"cpuPercent\x12$\n" +
@@ -1601,7 +1639,10 @@ const file_chiral_v1_agent_proto_rawDesc = "" +
 	"net_rx_bps\x18\a \x01(\x04R\bnetRxBps\x123\n" +
 	"\n" +
 	"xray_state\x18\b \x01(\x0e2\x14.chiral.v1.XrayStateR\txrayState\x12%\n" +
-	"\x0econfig_version\x18\t \x01(\x03R\rconfigVersion\"=\n" +
+	"\x0econfig_version\x18\t \x01(\x03R\rconfigVersion\x12!\n" +
+	"\fxray_version\x18\n" +
+	" \x01(\tR\vxrayVersion\x124\n" +
+	"\x16installed_xray_version\x18\v \x01(\tR\x14installedXrayVersion\"=\n" +
 	"\vStatsReport\x12.\n" +
 	"\aentries\x18\x01 \x03(\v2\x14.chiral.v1.StatEntryR\aentries\"\x95\x01\n" +
 	"\tStatEntry\x12*\n" +
