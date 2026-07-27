@@ -21,6 +21,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"sync"
 
 	"github.com/SayukiOvO/chiral/core/internal/template"
@@ -60,6 +61,13 @@ func (r *Registry) Rescan() {
 		if err == nil {
 			for _, e := range entries {
 				if !e.IsDir() {
+					continue
+				}
+				// Skip the archive cache and any in-progress unpack. A staging
+				// directory holds a real executable partway through, so without
+				// this a concurrent scan could register "26.9.1.staging-4711" as
+				// a version of its own.
+				if e.Name() == archiveDir || strings.Contains(e.Name(), ".staging-") {
 					continue
 				}
 				version := template.NormalizeVersion(e.Name())

@@ -59,6 +59,15 @@ func main() {
 			cl.QueueEvent(kind, msg)
 		}
 	})
+	// A kernel installed by a previous run wins over the one baked into the
+	// image, but only if it is really there and really is what it claims. The
+	// image's binary is the floor: a container restart must not silently
+	// downgrade a node Core believes it has upgraded.
+	if active := xray.NewInstaller(*stateDir, xr).ActiveBinary(); active != "" && active != *xrayBin {
+		logger.Info("using the kernel installed by a previous run", "bin", active)
+		xr.UseBinary(active)
+	}
+
 	cl = client.New(client.Config{
 		PanelAddr:         *panelAddr,
 		JoinToken:         joinToken,

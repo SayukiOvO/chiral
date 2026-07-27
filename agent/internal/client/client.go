@@ -13,6 +13,7 @@ import (
 	"math/rand/v2"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sync"
 	"time"
 
@@ -72,6 +73,11 @@ type Client struct {
 	// polling one.
 	onlineMu     sync.Mutex
 	onlinePolicy *chiralv1.OnlinePolicy
+
+	// inst installs kernel versions; installs serialises them and routes relay
+	// chunks from the reader goroutine to whichever download is waiting.
+	inst     *xray.Installer
+	installs *installState
 }
 
 func New(cfg Config, xr *xray.Manager, col *collector.Collector, logger *slog.Logger) *Client {
@@ -81,7 +87,12 @@ func New(cfg Config, xr *xray.Manager, col *collector.Collector, logger *slog.Lo
 	if cfg.StatsInterval <= 0 {
 		cfg.StatsInterval = 60 * time.Second
 	}
-	return &Client{cfg: cfg, xr: xr, col: col, logger: logger, events: make(chan *chiralv1.Event, 32)}
+	return &Client{
+		cfg: cfg, xr: xr, col: col, logger: logger,
+		events:   make(chan *chiralv1.Event, 32),
+		inst:     xray.NewInstaller(cfg.StateDir, xr),
+		installs: newInstallState(),
+	}
 }
 
 // QueueEvent enqueues an event for delivery to Core; safe from any goroutine
@@ -271,6 +282,11 @@ func (c *Client) runStream(ctx context.Context, svc chiralv1.AgentServiceClient)
 		NodeId:       c.st.NodeID,
 		AgentVersion: c.cfg.AgentVersion,
 		XrayVersion:  c.xr.BinaryVersion(),
+		// Platform is what decides which release asset Core hands out. The
+		// agent is the only thing that knows it, and guessing from the node's
+		// hostname or its uname string is how a node ends up being told to
+		// install a binary for the wrong architecture.
+		Platform: runtime.GOOS + "/" + runtime.GOARCH,
 		// PublicIp left empty: Core records the connection's peer address.
 	}}}
 	if err := stream.Send(hello); err != nil {
@@ -413,6 +429,12 @@ func (c *Client) handleFrame(ctx context.Context, sendCh chan<- *chiralv1.AgentF
 		c.onlineMu.Unlock()
 		c.logger.Info("online policy updated",
 			"enabled", p.GetEnabled(), "interval_seconds", p.GetIntervalSeconds())
+	case *chiralv1.CoreFrame_XrayInstall:
+		c.logger.Info("kernel install received",
+			"version", fr.XrayInstall.GetVersion(), "activate", fr.XrayInstall.GetActivate())
+		c.startInstall(ctx, sendCh, fr.XrayInstall)
+	case *chiralv1.CoreFrame_XrayChunk:
+		c.installs.deliver(fr.XrayChunk)
 	case *chiralv1.CoreFrame_UserOp:
 		// Applied against the live kernel so a ban or a new subscriber takes
 		// effect without dropping everyone else's connections.

@@ -34,6 +34,7 @@ export interface Node {
   agent_version: string;
   xray_version: string;
   xray_installed_version: string;
+  platform: string;
   created_at: number;
   registered_at?: number;
   last_seen_at?: number;
@@ -288,6 +289,42 @@ export interface ConfigPreview {
   kernel_note: string;
 }
 
+export interface XrayAvailable {
+  version: string;
+  tag: string;
+  prerelease: boolean;
+  /** Whether the panel can already validate configs for it. */
+  panel_has: boolean;
+  panel_versions: string[];
+}
+
+export interface XrayInstall {
+  node_id: string;
+  version: string;
+  sha256: string;
+  activate: boolean;
+  /**
+   * Mirrors chiral.v1.XrayInstallPhase by name. ACTIVE and INCONCLUSIVE are
+   * both "it is running" but only ACTIVE means "and it answered" — the
+   * distinction the promote decision rests on.
+   */
+  phase: string;
+  message: string;
+  started_at: number;
+  updated_at: number;
+}
+
+export interface XrayUpgrade {
+  id: string;
+  version: string;
+  /** canary | awaiting_promote | promoting | done | blocked */
+  state: string;
+  canary_node_id: string;
+  message: string;
+  started_at: number;
+  updated_at: number;
+}
+
 export const api = {
   listNodes: () => req<{ nodes: Node[] }>("GET", "/api/nodes"),
   createNode: (name: string) =>
@@ -413,6 +450,22 @@ export const api = {
   },
 
   // --- alert targets ---
+  // Runtime Xray-core upgrades.
+  xrayAvailable: () => req<XrayAvailable>("GET", "/api/xray/available"),
+  xrayInstalls: () => req<XrayInstall[]>("GET", "/api/xray/installs"),
+  xrayUpgrade: () =>
+    req<{ active: XrayUpgrade | null; history?: XrayUpgrade[] }>("GET", "/api/xray/upgrade"),
+  startXrayCanary: (version: string, canaryNodeId: string) =>
+    req<XrayUpgrade>("POST", "/api/xray/upgrade", {
+      version,
+      canary_node_id: canaryNodeId,
+    }),
+  promoteXray: () => req<XrayUpgrade>("POST", "/api/xray/upgrade/promote"),
+  retryXray: () => req<XrayUpgrade>("POST", "/api/xray/upgrade/retry"),
+  abandonXray: () => req<XrayUpgrade>("DELETE", "/api/xray/upgrade"),
+  installXrayOn: (nodeId: string, version: string, activate: boolean) =>
+    req<XrayInstall>("POST", `/api/nodes/${nodeId}/xray/install`, { version, activate }),
+
   listAlertTargets: () => req<{ targets: AlertTarget[] }>("GET", "/api/alerts"),
   createAlertTarget: (t: { kind: string; name: string; config: string }) =>
     req<AlertTarget>("POST", "/api/alerts", t),

@@ -33,10 +33,12 @@ import (
 	"github.com/SayukiOvO/chiral/core/internal/online"
 	"github.com/SayukiOvO/chiral/core/internal/passkey"
 	"github.com/SayukiOvO/chiral/core/internal/profile"
+	"github.com/SayukiOvO/chiral/core/internal/release"
 	"github.com/SayukiOvO/chiral/core/internal/secret"
 	"github.com/SayukiOvO/chiral/core/internal/store"
 	"github.com/SayukiOvO/chiral/core/internal/subscription"
 	"github.com/SayukiOvO/chiral/core/internal/template"
+	"github.com/SayukiOvO/chiral/core/internal/upgrade"
 	"github.com/SayukiOvO/chiral/core/internal/user"
 	chiralv1 "github.com/SayukiOvO/chiral/proto/chiral/v1"
 )
@@ -220,6 +222,14 @@ func run(logger *slog.Logger, dbPath, grpcListen, httpListen, grpcPublic, public
 	}
 	kernels := kernel.New(envOr("CHIRAL_KERNEL_DIR", "/var/lib/chiral/kernels"), baked)
 	logger.Info("xray kernels available for validation", "versions", kernels.Versions())
+	// Runtime kernel upgrades. The registry doubles as the install root, so a
+	// version fetched for a node is immediately a version the panel can
+	// validate configs against.
+	upgrades := upgrade.NewService(st, kernels,
+		release.Client{Token: os.Getenv("CHIRAL_GITHUB_TOKEN")}, mgr, logger)
+	svc.EnableUpgrades(upgrades)
+	defer upgrades.Close()
+
 	users := user.NewService(st, logger)
 	profiles := profile.NewService(st, kernels, mgr, mgr, users, logger)
 	subs := subscription.NewService(st, profiles)
@@ -236,6 +246,10 @@ func run(logger *slog.Logger, dbPath, grpcListen, httpListen, grpcPublic, public
 		logger.Info("SMTP not configured; email verification and email codes are unavailable")
 	}
 	alerts := alert.NewService(st, mgr, logger)
+	// A rollback is announced immediately, bypassing the liveness debounce:
+	// it does not flap, and the notification's whole value is arriving while
+	// the person who pressed the button is still watching.
+	upgrades.EnableAlerts(alerts)
 
 	tlsEnabled := tlsCert != "" || tlsKey != ""
 	// Keepalive so both sides detect dead connections in ~40s instead of the
@@ -265,6 +279,7 @@ func run(logger *slog.Logger, dbPath, grpcListen, httpListen, grpcPublic, public
 	if onlineReg != nil {
 		apiServer.EnableOnlineTracking(onlineReg)
 	}
+	apiServer.EnableUpgrades(upgrades)
 	if portalCfg.Enabled() {
 		apiServer.EnablePortal(portalCfg)
 		logger.Info("end-user portal enabled", "mode", portalCfg.Mode,
@@ -288,6 +303,10 @@ func run(logger *slog.Logger, dbPath, grpcListen, httpListen, grpcPublic, public
 	}()
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	// Keep the panel's copy of the newest kernel warm, so pressing "upgrade" is
+	// instant rather than a multi-minute wait behind a download nobody can see.
+	// Best effort: a panel with no egress to GitHub is supported.
+	go upgrades.RunPrewarm(ctx, 6*time.Hour)
 	defer stop()
 
 	// Quota and expiry are enforced by sweep rather than on the traffic path:

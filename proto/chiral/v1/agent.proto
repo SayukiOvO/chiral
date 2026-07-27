@@ -41,6 +41,8 @@ message AgentFrame {
     ConfigAck config_ack = 4;
     Event event = 5;
     OnlineReport online = 6;
+    XrayStatus xray_status = 7;
+    XrayRelayRequest xray_relay_request = 8;
   }
 }
 
@@ -51,6 +53,13 @@ message Hello {
   // Version of the managed Xray-core binary; empty if not installed yet.
   string xray_version = 3;
   string public_ip = 4;
+  // GOOS/GOARCH of the node, e.g. "linux/amd64".
+  //
+  // Core needs it to pick the right release asset, and the agent is the only
+  // thing that knows it. Inferring it panel-side — from a hostname, a label, an
+  // operator's memory — is how a node gets told to install a binary for the
+  // wrong architecture, which fails at exec time with nothing useful to say.
+  string platform = 5;
 }
 
 // Heartbeat carries lightweight system metrics and liveness.
@@ -167,6 +176,67 @@ message OnlineIP {
   int64 last_seen_unix = 2;
 }
 
+// ---- Xray-core runtime upgrade ----
+
+// XrayStatus reports progress through one install. Sent at every phase change,
+// not only at the end: an upgrade that stalls mid-download and one that was
+// never received look identical from Core, and the difference decides whether
+// an operator waits or intervenes.
+message XrayStatus {
+  // The version this status is about, canonical form (no leading "v"). Carried
+  // explicitly rather than inferred from "the current install": a status can
+  // arrive after Core has moved on, and applying it to the wrong version would
+  // mark the new attempt with the old one's outcome.
+  string version = 1;
+  XrayInstallPhase phase = 2;
+  // Human-readable detail. On failure this carries the kernel's own stderr,
+  // which is the only thing that tells an admin what to fix.
+  string message = 3;
+  int64 at_unix = 4;
+  // What is running and what is on disk as of this status. Duplicated from
+  // Heartbeat so an outcome does not have to wait for the next beat to be
+  // believed — the whole judgement hangs on these two.
+  string running_version = 5;
+  string installed_version = 6;
+}
+
+enum XrayInstallPhase {
+  XRAY_INSTALL_PHASE_UNSPECIFIED = 0;
+  XRAY_INSTALL_PHASE_DOWNLOADING = 1;
+  XRAY_INSTALL_PHASE_VERIFYING = 2;
+  // On disk, checksum matched, binary answers `version` — but not yet running.
+  XRAY_INSTALL_PHASE_INSTALLED = 3;
+  // Restarted into the new binary; the health probe is in flight.
+  XRAY_INSTALL_PHASE_ACTIVATING = 4;
+  // Running and answering. The only phase that justifies promoting a canary.
+  XRAY_INSTALL_PHASE_ACTIVE = 5;
+  // Running, but the agent could not confirm it is serving — no API inbound to
+  // probe, usually. Deliberately NOT folded into ACTIVE: "it did not fail" and
+  // "it works" are different claims, and only the second should let an operator
+  // roll an upgrade out to the rest of the fleet.
+  XRAY_INSTALL_PHASE_INCONCLUSIVE = 6;
+  // Could not download, verify, or start. The previous binary may or may not
+  // be serving; ROLLED_BACK is the one that says it is.
+  XRAY_INSTALL_PHASE_FAILED = 7;
+  // Failed AND the previous binary is running again. Terminal and safe.
+  XRAY_INSTALL_PHASE_ROLLED_BACK = 8;
+}
+
+// XrayRelayRequest asks Core for one chunk of an archive the agent could not
+// fetch itself.
+//
+// Pull, not push, and one chunk per request. A node's send queue holds 16
+// frames; a 21 MB archive is far more than that, so pushing it would either
+// drop chunks or crowd out the config pushes and user operations sharing that
+// queue. Making the agent ask for the next chunk caps the relay at one frame in
+// flight per node, which needs no rate limit to tune and cannot starve anything
+// — the cost is one round trip per chunk, which for a once-per-release transfer
+// is not worth optimising away.
+message XrayRelayRequest {
+  string version = 1;
+  int64 offset = 2;
+}
+
 message Event {
   EventKind kind = 1;
   string message = 2;
@@ -188,7 +258,51 @@ message CoreFrame {
     UserOp user_op = 2;
     Command command = 3;
     OnlinePolicy online_policy = 4;
+    XrayInstall xray_install = 5;
+    XrayChunk xray_chunk = 6;
   }
+}
+
+// XrayInstall tells a node to fetch, verify and switch to a specific build.
+//
+// Core names the version; the agent never decides for itself what to run. That
+// is what makes the fleet's state knowable — and it is also why Core can always
+// validate configs for whatever a node is running, because it fetched that
+// build too before naming it.
+message XrayInstall {
+  // Canonical version, no leading "v".
+  string version = 1;
+  // GitHub asset URL for this node's platform. The agent tries this first: it
+  // is one hop instead of two, and it keeps 20 MB per node off the panel's
+  // uplink.
+  string download_url = 2;
+  // Lowercase hex SHA-256 of the archive, taken from the release's .dgst file.
+  // Required — an unverified binary is not installed, whichever route it came
+  // by. The relay is not a trusted path either: it is the same bytes through a
+  // different pipe, and the panel is exactly the machine an attacker would want
+  // to be standing on.
+  string sha256 = 3;
+  // Whether Core will serve this archive over XrayRelayRequest if the direct
+  // fetch fails. False when Core could not obtain the archive itself, in which
+  // case a node without egress simply cannot be upgraded — and should say so
+  // rather than retrying a route that does not exist.
+  bool relay_available = 4;
+  // Restart into the new binary once installed. False stages it on disk without
+  // touching the running kernel, which is how a fleet-wide upgrade separates
+  // "everyone has the bytes" from "everyone is running it".
+  bool activate = 5;
+}
+
+// XrayChunk is one slice of an archive, in reply to an XrayRelayRequest.
+message XrayChunk {
+  string version = 1;
+  int64 offset = 2;
+  bytes data = 3;
+  // True on the slice that ends the archive.
+  bool last = 4;
+  // Set when the request cannot be served (unknown version, read failure).
+  // Non-empty means data is meaningless and the agent should stop asking.
+  string error = 5;
 }
 
 // OnlinePolicy switches the agent's online-address polling on or off.

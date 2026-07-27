@@ -151,6 +151,25 @@ func (m *Manager) SendOnlinePolicy(nodeID string, p *chiralv1.OnlinePolicy) erro
 	})
 }
 
+// SendXrayInstall queues a kernel install instruction.
+func (m *Manager) SendXrayInstall(nodeID string, in *chiralv1.XrayInstall) error {
+	return m.enqueue(nodeID, &chiralv1.CoreFrame{
+		Frame: &chiralv1.CoreFrame_XrayInstall{XrayInstall: in},
+	})
+}
+
+// SendXrayChunk queues one slice of a relayed archive.
+//
+// Uses the same bounded queue as everything else, and that is safe only because
+// the agent asks for one chunk at a time: at most one relay frame is ever in
+// flight per node, so a 21 MB transfer cannot crowd out a config push sharing
+// the queue.
+func (m *Manager) SendXrayChunk(nodeID string, c *chiralv1.XrayChunk) error {
+	return m.enqueue(nodeID, &chiralv1.CoreFrame{
+		Frame: &chiralv1.CoreFrame_XrayChunk{XrayChunk: c},
+	})
+}
+
 // CloseSession force-closes a node's live session, e.g. after the node (and
 // with it the credential) is deleted.
 func (m *Manager) CloseSession(nodeID string) {

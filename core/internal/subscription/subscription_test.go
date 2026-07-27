@@ -231,3 +231,44 @@ func TestBlankLinesInFragmentsAreDropped(t *testing.T) {
 		t.Errorf("blank line survived into the document:\n%s", body)
 	}
 }
+
+// Latency-based selection alongside the manual one, not instead of it.
+//
+// The manual group must stay: a subscriber who has worked out which node is
+// good for them — often for reasons a latency probe cannot see, like which one
+// their bank tolerates — must not have that quietly replaced.
+func TestClashOffersBothManualAndAutomaticGroups(t *testing.T) {
+	r := assemble(ClientClash, []string{
+		"name: tokyo-1\ntype: vless\nserver: 203.0.113.9\nport: 443",
+		"name: frankfurt-1\ntype: vless\nserver: 198.51.100.7\nport: 443",
+	})
+
+	if !strings.Contains(r.Body, "  - name: Chiral\n    type: select\n") {
+		t.Errorf("the manual group is gone:\n%s", r.Body)
+	}
+	if !strings.Contains(r.Body, "type: url-test") {
+		t.Errorf("no automatic group:\n%s", r.Body)
+	}
+	// Nested, so "auto" is a choice inside the one control the user already
+	// knows about rather than a second control they have to discover.
+	manual := r.Body[strings.Index(r.Body, "  - name: Chiral\n"):]
+	if end := strings.Index(manual, "  - name: Chiral 自动"); end >= 0 {
+		manual = manual[:end]
+	}
+	if !strings.Contains(manual, "      - Chiral 自动\n") {
+		t.Errorf("the automatic group is not a member of the manual one:\n%s", manual)
+	}
+	// Every node belongs to both.
+	for _, name := range []string{"tokyo-1", "frankfurt-1"} {
+		if strings.Count(r.Body, "      - "+name+"\n") != 2 {
+			t.Errorf("%s does not appear in both groups:\n%s", name, r.Body)
+		}
+	}
+	// A url-test group with no probe URL silently never tests anything.
+	if !strings.Contains(r.Body, "url: "+autoTestURL) {
+		t.Errorf("the automatic group has no test URL:\n%s", r.Body)
+	}
+	if !strings.Contains(r.Body, "interval: 300") {
+		t.Errorf("the automatic group has no interval:\n%s", r.Body)
+	}
+}

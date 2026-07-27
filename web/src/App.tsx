@@ -6,6 +6,7 @@ import { NodesPage } from "./pages/NodesPage";
 import { ProfilesPage } from "./pages/ProfilesPage";
 import { AdminsPage } from "./pages/AdminsPage";
 import { AlertsPage } from "./pages/AlertsPage";
+import { KernelPage } from "./pages/KernelPage";
 import { AuditPage } from "./pages/AuditPage";
 import { SecurityPage } from "./pages/SecurityPage";
 import { UsersPage } from "./pages/UsersPage";
@@ -38,6 +39,7 @@ function Console({ onSignOut }: { onSignOut: () => void }) {
         {route.view === "users" && <UsersPage />}
         {route.view === "variables" && <VariablesPage />}
         {route.view === "alerts" && <AlertsPage />}
+        {route.view === "kernel" && <KernelPage />}
         {route.view === "admins" && <AdminsPage />}
         {route.view === "audit" && <AuditPage />}
         {route.view === "security" && <SecurityPage />}

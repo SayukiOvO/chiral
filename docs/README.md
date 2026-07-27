@@ -7,6 +7,7 @@
 3. [template-system.md](template-system.md) — 模板与变量系统（Profile 抽象已定稿）
 4. [user-management.md](user-management.md) — 代理用户、流量、订阅
 5. [user-portal.md](user-portal.md) — 端用户门户与在线地址记录（M5）
+6. [xray-upgrade.md](xray-upgrade.md) — Xray-core 运行时升级：金丝雀、回滚、按节点内核校验（M6）
 6. [deployment.md](deployment.md) — Docker / docker-compose 部署
 7. [roadmap.md](roadmap.md) — 开发里程碑
 

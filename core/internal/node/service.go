@@ -42,9 +42,21 @@ type OnlineRecorder interface {
 	RecordDevice(userID, ip, nodeID string, at time.Time) error
 }
 
+// UpgradeHandler receives the frames belonging to a runtime kernel upgrade.
+// An interface so this package does not depend on core/internal/upgrade, which
+// depends on it.
+type UpgradeHandler interface {
+	HandleStatus(nodeID string, st *chiralv1.XrayStatus)
+	HandleRelayRequest(ctx context.Context, nodeID string, req *chiralv1.XrayRelayRequest)
+}
+
 // Service implements chiral.v1.AgentService.
 type Service struct {
 	chiralv1.UnimplementedAgentServiceServer
+
+	// upgrades is nil until wired; the frames are then acknowledged as
+	// unsupported rather than silently dropped.
+	upgrades UpgradeHandler
 
 	st      *store.Store
 	mgr     *Manager
@@ -61,6 +73,9 @@ type Service struct {
 func NewService(st *store.Store, mgr *Manager, traffic TrafficRecorder, logger *slog.Logger) *Service {
 	return &Service{st: st, mgr: mgr, traffic: traffic, logger: logger}
 }
+
+// EnableUpgrades wires the runtime kernel upgrade handler.
+func (s *Service) EnableUpgrades(h UpgradeHandler) { s.upgrades = h }
 
 // EnableOnlineTracking switches on source-address recording. Called at startup
 // only when the operator asked for it; left alone, nothing polls and
@@ -111,6 +126,9 @@ func (s *Service) Channel(stream chiralv1.AgentService_ChannelServer) error {
 	}
 	if err := s.st.UpdateHello(n.ID, orElse(hello.GetPublicIp(), peerIP(ctx)), hello.GetAgentVersion(), hello.GetXrayVersion()); err != nil {
 		s.logger.Error("update hello failed", "node", n.ID, "err", err)
+	}
+	if _, err := s.st.SetNodePlatform(n.ID, hello.GetPlatform()); err != nil {
+		s.logger.Error("recording the node platform failed", "node", n.ID, "err", err)
 	}
 
 	sess := &Session{
@@ -263,6 +281,23 @@ func (s *Service) handleFrame(nodeID string, sess *Session, f *chiralv1.AgentFra
 	case *chiralv1.AgentFrame_Online:
 		sess.touch(nil)
 		s.recordOnline(nodeID, fr.Online)
+	case *chiralv1.AgentFrame_XrayStatus:
+		sess.touch(nil)
+		if s.upgrades == nil {
+			s.logger.Warn("an install status arrived but upgrades are not wired", "node", nodeID)
+			return
+		}
+		s.upgrades.HandleStatus(nodeID, fr.XrayStatus)
+	case *chiralv1.AgentFrame_XrayRelayRequest:
+		sess.touch(nil)
+		if s.upgrades == nil {
+			s.logger.Warn("a relay request arrived but upgrades are not wired", "node", nodeID)
+			return
+		}
+		// On its own goroutine: serving a chunk may have to fetch a 21 MB
+		// archive from GitHub first, and this is the loop that reads every
+		// other frame from this node.
+		go s.upgrades.HandleRelayRequest(context.Background(), nodeID, fr.XrayRelayRequest)
 	case *chiralv1.AgentFrame_Hello:
 		s.logger.Warn("unexpected Hello after stream start", "node", nodeID)
 	}

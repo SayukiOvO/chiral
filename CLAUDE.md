@@ -38,7 +38,9 @@ Chiral 是一个 Xray 管理面板，定位类似 Remnawave：采用 **Panel + A
 10. **私钥类变量静态加密**：AES-GCM，密钥来自独立环境变量 `CHIRAL_SECRET_KEY`（不设则明文入库并告警）。威胁模型是「数据库文件外流」，不防已能在面板机执行代码的攻击者。
 11. **订阅 token 改为可恢复存储**（M5 定稿，**推翻 0003 迁移里「从不存储」的原决策**）：`users.sub_token_enc` 用 AES-GCM 密封，AAD 绑定行。门户的核心价值之一就是随时能看到自己的链接，而「只能重新生成」会炸掉用户已配置的所有客户端。`sub_token_hash` 与查找路径一个字节不变。代价说清楚：从「我们想拿也拿不回」降级为「持有 `CHIRAL_SECRET_KEY` 就能拿回」——面板本来就以同样形式持有每个用户的每一条代理凭证，边际损失很小。配套硬约束：**门户开启且无 `CHIRAL_SECRET_KEY` 时 Core 拒绝启动**，不是告警。
 12. **`OnlineReport` 是绝对快照，对增量规则的明确豁免**（M5）：流量计数器因 Xray 重启归零，所以必须报增量；而观测集合归零的含义相反——它意味着「没在观测」，绝不能读成「零设备」。即使没人在线也每轮发一个空的 `complete=true` 帧，让沉默保持有歧义这件事不发生。
-13. **端用户与管理员是两类主体，边界靠构造而非小心**（M5）：`portal.Identity` **永远不带 Role**，`auth.rank()` **永远不新增 `>= 1` 的值**。一旦有人给 rank 加了「user: 1」，`requireAdmin`（= viewer 档）覆盖的节点列表、用户列表、变量、Profile、流量、审计日志就全部对客户开放。（`config/preview` 不在此列——M5-2 已把它提到 `requireWrite`，正因为它返回含 REALITY 私钥与全部凭证明文的完整 config。）
+13. **Xray 运行时升级：Core 点名版本，Agent 只回滚不前滚**（M6）。三条边界：(a) Core 在通知任何节点安装某版本之前，**先给自己装一份**——否则会出现「节点跑着面板校验不了的内核」，而这正是 `core/internal/kernel` 存在的意义；(b) 每个节点的配置用**它自己那份内核**校验（`xray_installed_version`，不是 running），版本对不上时降级为不精确校验并如实告知，**不拒绝下发**——真正的闸门是 agent 本地那次 `xray -test`，它跑的才是对的二进制；(c) 校验结果是**三值**的：ACTIVE（起来了且 API 有应答）/ INCONCLUSIVE（起来了但没东西可问）/ ROLLED_BACK（起不来，旧的已经回去了）。把 INCONCLUSIVE 折进 ACTIVE，金丝雀就成了橡皮图章。中继走**拉模式**，一次一块：节点发送队列只有 16 帧，推 21 MB 会把 config push 挤掉。
+
+14. **端用户与管理员是两类主体，边界靠构造而非小心**（M5）：`portal.Identity` **永远不带 Role**，`auth.rank()` **永远不新增 `>= 1` 的值**。一旦有人给 rank 加了「user: 1」，`requireAdmin`（= viewer 档）覆盖的节点列表、用户列表、变量、Profile、流量、审计日志就全部对客户开放。（`config/preview` 不在此列——M5-2 已把它提到 `requireWrite`，正因为它返回含 REALITY 私钥与全部凭证明文的完整 config。）
     编译期能保证的部分要说准：**接错守卫是编译错误**（`portalHandler` 多收一个 `portal.Identity`，两种签名不统一）；**`package portal` 内部够不到 store**，所以越权取数在 `View` 这条路径上不可能。但 `package api` 里的门户 handler 是 `*Server` 的方法，仍持有 `s.st`（`portalLogin`、`portalChangePassword` 就在用它读写自己的账号行）——在那里写 `s.st.ListNodes()` 是能编译过的。**规矩是：凡是要展示机队信息，一律走 `View`。**
 
 ## 5. 搁置 / 待议
@@ -62,7 +64,7 @@ Chiral 是一个 Xray 管理面板，定位类似 Remnawave：采用 **Panel + A
 
 ## 7. 开发约定
 
-- **Go module**：单模块 monorepo，模块路径 `github.com/SayukiOvO/chiral`（以 go.mod 为准；大小写与 GitHub 用户名规范一致）。仓库远端 `git@github.com:SayukiOvO/chiral.git`，提交走 SSH + Bitwarden agent，签名需 Mai 批准。core 与 agent 共享 `proto/` 包，不跨组件互相 import 对方的 `internal/`。
+- **Go module**：单模块 monorepo，模块路径 `github.com/SayukiOvO/chiral`（以 go.mod 为准；大小写与 GitHub 用户名规范一致）。仓库远端 `git@github.com:SayukiOvO/chiral.git`，提交走 SSH + Bitwarden agent，签名需 Mai 批准。core 与 agent 共享 `proto/` 与根级 `internal/`，**不跨组件互相 import 对方的 `internal/`**。根级 `internal/`（目前只有 `internal/xrayarchive`）是这条规则的窄口子：两边都要做同一件事、谁也不拥有它时放这里——校验并解包 Xray release 归档，core 用它拿到校验用的内核，agent 用它拿到要跑的内核，两份实现必然会漂移。加新包前先问「这真的是双方共有、且不属于任何一方吗」。
 - **构建**：`go build -o bin/chiral-core ./core/cmd/core`；`go build -o bin/chiral-agent ./agent/cmd/agent`。
 - **代码风格**：`gofmt` + `go vet`；包按职责分（放在各自 `internal/` 下）。
 - **配置安全**：config 下发前必须 `xray -test` 校验，通过才生效（不过则**既不存版本也不下发**）；每版 config 存版本号，支持一键回滚。注意 `xray -test` 的能力边界：它**查不出配错的密钥对**，也会静默忽略可选字段的拼写错误——所以服务端 / 客户端必须引用**同一个变量组的不同分量**，这是唯一可靠的保证（详见 docs/template-system.md §6）。

@@ -51,6 +51,20 @@
 
 **关键实测结论**（Xray 26.3.27，见 [`user-portal.md`](user-portal.md) §8）：`online` 计的是**不同源 IP 数**而非会话数；`rmu` 与 `sib` 都**不能**掐断已建立的会话，只拒新连接——所以「超限自动断线」在内核层面不存在。
 
+## M6 — Xray 运行时升级 + Docker 收尾 ✅ 已完成
+面板要能把节点上的 Xray-core 换掉，而且追 **prerelease**（决策 9）。追快照意味着「新版本起不来」是常态而非意外，整条链路是围绕这件事一定会发生设计的。设计与逐条理由见 [`xray-upgrade.md`](xray-upgrade.md)。
+
+- [x] **前置修复**：心跳带上内核版本（Hello 只在建流时发生一次，就地升级不断流，否则 Core 根本看不见升级落地）；running / installed 拆成两列；Xray stderr 收进有界 ring buffer 并随崩溃事件上报；state dir 加 flock。
+- [x] **按节点内核校验配置**：`core/internal/kernel` 保存每个在跑版本的二进制，按节点解析。版本对不上就降级为不精确并如实告知，**不拒绝下发**——真正的闸门是 agent 本地那次 `xray -test`。
+- [x] **升级机制**：GitHub 发现（含 prerelease）→ 校验 SHA-256 → 解包到 `kernels/<版本>/` → 切换 → 探活 → 失败自动回滚。两条取货路径：直连 GitHub，或经 Core 中继（**拉模式，一次一块**，因为节点发送队列只有 16 帧且与 config push 共用）。
+- [x] **金丝雀 + 手动放行**：一台先升，人看结果再放行全队；`blocked` 是管理员修完之后一键重试的起点。同一时刻只允许一个升级在飞，由数据库唯一索引保证。
+- [x] **Docker / compose 收尾**：`CHIRAL_KERNEL_DIR` 落在数据卷上；agent 记住 `active` 版本，容器重启不会偷偷降级回镜像里烘焙的那个。
+- [x] 订阅在原有手动 `select` 组之外，**增加** `url-test` 自动组（嵌在手动组里）。
+
+**三值判定**：`ACTIVE`（起来了且 API 有应答）/ `INCONCLUSIVE`（起来了但没东西可问）/ `ROLLED_BACK`（起不来，旧内核已恢复服务）。把 INCONCLUSIVE 折进 ACTIVE，没有 API inbound 的节点上每次金丝雀都成了橡皮图章。
+
+**实测发现的两个真实缺陷**（都是真机跑出来的，不是想出来的）：Core 的中继分块读取忘了 seek，每一块都是文件开头——21 MB 传得干干净净、长度分毫不差、校验和失败且无从下手；启动预热与操作员点击同时命名同一版本时，两次解包共用一个 staging 目录，各自的清理删掉了对方刚写的文件。
+
 ## Backlog（额外建议，未排期）
 - SQLite 定期备份 / 恢复；时序数据保留策略（聚合 + 有限窗口原始数据）。
 - 规模上来后评估迁 PostgreSQL（ORM 层留抽象）。

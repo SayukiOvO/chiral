@@ -142,6 +142,28 @@ func message(nodeName string, online bool, changedAt int64) Event {
 	}
 }
 
+// Announce sends one event to every enabled target immediately, with no
+// debounce.
+//
+// Deliberately bypasses Debounce, which exists for a different problem: node
+// liveness flaps, and a two-minute settle keeps a brief network hiccup from
+// paging anyone. A kernel rollback does not flap — it happens once, it is the
+// direct consequence of something an operator just did, and it is already over
+// by the time this is called. Waiting two minutes to mention it would delay the
+// one notification whose whole value is arriving while the person who pressed
+// the button is still watching.
+func (s *Service) Announce(ctx context.Context, e Event) {
+	targets, err := s.enabledTargets()
+	if err != nil {
+		s.logger.Error("listing alert targets failed", "err", err)
+		return
+	}
+	if len(targets) == 0 {
+		return
+	}
+	s.notify(ctx, targets, e)
+}
+
 // notify delivers to every target, recording each outcome. One target's
 // failure must not stop the others.
 func (s *Service) notify(ctx context.Context, targets []store.AlertTarget, e Event) {

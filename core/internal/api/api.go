@@ -19,6 +19,7 @@ import (
 	"github.com/SayukiOvO/chiral/core/internal/profile"
 	"github.com/SayukiOvO/chiral/core/internal/store"
 	"github.com/SayukiOvO/chiral/core/internal/subscription"
+	"github.com/SayukiOvO/chiral/core/internal/upgrade"
 	chiralv1 "github.com/SayukiOvO/chiral/proto/chiral/v1"
 )
 
@@ -43,6 +44,9 @@ type Server struct {
 	subs *subscription.Service
 	// alerts delivers node availability notifications.
 	alerts *alert.Service
+	// upgrades drives runtime Xray-core upgrades; nil when no kernel directory
+	// is configured, in which case the endpoints say so rather than 404.
+	upgrades *upgrade.Service
 	// publicURL is the panel's own base URL, used to build subscription links
 	// an operator can hand out.
 	publicURL string
@@ -71,6 +75,12 @@ func (s *Server) EnablePortal(cfg PortalConfig) { s.portal = cfg }
 // EnableOnlineTracking wires in the address registry. Called at startup only
 // when the operator asked for recording.
 func (s *Server) EnableOnlineTracking(src OnlineSource) { s.online = src }
+
+// EnableUpgrades wires runtime kernel upgrades. Left unwired, the endpoints
+// return 503 with a reason rather than 404 — "not configured" and "not a thing
+// this panel does" are different answers, and only one tells an operator what
+// to change.
+func (s *Server) EnableUpgrades(u *upgrade.Service) { s.upgrades = u }
 
 func NewServer(st *store.Store, mgr *node.Manager, profiles *profile.Service, subs *subscription.Service,
 	alerts *alert.Service, passkeys *passkey.Service, mailer *mail.Sender,
@@ -113,6 +123,17 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("POST /api/nodes/{id}/join-token", s.requireWrite(s.resetJoinToken))
 	mux.Handle("PUT /api/nodes/{id}/config", s.requireWrite(s.putConfig))
 	mux.Handle("POST /api/nodes/{id}/restart-xray", s.requireWrite(s.restartXray))
+
+	// Runtime Xray-core upgrades. Reads are admin, the install is write, and
+	// every install is audited whether or not it reached the node.
+	mux.Handle("GET /api/xray/available", s.requireAdmin(s.availableXray))
+	mux.Handle("GET /api/xray/installs", s.requireAdmin(s.xrayInstalls))
+	mux.Handle("POST /api/nodes/{id}/xray/install", s.requireWrite(s.installXray))
+	mux.Handle("GET /api/xray/upgrade", s.requireAdmin(s.xrayUpgrade))
+	mux.Handle("POST /api/xray/upgrade", s.requireWrite(s.startXrayCanary))
+	mux.Handle("POST /api/xray/upgrade/promote", s.requireWrite(s.promoteXray))
+	mux.Handle("POST /api/xray/upgrade/retry", s.requireWrite(s.retryXray))
+	mux.Handle("DELETE /api/xray/upgrade", s.requireWrite(s.abandonXray))
 	s.routeTemplates(mux)
 
 	mux.Handle("POST /api/users", s.requireWrite(s.createUser))
@@ -209,9 +230,13 @@ type nodeView struct {
 	// while an upgrade is mid-flight or has failed to take.
 	XrayVersion          string `json:"xray_version"`
 	XrayInstalledVersion string `json:"xray_installed_version"`
-	CreatedAt            int64  `json:"created_at"`
-	RegisteredAt         int64  `json:"registered_at,omitempty"`
-	LastSeenAt           int64  `json:"last_seen_at,omitempty"`
+	// Platform is what decides whether this node can be upgraded at all: an
+	// unknown one has no release asset to hand it, and the operator choosing a
+	// canary should be able to see that before pressing the button.
+	Platform     string `json:"platform"`
+	CreatedAt    int64  `json:"created_at"`
+	RegisteredAt int64  `json:"registered_at,omitempty"`
+	LastSeenAt   int64  `json:"last_seen_at,omitempty"`
 
 	Online    bool       `json:"online"`
 	XrayState string     `json:"xray_state,omitempty"`
@@ -239,6 +264,7 @@ func (s *Server) view(n store.Node) nodeView {
 		AgentVersion:         n.AgentVersion,
 		XrayVersion:          n.XrayVersion,
 		XrayInstalledVersion: n.XrayInstalledVersion,
+		Platform:             n.Platform,
 		CreatedAt:            n.CreatedAt,
 		RegisteredAt:         n.RegisteredAt.Int64,
 		LastSeenAt:           n.LastSeenAt.Int64,

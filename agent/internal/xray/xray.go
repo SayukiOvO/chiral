@@ -58,9 +58,30 @@ func New(bin, dataDir string, logger *slog.Logger, onEvent EventFunc) *Manager {
 	}
 }
 
+// Binary is the path the next start would use.
+func (m *Manager) Binary() string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.bin
+}
+
+// UseBinary points the manager at a binary before anything has started. Only
+// for startup: once running, changing the binary belongs to Activate, which
+// restarts and can put it back.
+func (m *Manager) UseBinary(bin string) { m.setBinary(bin) }
+
+// setBinary changes what the next start will run. Only the activation path
+// calls this, and always with a Restart to follow — leaving the two out of step
+// is exactly the window where "installed" and "running" disagree.
+func (m *Manager) setBinary(bin string) {
+	m.mu.Lock()
+	m.bin = bin
+	m.mu.Unlock()
+}
+
 // BinaryVersion reports the version of the binary at the CONFIGURED path,
 // i.e. what the next start would run.
-func (m *Manager) BinaryVersion() string { return versionOf(m.bin) }
+func (m *Manager) BinaryVersion() string { return versionOf(m.Binary()) }
 
 // RunningVersion reports the version the LIVE process was started from.
 //
@@ -90,6 +111,32 @@ func (m *Manager) apiBin() string {
 
 // StderrTail returns the running kernel's most recent stderr lines.
 func (m *Manager) StderrTail(lines int) string { return m.stderrTail.Tail(lines) }
+
+// envForBinary points Xray at the geo databases that came with THIS build.
+//
+// An upgraded kernel lives in its own directory alongside the geoip.dat and
+// geosite.dat from the same release, while the image's XRAY_LOCATION_ASSET
+// still names the baked ones. Letting that stand would have a freshly installed
+// kernel silently reading routing data from the version it replaced — and the
+// two are not required to stay compatible forever.
+//
+// Only overridden when the files are actually there; otherwise whatever the
+// environment already says stands, which is what a distro install wants.
+func envForBinary(bin string) []string {
+	dir := filepath.Dir(bin)
+	if _, err := os.Stat(filepath.Join(dir, "geosite.dat")); err != nil {
+		return nil // inherit
+	}
+	env := os.Environ()
+	out := make([]string, 0, len(env)+1)
+	for _, kv := range env {
+		if strings.HasPrefix(kv, "XRAY_LOCATION_ASSET=") {
+			continue
+		}
+		out = append(out, kv)
+	}
+	return append(out, "XRAY_LOCATION_ASSET="+dir)
+}
 
 // versionOf asks a binary what it is. Canonical form, no leading "v" — the
 // binary prints "Xray 26.3.27" while GitHub tags say "v26.7.11", and every
@@ -154,12 +201,15 @@ func (m *Manager) Apply(version int64, configJSON []byte) error {
 	}
 	defer os.Remove(tmp)
 
-	if _, err := exec.LookPath(m.bin); err != nil {
-		return fmt.Errorf("xray binary %q not found", m.bin)
+	bin := m.Binary()
+	if _, err := exec.LookPath(bin); err != nil {
+		return fmt.Errorf("xray binary %q not found", bin)
 	}
 	// -format json is required: Xray infers format from the file extension,
 	// and the temp file is not named *.json.
-	if out, err := exec.Command(m.bin, "-test", "-c", tmp, "-format", "json").CombinedOutput(); err != nil {
+	test := exec.Command(bin, "-test", "-c", tmp, "-format", "json")
+	test.Env = envForBinary(bin)
+	if out, err := test.CombinedOutput(); err != nil {
 		return fmt.Errorf("xray -test failed: %s", firstLines(string(out), 5))
 	}
 	if err := os.Rename(tmp, m.configPath); err != nil {
@@ -204,8 +254,9 @@ func (m *Manager) startLocked() error {
 	if _, err := os.Stat(m.configPath); err != nil {
 		return fmt.Errorf("no config to run: %w", err)
 	}
-	bin := m.bin
+	bin := m.bin // the caller holds m.mu
 	cmd := exec.Command(bin, "run", "-c", m.configPath, "-format", "json")
+	cmd.Env = envForBinary(bin)
 	cmd.Stdout = os.Stdout
 
 	// Tee stderr: the container log still gets everything, and the tail keeps

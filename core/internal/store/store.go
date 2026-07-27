@@ -111,9 +111,12 @@ type Node struct {
 	// both.
 	XrayVersion          string
 	XrayInstalledVersion string
-	CreatedAt            int64
-	RegisteredAt         sql.NullInt64
-	LastSeenAt           sql.NullInt64
+	// Platform is the node's GOOS/GOARCH, e.g. "linux/amd64". Empty until an
+	// agent new enough to report it has connected.
+	Platform     string
+	CreatedAt    int64
+	RegisteredAt sql.NullInt64
+	LastSeenAt   sql.NullInt64
 	// ConfigSkeleton is the node's config.json minus its inbounds, which are
 	// rendered from the profiles bound to the node. Empty means the default.
 	ConfigSkeleton string
@@ -124,7 +127,7 @@ type Node struct {
 	DisplayName string
 }
 
-const nodeCols = `id, name, hostname, public_ip, agent_version, xray_version, xray_installed_version, created_at, registered_at, last_seen_at, config_skeleton, display_name`
+const nodeCols = `id, name, hostname, public_ip, agent_version, xray_version, xray_installed_version, platform, created_at, registered_at, last_seen_at, config_skeleton, display_name`
 
 // skeletonAAD / configAAD bind a ciphertext to the exact row that holds it.
 func skeletonAAD(nodeID string) string { return "node-skeleton:" + nodeID }
@@ -136,7 +139,7 @@ func configAAD(nodeID string, version int64) string {
 // carry credentials of its own (an outbound to an upstream proxy, say).
 func (s *Store) scanNode(row interface{ Scan(...any) error }) (Node, error) {
 	var n Node
-	err := row.Scan(&n.ID, &n.Name, &n.Hostname, &n.PublicIP, &n.AgentVersion, &n.XrayVersion, &n.XrayInstalledVersion, &n.CreatedAt, &n.RegisteredAt, &n.LastSeenAt, &n.ConfigSkeleton, &n.DisplayName)
+	err := row.Scan(&n.ID, &n.Name, &n.Hostname, &n.PublicIP, &n.AgentVersion, &n.XrayVersion, &n.XrayInstalledVersion, &n.Platform, &n.CreatedAt, &n.RegisteredAt, &n.LastSeenAt, &n.ConfigSkeleton, &n.DisplayName)
 	if err != nil {
 		return n, err
 	}

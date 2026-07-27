@@ -23,8 +23,21 @@ services:
       # Generate with: openssl rand -base64 32
       CHIRAL_SECRET_KEY: ${CHIRAL_SECRET_KEY:?set a secret key, e.g. `openssl rand -base64 32`}
       # Bundled in the image; the panel validates every rendered config with
-      # `xray -test` before storing or pushing it.
+      # `xray -test` before storing or pushing it. This one is the FLOOR — see
+      # CHIRAL_KERNEL_DIR.
       CHIRAL_XRAY_BIN: /usr/local/bin/xray
+      # Where the panel keeps a binary per Xray version any node runs.
+      #
+      # On the data volume on purpose: `xray -test` only answers for the build
+      # that runs it, so once a node has been upgraded the panel needs THAT
+      # build to judge its configs. Put this on a container-local path and every
+      # restart forgets every version, leaving the panel validating an upgraded
+      # fleet's configs against the one binary baked into the image.
+      CHIRAL_KERNEL_DIR: /var/lib/chiral/kernels
+      # Optional. Unauthenticated GitHub API calls are limited to 60/hour per
+      # IP, which one panel never approaches — but a shared egress IP might,
+      # and then upgrades quietly stop being offered.
+      CHIRAL_GITHUB_TOKEN: ${CHIRAL_GITHUB_TOKEN:-}
       # Email: address verification and one-time sign-in codes. Leave the
       # host empty to run without email — it is simply not offered as a
       # second factor then.

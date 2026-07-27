@@ -209,8 +209,28 @@ func indentAsListItem(fragment string) string {
 	return b.String()
 }
 
+// autoTestURL is what the url-test group probes. Chosen because it answers 204
+// with an empty body from almost everywhere and is the de facto default across
+// clash-family clients, so a user comparing Chiral's subscription against
+// another one sees the same latency numbers rather than a different endpoint's.
+const autoTestURL = "http://www.gstatic.com/generate_204"
+
+// autoTestInterval is how often a client re-probes, in seconds. Five minutes:
+// often enough to notice a node going bad, rare enough that a subscriber with
+// twenty nodes is not generating a probe every few seconds all day.
+const autoTestInterval = 300
+
 // proxyGroupSection gives clash-family clients something selectable, which
 // they need in order to use the proxies at all.
+//
+// Two groups, and the order matters: "Chiral" comes first and stays a manual
+// `select`, because a subscriber who has learned which node works for them must
+// not have that taken away by an upgrade. "Chiral 自动" is a `url-test` nested
+// inside it, so latency-based selection is one tap away for everyone else.
+//
+// Nesting the automatic group as a member of the manual one, rather than
+// putting them side by side, is what makes "auto" a choice within the same
+// control instead of a second control the user has to know about.
 func proxyGroupSection(fragments []string) string {
 	names := make([]string, 0, len(fragments))
 	for _, f := range fragments {
@@ -221,8 +241,19 @@ func proxyGroupSection(fragments []string) string {
 	if len(names) == 0 {
 		return ""
 	}
+	const autoName = "Chiral 自动"
 	var b strings.Builder
-	b.WriteString("proxy-groups:\n  - name: Chiral\n    type: select\n    proxies:\n")
+	b.WriteString("proxy-groups:\n")
+
+	b.WriteString("  - name: Chiral\n    type: select\n    proxies:\n")
+	b.WriteString("      - " + autoName + "\n")
+	for _, n := range names {
+		b.WriteString("      - " + n + "\n")
+	}
+
+	b.WriteString("  - name: " + autoName + "\n    type: url-test\n")
+	fmt.Fprintf(&b, "    url: %s\n    interval: %d\n    tolerance: 50\n", autoTestURL, autoTestInterval)
+	b.WriteString("    proxies:\n")
 	for _, n := range names {
 		b.WriteString("      - " + n + "\n")
 	}
