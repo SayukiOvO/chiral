@@ -1,0 +1,21 @@
+-- Give each stored config the client outbound that proves it works.
+--
+-- The canary's verdict used to come from `xray api statsquery`: the kernel
+-- answering its own control plane. That is a real signal and a weak one — it
+-- says the process parsed its config and is listening, and says nothing at all
+-- about whether a customer's traffic gets out. An Xray upgrade that breaks a
+-- transport or a security layer leaves the API perfectly responsive while every
+-- subscriber is offline, and the canary would have called it ACTIVE and invited
+-- an operator to roll it to the fleet.
+--
+-- So ACTIVE now has to mean a client got online through the node. The agent
+-- needs a real client outbound to do that with, and the only place that knows
+-- how to write one is the panel — it is the same hand-written xray-json
+-- template a subscriber's config is rendered from, which is exactly the point:
+-- what the probe dials is what a customer dials.
+--
+-- Stored per config version, sealed like the config itself, because it carries
+-- a live credential and because pairing it with the version keeps the two from
+-- ever drifting: a reconnecting agent that gets version N gets N's probe.
+
+ALTER TABLE node_configs ADD COLUMN probe_outbound TEXT NOT NULL DEFAULT '';

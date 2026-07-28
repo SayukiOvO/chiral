@@ -15,7 +15,7 @@ func configFixture(t *testing.T) (*Store, Node) {
 func TestConfigVersionsAreNewestFirstAndCarryNoBodies(t *testing.T) {
 	s, n := configFixture(t)
 	for i := 0; i < 3; i++ {
-		if _, err := s.InsertConfig(n.ID, `{"v":`+string(rune('0'+i))+`}`); err != nil {
+		if _, err := s.InsertConfig(n.ID, `{"v":`+string(rune('0'+i))+`}`, ""); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -33,10 +33,10 @@ func TestConfigVersionsAreNewestFirstAndCarryNoBodies(t *testing.T) {
 
 func TestConfigAtReturnsThatVersionDecrypted(t *testing.T) {
 	s, n := configFixture(t)
-	if _, err := s.InsertConfig(n.ID, `{"first":true}`); err != nil {
+	if _, err := s.InsertConfig(n.ID, `{"first":true}`, ""); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.InsertConfig(n.ID, `{"second":true}`); err != nil {
+	if _, err := s.InsertConfig(n.ID, `{"second":true}`, ""); err != nil {
 		t.Fatal(err)
 	}
 	got, err := s.ConfigAt(n.ID, 1)
@@ -53,7 +53,7 @@ func TestConfigAtReturnsThatVersionDecrypted(t *testing.T) {
 func TestPruneConfigsKeepsTheNewest(t *testing.T) {
 	s, n := configFixture(t)
 	for i := 0; i < ConfigHistoryDepth+5; i++ {
-		if _, err := s.InsertConfig(n.ID, `{}`); err != nil {
+		if _, err := s.InsertConfig(n.ID, `{}`, ""); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -82,10 +82,10 @@ func TestPruneConfigsIsPerNode(t *testing.T) {
 		t.Fatal(err)
 	}
 	for i := 0; i < ConfigHistoryDepth+5; i++ {
-		s.InsertConfig(a.ID, `{}`)
+		s.InsertConfig(a.ID, `{}`, "")
 	}
 	for i := 0; i < 3; i++ {
-		s.InsertConfig(b.ID, `{}`)
+		s.InsertConfig(b.ID, `{}`, "")
 	}
 	if _, err := s.PruneConfigs(); err != nil {
 		t.Fatal(err)

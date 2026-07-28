@@ -238,8 +238,8 @@ const EN: Record<string, string> = {
   校验中: "Verifying",
   "已就位（未启用）": "Staged (not activated)",
   切换中: "Switching over",
-  "运行中，API 有应答": "Running, API answering",
-  "起来了，但无法确认": "Up, but unconfirmed",
+  "已验证客户可上网": "Verified: a client got online",
+  "起来了，但没验证到通": "Up, but nothing confirmed traffic",
   已回滚: "Rolled back",
   // subscription dialog
   订阅链接: "subscription link",

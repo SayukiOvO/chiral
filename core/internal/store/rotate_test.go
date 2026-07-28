@@ -35,7 +35,7 @@ func TestRotateSecretKeyMovesEverySealedValue(t *testing.T) {
 	if err := s.SetConfigSkeleton(n.ID, `{"skeleton":true}`); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.InsertConfig(n.ID, `{"rendered":"secret-inside"}`); err != nil {
+	if _, err := s.InsertConfig(n.ID, `{"rendered":"secret-inside"}`, ""); err != nil {
 		t.Fatal(err)
 	}
 	p, err := s.CreateProfile("tokyo-reality")
@@ -176,7 +176,7 @@ func TestRotateIsRepeatable(t *testing.T) {
 		t.Fatal(err)
 	}
 	n, _ := s.CreateNode("tokyo-1", "h")
-	if _, err := s.InsertConfig(n.ID, `{"a":1}`); err != nil {
+	if _, err := s.InsertConfig(n.ID, `{"a":1}`, ""); err != nil {
 		t.Fatal(err)
 	}
 	newBox, _ := secret.NewBox(rotateNewKey)
@@ -220,12 +220,13 @@ func TestEverySealedColumnIsRotated(t *testing.T) {
 		"mfa_credentials.secret",
 		"user_devices.ip_enc",
 		"users.sub_token_enc",
+		"node_configs.probe_outbound",
 	} {
 		if !known[want] {
 			t.Errorf("%s is sealed but not in sealedColumns(); a key rotation would orphan it", want)
 		}
 	}
-	if len(known) != 8 {
+	if len(known) != 9 {
 		t.Errorf("sealedColumns() has %d entries; if you added one, extend this test too "+
 			"(%v)", len(known), strings.Join(keysOf(known), ", "))
 	}

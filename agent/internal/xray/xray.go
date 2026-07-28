@@ -39,6 +39,11 @@ type Manager struct {
 	// stderrTail keeps the kernel's own last words, so a failed start can be
 	// explained to an admin who will never read this container's log.
 	stderrTail *stderrTail
+	// probeOutbound and probeURL are what Core sent with the current config:
+	// a real client outbound onto this node, and where to fetch through it.
+	// Guarded by mu because a config push and an upgrade can land at once.
+	probeOutbound []byte
+	probeURL      string
 	// waitDone is closed by the current process's waiter goroutine once
 	// cmd.Wait returns (i.e. the child is reaped).
 	waitDone chan struct{}

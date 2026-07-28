@@ -332,6 +332,32 @@ message OnlinePolicy {
 message ConfigPush {
   int64 version = 1;
   bytes config_json = 2;
+
+  // One Xray client outbound, tagged "probe-out", that dials THIS node's own
+  // inbound with a real subscriber's credential.
+  //
+  // It travels with the config because it is rendered from the same templates
+  // and the same variables, and pairing them is what keeps a node from ever
+  // holding a probe for a different version of its own access points.
+  //
+  // The agent wraps it in a throwaway config with a local SOCKS inbound and
+  // fetches a URL through it, which is the only check that answers the question
+  // an upgrade actually raises: can a customer still get online? Asking the
+  // kernel's own API instead proves the process parsed its config and is
+  // listening — true of a kernel whose transport layer is broken and whose
+  // subscribers are all dark.
+  //
+  // Empty when the panel had nothing to render one from: no profile bound, no
+  // xray-json template, no entitled user. That is reported as INCONCLUSIVE, not
+  // as a pass — a node whose data path nobody could check has not been checked.
+  bytes probe_outbound_json = 3;
+
+  // Where the probe fetches from. Empty means the agent's own default.
+  //
+  // Carried from Core so one setting fixes a whole fleet: an endpoint that is
+  // unreachable from the region a node sits in would otherwise make every
+  // canary there inconclusive, with no way to correct it but a redeploy.
+  string probe_url = 4;
 }
 
 // UserOp adds/removes a client on a live inbound via Xray-core's

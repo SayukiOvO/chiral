@@ -1806,9 +1806,33 @@ func (x *OnlinePolicy) GetIntervalSeconds() int32 {
 // an older version's content (with a new version number); the agent keeps no
 // local history.
 type ConfigPush struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Version       int64                  `protobuf:"varint,1,opt,name=version,proto3" json:"version,omitempty"`
-	ConfigJson    []byte                 `protobuf:"bytes,2,opt,name=config_json,json=configJson,proto3" json:"config_json,omitempty"`
+	state      protoimpl.MessageState `protogen:"open.v1"`
+	Version    int64                  `protobuf:"varint,1,opt,name=version,proto3" json:"version,omitempty"`
+	ConfigJson []byte                 `protobuf:"bytes,2,opt,name=config_json,json=configJson,proto3" json:"config_json,omitempty"`
+	// One Xray client outbound, tagged "probe-out", that dials THIS node's own
+	// inbound with a real subscriber's credential.
+	//
+	// It travels with the config because it is rendered from the same templates
+	// and the same variables, and pairing them is what keeps a node from ever
+	// holding a probe for a different version of its own access points.
+	//
+	// The agent wraps it in a throwaway config with a local SOCKS inbound and
+	// fetches a URL through it, which is the only check that answers the question
+	// an upgrade actually raises: can a customer still get online? Asking the
+	// kernel's own API instead proves the process parsed its config and is
+	// listening — true of a kernel whose transport layer is broken and whose
+	// subscribers are all dark.
+	//
+	// Empty when the panel had nothing to render one from: no profile bound, no
+	// xray-json template, no entitled user. That is reported as INCONCLUSIVE, not
+	// as a pass — a node whose data path nobody could check has not been checked.
+	ProbeOutboundJson []byte `protobuf:"bytes,3,opt,name=probe_outbound_json,json=probeOutboundJson,proto3" json:"probe_outbound_json,omitempty"`
+	// Where the probe fetches from. Empty means the agent's own default.
+	//
+	// Carried from Core so one setting fixes a whole fleet: an endpoint that is
+	// unreachable from the region a node sits in would otherwise make every
+	// canary there inconclusive, with no way to correct it but a redeploy.
+	ProbeUrl      string `protobuf:"bytes,4,opt,name=probe_url,json=probeUrl,proto3" json:"probe_url,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1855,6 +1879,20 @@ func (x *ConfigPush) GetConfigJson() []byte {
 		return x.ConfigJson
 	}
 	return nil
+}
+
+func (x *ConfigPush) GetProbeOutboundJson() []byte {
+	if x != nil {
+		return x.ProbeOutboundJson
+	}
+	return nil
+}
+
+func (x *ConfigPush) GetProbeUrl() string {
+	if x != nil {
+		return x.ProbeUrl
+	}
+	return ""
 }
 
 // UserOp adds/removes a client on a live inbound via Xray-core's
@@ -2200,12 +2238,14 @@ const file_chiral_v1_agent_proto_rawDesc = "" +
 	"\x05error\x18\x05 \x01(\tR\x05error\"S\n" +
 	"\fOnlinePolicy\x12\x18\n" +
 	"\aenabled\x18\x01 \x01(\bR\aenabled\x12)\n" +
-	"\x10interval_seconds\x18\x02 \x01(\x05R\x0fintervalSeconds\"G\n" +
+	"\x10interval_seconds\x18\x02 \x01(\x05R\x0fintervalSeconds\"\x94\x01\n" +
 	"\n" +
 	"ConfigPush\x12\x18\n" +
 	"\aversion\x18\x01 \x01(\x03R\aversion\x12\x1f\n" +
 	"\vconfig_json\x18\x02 \x01(\fR\n" +
-	"configJson\"\x8d\x01\n" +
+	"configJson\x12.\n" +
+	"\x13probe_outbound_json\x18\x03 \x01(\fR\x11probeOutboundJson\x12\x1b\n" +
+	"\tprobe_url\x18\x04 \x01(\tR\bprobeUrl\"\x8d\x01\n" +
 	"\x06UserOp\x12)\n" +
 	"\x04kind\x18\x01 \x01(\x0e2\x15.chiral.v1.UserOpKindR\x04kind\x12\x1f\n" +
 	"\vinbound_tag\x18\x02 \x01(\tR\n" +

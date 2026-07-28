@@ -61,7 +61,7 @@
 - [x] **Docker / compose 收尾**：`CHIRAL_KERNEL_DIR` 落在数据卷上；agent 记住 `active` 版本，容器重启不会偷偷降级回镜像里烘焙的那个。
 - [x] 订阅在原有手动 `select` 组之外，**增加** `url-test` 自动组（嵌在手动组里）。
 
-**三值判定**：`ACTIVE`（起来了且 API 有应答）/ `INCONCLUSIVE`（起来了但没东西可问）/ `ROLLED_BACK`（起不来，旧内核已恢复服务）。把 INCONCLUSIVE 折进 ACTIVE，没有 API inbound 的节点上每次金丝雀都成了橡皮图章。
+**三值判定**，且 **ACTIVE 的判据是「客户能上网」**：`ACTIVE`（agent 用被测的二进制起一个一次性客户端内核，经本机 SOCKS 打到本节点自己的 inbound 再取一次 URL，字节真的回来了）/ `INCONCLUSIVE`（起来了但没东西可测，或升级前基线本来就不通——原因一起上报）/ `ROLLED_BACK`（起不来或本来通现在不通，旧内核已恢复服务）。旧判据 `xray api statsquery` 实测会在一个没人能上网的节点上照样应答，见 `docs/xray-upgrade.md` §2(c)。把 INCONCLUSIVE 折进 ACTIVE，金丝雀就成了橡皮图章。
 
 **实测发现的两个真实缺陷**（都是真机跑出来的，不是想出来的）：Core 的中继分块读取忘了 seek，每一块都是文件开头——21 MB 传得干干净净、长度分毫不差、校验和失败且无从下手；启动预热与操作员点击同时命名同一版本时，两次解包共用一个 staging 目录，各自的清理删掉了对方刚写的文件。
 

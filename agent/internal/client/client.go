@@ -403,6 +403,13 @@ func (c *Client) handleFrame(ctx context.Context, sendCh chan<- *chiralv1.AgentF
 	case *chiralv1.CoreFrame_ConfigPush:
 		push := fr.ConfigPush
 		c.logger.Info("config push received", "version", push.GetVersion())
+		// Before Apply, so a kernel that restarts on this config already has
+		// the matching probe. They are rendered together by Core and belong to
+		// the same version of this node's access points.
+		c.xr.SetProbe(push.GetProbeOutboundJson(), push.GetProbeUrl())
+		if len(push.GetProbeOutboundJson()) == 0 {
+			c.logger.Warn("this config came with no client outbound to test with; a kernel upgrade here cannot be confirmed to carry traffic")
+		}
 		ack := &chiralv1.ConfigAck{Version: push.GetVersion(), Applied: true}
 		if err := c.xr.Apply(push.GetVersion(), push.GetConfigJson()); err != nil {
 			ack.Applied = false

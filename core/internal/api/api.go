@@ -439,12 +439,18 @@ func (s *Server) putConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// TODO(M2): validate with a panel-side `xray -test` before persisting.
-	c, err := s.st.InsertConfig(id, string(cfg))
+	//
+	// A hand-written config gets a probe rendered from the node's profiles all
+	// the same. It may not match what was pasted — that is the operator's
+	// business — but a node whose config was set by hand still deserves an
+	// upgrade check that means something.
+	probe, _ := s.profiles.ProbeOutbound(id)
+	c, err := s.st.InsertConfig(id, string(cfg), probe)
 	if err != nil {
 		s.internalErr(w, "persist config", err)
 		return
 	}
-	pushErr := s.mgr.PushConfig(id, c.Version, []byte(c.Config))
+	pushErr := s.mgr.PushConfig(id, c.Version, []byte(c.Config), []byte(c.ProbeOutbound))
 	resp := map[string]any{"version": c.Version, "pushed": pushErr == nil}
 	if pushErr != nil {
 		// Not an error state: heartbeat reconciliation re-pushes as soon as

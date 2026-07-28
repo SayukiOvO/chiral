@@ -248,7 +248,7 @@ func (s *Service) reconcileConfig(nodeID string, sess *Session, agentVersion int
 	if throttled {
 		return
 	}
-	if err := s.mgr.PushConfig(nodeID, cfg.Version, []byte(cfg.Config)); err != nil {
+	if err := s.mgr.PushConfig(nodeID, cfg.Version, []byte(cfg.Config), []byte(cfg.ProbeOutbound)); err != nil {
 		s.logger.Warn("config reconcile push failed", "node", nodeID, "version", cfg.Version, "err", err)
 	}
 }

@@ -22,7 +22,7 @@ import (
 // Pusher delivers a config to a live node. Implemented by node.Manager;
 // declared here so this package does not depend on the gRPC layer.
 type Pusher interface {
-	PushConfig(nodeID string, version int64, configJSON []byte) error
+	PushConfig(nodeID string, version int64, configJSON, probeOutbound []byte) error
 }
 
 // Kernels resolves a version to the binary that should judge it. Satisfied by
@@ -274,11 +274,20 @@ func (s *Service) Apply(ctx context.Context, nodeID string) (int64, error) {
 		s.logger.Warn("no panel-side Xray binary; pushing without pre-validation", "node", nodeID)
 	}
 
-	c, err := s.st.InsertConfig(nodeID, string(cfg))
+	// Rendered from the same templates as the config it accompanies, and
+	// stored with it, so a node can never hold a probe that belongs to a
+	// different version of its own access points.
+	probe, why := s.ProbeOutbound(nodeID)
+	if probe == "" {
+		s.logger.Warn("no data-path probe for this node; a kernel upgrade here cannot be confirmed to carry traffic",
+			"node", nodeID, "reason", why)
+	}
+
+	c, err := s.st.InsertConfig(nodeID, string(cfg), probe)
 	if err != nil {
 		return 0, err
 	}
-	if err := s.push.PushConfig(nodeID, c.Version, []byte(c.Config)); err != nil {
+	if err := s.push.PushConfig(nodeID, c.Version, []byte(c.Config), []byte(c.ProbeOutbound)); err != nil {
 		// Not fatal: the version is stored, and heartbeat reconciliation
 		// pushes it as soon as the node reconnects.
 		s.logger.Warn("config stored but not pushed", "node", nodeID, "version", c.Version, "err", err)
@@ -308,11 +317,19 @@ func (s *Service) Rollback(ctx context.Context, nodeID string, version int64) (i
 			return 0, fmt.Errorf("version %d no longer passes xray -test on %s: %w", version, res.Describe(), err)
 		}
 	}
-	c, err := s.st.InsertConfig(nodeID, old.Config)
+	// The probe is re-rendered rather than copied from the old version. It
+	// carries a credential and an address, and the old one's subscriber may
+	// since have been deleted — reviving a rolled-back config must not revive a
+	// credential with it.
+	probe, why := s.ProbeOutbound(nodeID)
+	if probe == "" {
+		s.logger.Warn("rolling back without a data-path probe", "node", nodeID, "reason", why)
+	}
+	c, err := s.st.InsertConfig(nodeID, old.Config, probe)
 	if err != nil {
 		return 0, err
 	}
-	if err := s.push.PushConfig(nodeID, c.Version, []byte(c.Config)); err != nil {
+	if err := s.push.PushConfig(nodeID, c.Version, []byte(c.Config), []byte(c.ProbeOutbound)); err != nil {
 		s.logger.Warn("rollback stored but not pushed", "node", nodeID, "version", c.Version, "err", err)
 	}
 	s.logger.Info("rolled back", "node", nodeID, "from_version", version, "new_version", c.Version)

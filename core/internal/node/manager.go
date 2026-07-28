@@ -50,7 +50,10 @@ type Manager struct {
 	sessions map[string]*Session
 
 	hbTimeout time.Duration
-	logger    *slog.Logger
+	// probeURL is where agents fetch from to prove traffic flows. Set once at
+	// startup, before any session exists, so it needs no lock.
+	probeURL string
+	logger   *slog.Logger
 }
 
 func NewManager(hbTimeout time.Duration, logger *slog.Logger) *Manager {
@@ -118,14 +121,20 @@ func (m *Manager) IsOnline(nodeID string) bool {
 // PushConfig queues a ConfigPush to the node's live session. It fails when
 // the node is offline or its send queue is full; the config stays persisted
 // either way and is re-pushed on the next connect.
-func (m *Manager) PushConfig(nodeID string, version int64, configJSON []byte) error {
+func (m *Manager) PushConfig(nodeID string, version int64, configJSON, probeOutbound []byte) error {
 	return m.enqueue(nodeID, &chiralv1.CoreFrame{
 		Frame: &chiralv1.CoreFrame_ConfigPush{ConfigPush: &chiralv1.ConfigPush{
-			Version:    version,
-			ConfigJson: configJSON,
+			Version:           version,
+			ConfigJson:        configJSON,
+			ProbeOutboundJson: probeOutbound,
+			ProbeUrl:          m.probeURL,
 		}},
 	})
 }
+
+// SetProbeURL sets where agents fetch from when checking that traffic flows.
+// Empty leaves the agent's own default in place.
+func (m *Manager) SetProbeURL(u string) { m.probeURL = u }
 
 // SendUserOp queues an online user add/remove to the node's live session.
 // Fails when the node is offline; the caller reconciles on reconnect.

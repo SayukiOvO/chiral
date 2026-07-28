@@ -230,6 +230,11 @@ func run(logger *slog.Logger, dbPath, grpcListen, httpListen, grpcPublic, public
 	svc.EnableUpgrades(upgrades)
 	defer upgrades.Close()
 
+	// Where agents fetch from to prove traffic flows. Fleet-wide and settable
+	// because an endpoint unreachable from one region would otherwise make
+	// every canary there inconclusive with no way to correct it but a redeploy.
+	mgr.SetProbeURL(os.Getenv("CHIRAL_PROBE_URL"))
+
 	users := user.NewService(st, logger)
 	profiles := profile.NewService(st, kernels, mgr, mgr, users, logger)
 	subs := subscription.NewService(st, profiles)

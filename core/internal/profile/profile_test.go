@@ -47,7 +47,7 @@ func (f *fakePusher) opsFor(email string) []*chiralv1.UserOp {
 	return out
 }
 
-func (f *fakePusher) PushConfig(nodeID string, version int64, _ []byte) error {
+func (f *fakePusher) PushConfig(nodeID string, version int64, _, _ []byte) error {
 	if f.failNow {
 		return io.ErrClosedPipe
 	}

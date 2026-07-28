@@ -319,7 +319,7 @@ func TestRenderedConfigIsCiphertextOnDisk(t *testing.T) {
 	s := testStore(t, storeTestKey)
 	n, _ := s.CreateNode("tokyo-1", "hash")
 	const rendered = `{"inbounds":[{"privateKey":"REALITY-PRIVATE-KEY-HERE"}]}`
-	c, err := s.InsertConfig(n.ID, rendered)
+	c, err := s.InsertConfig(n.ID, rendered, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -382,10 +382,10 @@ func TestSkeletonIsCiphertextOnDisk(t *testing.T) {
 func TestConfigCiphertextIsBoundToItsVersion(t *testing.T) {
 	s := testStore(t, storeTestKey)
 	n, _ := s.CreateNode("n", "h")
-	if _, err := s.InsertConfig(n.ID, `{"v":1}`); err != nil {
+	if _, err := s.InsertConfig(n.ID, `{"v":1}`, ""); err != nil {
 		t.Fatal(err)
 	}
-	c2, err := s.InsertConfig(n.ID, `{"v":2}`)
+	c2, err := s.InsertConfig(n.ID, `{"v":2}`, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -412,7 +412,7 @@ func TestPlaintextConfigStillReadableAfterEnablingEncryption(t *testing.T) {
 		t.Fatal(err)
 	}
 	n, _ := s1.CreateNode("n", "h")
-	if _, err := s1.InsertConfig(n.ID, `{"legacy":true}`); err != nil {
+	if _, err := s1.InsertConfig(n.ID, `{"legacy":true}`, ""); err != nil {
 		t.Fatal(err)
 	}
 	if err := s1.SetConfigSkeleton(n.ID, `{"legacy":"skeleton"}`); err != nil {

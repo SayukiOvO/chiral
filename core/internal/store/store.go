@@ -135,6 +135,12 @@ func configAAD(nodeID string, version int64) string {
 	return fmt.Sprintf("node-config:%s:%d", nodeID, version)
 }
 
+// probeAAD binds a version's probe outbound to that version, so a probe cannot
+// be replayed against a different config than the one it was rendered for.
+func probeAAD(nodeID string, version int64) string {
+	return fmt.Sprintf("node-probe:%s:%d", nodeID, version)
+}
+
 // scanNode is a method because a node's skeleton is encrypted at rest: it may
 // carry credentials of its own (an outbound to an upstream proxy, say).
 func (s *Store) scanNode(row interface{ Scan(...any) error }) (Node, error) {
@@ -292,16 +298,23 @@ func (s *Store) TouchLastSeen(id string, ts int64) error {
 }
 
 type NodeConfig struct {
-	NodeID    string
-	Version   int64
-	Config    string
-	CreatedAt int64
-	Applied   int64 // 0 pending, 1 applied, -1 failed
-	Error     string
+	NodeID  string
+	Version int64
+	Config  string
+	// ProbeOutbound is one client outbound, rendered from the same templates a
+	// subscriber's config comes from, that dials this node's own inbound. The
+	// agent runs it to prove a customer can actually get online before it calls
+	// a kernel upgrade good. Empty when the node has nothing to render one
+	// from, which is reported rather than treated as a pass. See migration
+	// 0013.
+	ProbeOutbound string
+	CreatedAt     int64
+	Applied       int64 // 0 pending, 1 applied, -1 failed
+	Error         string
 }
 
 // InsertConfig stores config as the next version for the node and returns it.
-func (s *Store) InsertConfig(nodeID, config string) (NodeConfig, error) {
+func (s *Store) InsertConfig(nodeID, config, probeOutbound string) (NodeConfig, error) {
 	tx, err := s.db.Begin()
 	if err != nil {
 		return NodeConfig{}, err
@@ -311,7 +324,8 @@ func (s *Store) InsertConfig(nodeID, config string) (NodeConfig, error) {
 	if err := tx.QueryRow(`SELECT COALESCE(MAX(version), 0) + 1 FROM node_configs WHERE node_id = ?`, nodeID).Scan(&version); err != nil {
 		return NodeConfig{}, err
 	}
-	c := NodeConfig{NodeID: nodeID, Version: version, Config: config, CreatedAt: time.Now().Unix()}
+	c := NodeConfig{NodeID: nodeID, Version: version, Config: config,
+		ProbeOutbound: probeOutbound, CreatedAt: time.Now().Unix()}
 	// A rendered config contains the very private keys that variable_components
 	// encrypts — storing it in the clear would hand every node's key material
 	// to anyone holding a copy of the database, which is exactly the threat
@@ -320,8 +334,17 @@ func (s *Store) InsertConfig(nodeID, config string) (NodeConfig, error) {
 	if err != nil {
 		return NodeConfig{}, err
 	}
-	if _, err := tx.Exec(`INSERT INTO node_configs (node_id, version, config, created_at) VALUES (?, ?, ?, ?)`,
-		c.NodeID, c.Version, sealed, c.CreatedAt); err != nil {
+	// The probe outbound carries a live credential of a real subscriber, so it
+	// is sealed under its own AAD rather than stored beside the config in the
+	// clear.
+	sealedProbe := ""
+	if probeOutbound != "" {
+		if sealedProbe, err = s.box.Seal(probeAAD(nodeID, version), probeOutbound); err != nil {
+			return NodeConfig{}, err
+		}
+	}
+	if _, err := tx.Exec(`INSERT INTO node_configs (node_id, version, config, probe_outbound, created_at) VALUES (?, ?, ?, ?, ?)`,
+		c.NodeID, c.Version, sealed, sealedProbe, c.CreatedAt); err != nil {
 		return NodeConfig{}, err
 	}
 	return c, tx.Commit()
@@ -363,7 +386,7 @@ func (s *Store) ConfigVersions(nodeID string, limit int) ([]ConfigVersion, error
 // ConfigAt returns one stored version, decrypted.
 func (s *Store) ConfigAt(nodeID string, version int64) (NodeConfig, error) {
 	return s.scanConfig(s.db.QueryRow(
-		`SELECT node_id, version, config, created_at, applied, error FROM node_configs
+		`SELECT node_id, version, config, probe_outbound, created_at, applied, error FROM node_configs
 		 WHERE node_id = ? AND version = ?`, nodeID, version))
 }
 
@@ -394,12 +417,12 @@ func (s *Store) PruneConfigs() (int64, error) {
 
 func (s *Store) LatestConfig(nodeID string) (NodeConfig, error) {
 	return s.scanConfig(s.db.QueryRow(
-		`SELECT node_id, version, config, created_at, applied, error FROM node_configs WHERE node_id = ? ORDER BY version DESC LIMIT 1`, nodeID))
+		`SELECT node_id, version, config, probe_outbound, created_at, applied, error FROM node_configs WHERE node_id = ? ORDER BY version DESC LIMIT 1`, nodeID))
 }
 
 func (s *Store) scanConfig(row interface{ Scan(...any) error }) (NodeConfig, error) {
 	var c NodeConfig
-	if err := row.Scan(&c.NodeID, &c.Version, &c.Config, &c.CreatedAt, &c.Applied, &c.Error); err != nil {
+	if err := row.Scan(&c.NodeID, &c.Version, &c.Config, &c.ProbeOutbound, &c.CreatedAt, &c.Applied, &c.Error); err != nil {
 		return c, err
 	}
 	plain, err := s.box.Open(configAAD(c.NodeID, c.Version), c.Config)
@@ -407,6 +430,17 @@ func (s *Store) scanConfig(row interface{ Scan(...any) error }) (NodeConfig, err
 		return c, fmt.Errorf("opening config v%d for node %s: %w", c.Version, c.NodeID, err)
 	}
 	c.Config = plain
+	if c.ProbeOutbound != "" {
+		// A probe that will not decrypt is dropped, not fatal. Losing it costs
+		// the node its data-path check, which reports as inconclusive; failing
+		// the read instead would cost the node its config, which takes it down.
+		probe, perr := s.box.Open(probeAAD(c.NodeID, c.Version), c.ProbeOutbound)
+		if perr != nil {
+			c.ProbeOutbound = ""
+		} else {
+			c.ProbeOutbound = probe
+		}
+	}
 	return c, nil
 }
 
@@ -415,7 +449,7 @@ func (s *Store) scanConfig(row interface{ Scan(...any) error }) (NodeConfig, err
 // config rejected by `xray -test` is never pushed again and again.
 func (s *Store) LatestPushableConfig(nodeID string) (NodeConfig, error) {
 	return s.scanConfig(s.db.QueryRow(
-		`SELECT node_id, version, config, created_at, applied, error FROM node_configs WHERE node_id = ? AND applied >= 0 ORDER BY version DESC LIMIT 1`, nodeID))
+		`SELECT node_id, version, config, probe_outbound, created_at, applied, error FROM node_configs WHERE node_id = ? AND applied >= 0 ORDER BY version DESC LIMIT 1`, nodeID))
 }
 
 func (s *Store) SetConfigResult(nodeID string, version int64, applied bool, errMsg string) error {

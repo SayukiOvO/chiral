@@ -305,8 +305,8 @@ const PHASE_LABEL: Record<string, string> = {
   VERIFYING: "校验中",
   INSTALLED: "已就位（未启用）",
   ACTIVATING: "切换中",
-  ACTIVE: "运行中，API 有应答",
-  INCONCLUSIVE: "起来了，但无法确认",
+  ACTIVE: "已验证客户可上网",
+  INCONCLUSIVE: "起来了，但没验证到通",
   FAILED: "失败",
   ROLLED_BACK: "已回滚",
 };
@@ -314,9 +314,13 @@ const PHASE_LABEL: Record<string, string> = {
 /**
  * ACTIVE is green; INCONCLUSIVE is not.
  *
- * They are both "the kernel is up", and colouring them the same would make
- * every canary on a node without an API inbound look like a confirmed success —
- * which is exactly the rubber stamp the three-valued outcome exists to prevent.
+ * Both mean "the kernel is up", and only ACTIVE means a client actually got
+ * online through it. Colouring them the same would make every canary on a node
+ * nobody could test look like a confirmed success — the rubber stamp the
+ * three-valued outcome exists to prevent. The reason a node could not be
+ * tested rides in `message`, on the badge's tooltip: it is always something
+ * one-line fixable (bind a profile, add an xray-json template, enable a user)
+ * and an operator told only "unconfirmed" will not go looking for it.
  */
 function PhaseBadge({ install }: { install: XrayInstall }) {
   const { t } = useT();

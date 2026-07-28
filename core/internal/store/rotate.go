@@ -49,6 +49,11 @@ func sealedColumns() []sealedColumn {
 			aad: func(k []any) string { return configAAD(asString(k[0]), asInt64(k[1])) },
 		},
 		{
+			table: "node_configs", column: "probe_outbound", keyCols: []string{"node_id", "version"},
+			where: "probe_outbound != ''",
+			aad:   func(k []any) string { return probeAAD(asString(k[0]), asInt64(k[1])) },
+		},
+		{
 			table: "nodes", column: "config_skeleton", keyCols: []string{"id"},
 			aad: func(k []any) string { return skeletonAAD(asString(k[0])) },
 		},
