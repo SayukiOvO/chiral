@@ -25,6 +25,14 @@ export default defineConfig({
   plugins: [react(), tailwindcss()],
   appType: "mpa",
   build: {
+    // Leave dist/ in place rather than wiping it.
+    //
+    // The directory holds a committed placeholder that keeps
+    // `//go:embed all:dist` matching, so `go build ./...` works in a checkout
+    // that never ran this. Emptying the directory deletes that file, and the
+    // Go build then fails with "contains no embeddable files" — on a machine
+    // whose only mistake was building the frontend.
+    emptyOutDir: false,
     rollupOptions: {
       input: {
         portal: resolve(__dirname, "index.html"),
