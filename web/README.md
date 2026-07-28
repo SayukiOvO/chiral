@@ -23,7 +23,7 @@ npm run dev   # 门户 http://localhost:5173/ ，管理台 http://localhost:5173
 npm test      # 模板校验逻辑的单测
 ```
 
-`/api` 与 `/sub` 代理到本地 `127.0.0.1:8080`，门户的调用都在 `/api/portal/` 下，一条规则覆盖两边。先跑起 core：管理台用管理员账号 + 密码登录（账号配了第二因素就再走一步 MFA），门户要 `CHIRAL_PORTAL_MODE` 非 `off`。
+`/api` 与 `/sub` 代理到本地 `127.0.0.1:26080`，门户的调用都在 `/api/portal/` 下，一条规则覆盖两边。先跑起 core：管理台用管理员账号 + 密码登录（账号配了第二因素就再走一步 MFA），门户要 `CHIRAL_PORTAL_MODE` 非 `off`。
 
 ## Monaco 模板编辑器
 

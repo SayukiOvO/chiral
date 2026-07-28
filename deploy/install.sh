@@ -53,6 +53,13 @@ need() { command -v "$1" >/dev/null 2>&1 || MISSING="$MISSING $1"; }
 MISSING=""; need curl; need tar; need unzip
 [ -n "$MISSING" ] && die "missing:$MISSING — install them and re-run"
 
+port_taken() {
+  if command -v ss >/dev/null 2>&1; then ss -ltn 2>/dev/null | grep -q ":$1 "
+  elif command -v netstat >/dev/null 2>&1; then netstat -ltn 2>/dev/null | grep -q ":$1 "
+  else return 1
+  fi
+}
+
 ask() { # ask VAR "prompt" "default"
   eval "_cur=\${$1:-}"
   [ -n "$_cur" ] && return 0
@@ -137,32 +144,54 @@ if [ "$ROLE" = panel ]; then
     ask TLS_MODE "TLS" "1"
 
     TLS_LINES=""
-    LISTEN_HTTP="127.0.0.1:8080"
-    LISTEN_GRPC="127.0.0.1:8443"
+    # Ports do not change with the TLS mode. 443 belongs to whatever is already
+    # answering on this host — Xray on a node, nginx on a web server — and a
+    # panel that claims it by default collides with them.
+    HTTP_PORT=26080
+    GRPC_PORT=26443
+    LISTEN_HTTP="127.0.0.1:$HTTP_PORT"
+    LISTEN_GRPC="127.0.0.1:$GRPC_PORT"
     TRUSTED="CHIRAL_TRUSTED_PROXY=127.0.0.1"
+    PUBLIC="https://$DOMAIN"
+
     if [ "$TLS_MODE" = 2 ]; then
+      ask HTTPS_PORT "  HTTPS port" "$HTTP_PORT"
       ask TLS_CERT "  Certificate (fullchain.pem)" "/etc/chiral/tls/fullchain.pem"
       ask TLS_KEY  "  Private key" "/etc/chiral/tls/privkey.pem"
       [ -r "$TLS_CERT" ] || warn "$TLS_CERT is not readable yet — put it there before starting"
-      TLS_LINES="CHIRAL_TLS_CERT=$TLS_CERT
-CHIRAL_TLS_KEY=$TLS_KEY"
-      LISTEN_HTTP=":443"
-      LISTEN_GRPC=":8443"
-      TRUSTED="# CHIRAL_TRUSTED_PROXY="
-      # A dynamic UID cannot read a root-owned key, so hand it over via systemd.
+
+      LISTEN_HTTP=":$HTTPS_PORT"
+      LISTEN_GRPC=":$GRPC_PORT"
+      HTTP_PORT="$HTTPS_PORT"
+      TRUSTED="# CHIRAL_TRUSTED_PROXY=   # not behind a proxy"
+      case "$HTTPS_PORT" in
+        443) PUBLIC="https://$DOMAIN" ;;
+        *)   PUBLIC="https://$DOMAIN:$HTTPS_PORT" ;;
+      esac
+      TLS_LINES="CHIRAL_TLS_CERT=%d/tls-cert
+CHIRAL_TLS_KEY=%d/tls-key"
+
+      # A dynamic UID cannot read a root-owned key. Binding below 1024 needs a
+      # capability as well, which is why the port is asked for rather than
+      # assumed.
+      CAPS=""
+      if [ "$HTTPS_PORT" -lt 1024 ] 2>/dev/null; then
+        CAPS="AmbientCapabilities=CAP_NET_BIND_SERVICE
+CapabilityBoundingSet=CAP_NET_BIND_SERVICE"
+      fi
       mkdir -p /etc/systemd/system/chiral-core.service.d
       cat > /etc/systemd/system/chiral-core.service.d/tls.conf <<UNIT
 [Service]
-# Serving TLS directly: bind 443, and read the key as root before dropping to
-# the dynamic UID.
-AmbientCapabilities=CAP_NET_BIND_SERVICE
-CapabilityBoundingSet=CAP_NET_BIND_SERVICE
+# Written by the installer: serve TLS directly.
+$CAPS
 LoadCredential=tls-cert:$TLS_CERT
 LoadCredential=tls-key:$TLS_KEY
 UNIT
-      TLS_LINES="CHIRAL_TLS_CERT=%d/tls-cert
-CHIRAL_TLS_KEY=%d/tls-key"
     fi
+
+    for _p in "$HTTP_PORT" "$GRPC_PORT"; do
+      port_taken "$_p" && die "port $_p is already in use — set CHIRAL_HTTP_LISTEN / CHIRAL_GRPC_LISTEN in $ETC/core.env and re-run"
+    done
 
     ADMIN_TOKEN=$(head -c32 /dev/urandom | base64 | tr -d '\n=' | tr '+/' '-_')
     SECRET_KEY=$(head -c32 /dev/urandom | base64 | tr -d '\n')
@@ -170,7 +199,7 @@ CHIRAL_TLS_KEY=%d/tls-key"
     cat > "$ETC/core.env" <<EOF
 # Written by the installer. Full reference: docs/deployment.md
 
-CHIRAL_PUBLIC_URL=https://$DOMAIN
+CHIRAL_PUBLIC_URL=$PUBLIC
 CHIRAL_ADMIN_TOKEN=$ADMIN_TOKEN
 
 # Decrypts every private key, subscription token and recorded address in the
@@ -204,21 +233,21 @@ EOF
   say ""
   step "Panel installed"
   say ""
-  say "  Sign in at ${GRN}https://${DOMAIN}/admin/${OFF}"
+  say "  Sign in at ${GRN}${PUBLIC:-https://$DOMAIN}/admin/${OFF}"
   say "  Username: admin"
   [ -n "$PW" ] && say "  Password: ${GRN}${PW}${OFF}   ${DIM}(shown once; also in journalctl)${OFF}"
   say ""
   if [ "${TLS_MODE:-1}" = 2 ]; then
-    say "  Serving HTTPS directly on 443. Agents dial ${DOMAIN}:8443."
+    say "  Serving HTTPS on ${HTTPS_PORT}; agents dial ${DOMAIN}:${GRPC_PORT}."
     say "${DIM}  Renew the certificate in place, then: systemctl restart chiral-core${OFF}"
   else
-    warn "Nothing listens on 443 yet — put a reverse proxy in front:"
+    warn "Core listens on loopback only — put a reverse proxy in front:"
     say ""
     say "    ${DOMAIN} {"
-    say "        reverse_proxy 127.0.0.1:8080"
+    say "        reverse_proxy 127.0.0.1:${HTTP_PORT}"
     say "    }"
-    say "    ${DOMAIN}:8443 {"
-    say "        reverse_proxy h2c://127.0.0.1:8443"
+    say "    ${DOMAIN}:${GRPC_PORT} {"
+    say "        reverse_proxy h2c://127.0.0.1:${GRPC_PORT}"
     say "    }"
     say ""
     say "${DIM}  Caddyfile syntax. nginx and the reasoning: docs/deployment.md${OFF}"

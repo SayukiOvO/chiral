@@ -30,7 +30,7 @@ type Server struct {
 	// Proper admin accounts and RBAC replace this later.
 	adminToken string
 	// grpcPublicAddr is the address agents dial, embedded in generated
-	// compose snippets, e.g. "panel.example.com:8443".
+	// compose snippets, e.g. "panel.example.com:26443".
 	grpcPublicAddr string
 	// grpcTLS mirrors whether the gRPC endpoint serves TLS; plaintext panels
 	// need CHIRAL_INSECURE in the generated agent compose.

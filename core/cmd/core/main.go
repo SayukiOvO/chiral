@@ -72,9 +72,15 @@ const enforceInterval = 60 * time.Second
 
 func main() {
 	var (
-		dbPath     = flag.String("db", envOr("CHIRAL_DB_PATH", "data/chiral.db"), "path to the SQLite database")
-		grpcListen = flag.String("grpc-listen", envOr("CHIRAL_GRPC_LISTEN", ":8443"), "listen address for agent gRPC")
-		httpListen = flag.String("http-listen", envOr("CHIRAL_HTTP_LISTEN", ":8080"), "listen address for the REST API")
+		dbPath = flag.String("db", envOr("CHIRAL_DB_PATH", "data/chiral.db"), "path to the SQLite database")
+		// Deliberately unusual ports. A panel shares its host with whatever
+		// else the operator runs, and 443, 80, 8080 and 8443 are all spoken
+		// for on a typical box — by a web server, by Xray itself, or by
+		// another panel. Defaults that collide turn the first start into a
+		// bind error on somebody's production service. Both are below 32768
+		// so they cannot clash with an outgoing connection's source port.
+		grpcListen = flag.String("grpc-listen", envOr("CHIRAL_GRPC_LISTEN", ":26443"), "listen address for agent gRPC")
+		httpListen = flag.String("http-listen", envOr("CHIRAL_HTTP_LISTEN", "127.0.0.1:26080"), "listen address for the REST API")
 		grpcPublic = flag.String("grpc-public-addr", os.Getenv("CHIRAL_GRPC_PUBLIC_ADDR"), "address agents dial; defaults to the public URL's host on the gRPC port")
 		publicURL  = flag.String("public-url", envOr("CHIRAL_PUBLIC_URL", ""), "the panel's own base URL, used to build subscription links")
 		tlsCert    = flag.String("tls-cert", os.Getenv("CHIRAL_TLS_CERT"), "TLS certificate; serves HTTPS and gRPC-over-TLS when set")
@@ -307,7 +313,7 @@ func run(logger *slog.Logger, dbPath, grpcListen, httpListen, grpcPublic, public
 		}
 		_, port, err := net.SplitHostPort(grpcListen)
 		if err != nil || port == "" {
-			port = "8443"
+			port = "26443"
 		}
 		grpcPublic = net.JoinHostPort(host, port)
 	}

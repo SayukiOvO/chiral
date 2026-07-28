@@ -101,7 +101,7 @@ curl -fsSL https://raw.githubusercontent.com/SayukiOvO/chiral/main/deploy/instal
 节点侧由控制台「新增节点」给出带令牌的完整命令，无需交互：
 
 ```bash
-curl -fsSL .../install.sh | sudo sh -s -- --agent --panel-url panel.example.com:8443 --token <令牌>
+curl -fsSL .../install.sh | sudo sh -s -- --agent --panel-url panel.example.com:26443 --token <令牌>
 ```
 
 **不建系统用户，不用手动建目录。** 面板服务用 systemd 的 `DynamicUser=yes` 跑在一个
@@ -109,6 +109,19 @@ curl -fsSL .../install.sh | sudo sh -s -- --agent --panel-url panel.example.com:
 仍在，UID 换了也会重新授权。Agent 以 root 运行，因为它要监管绑 443 的 Xray；给
 xray 二进制加 `CAP_NET_BIND_SERVICE` 是替代方案，但内核升级装了新二进制之后那个能力
 不会跟过去，静默失效比明摆着以 root 跑更糟。
+
+### 端口
+
+默认 HTTP `127.0.0.1:26080`、gRPC `:26443`，两个都不是常用端口，这是有意的：面板与
+其他服务共存于同一台主机，而 443、80、8080、8443 在典型机器上通常已被 Web 服务器或
+Xray 本身占用。默认值撞上它们，结果是首次启动时在别人的生产服务上报 bind 错误。两个
+端口都低于 32768，不会与出站连接的源端口冲突。
+
+改端口用 `CHIRAL_HTTP_LISTEN` 与 `CHIRAL_GRPC_LISTEN`。安装脚本在写配置前会检查这两个
+端口是否已被占用。
+
+HTTP 监听默认绑在 loopback 上，因为常规部署由反向代理对外；面板自行提供 HTTPS 时改为
+`:<端口>`。gRPC 监听必须对节点可达。
 
 ### TLS
 
@@ -119,8 +132,8 @@ xray 二进制加 `CAP_NET_BIND_SERVICE` 是替代方案，但内核升级装了
 ```
 CHIRAL_TLS_CERT=/etc/chiral/tls/fullchain.pem
 CHIRAL_TLS_KEY=/etc/chiral/tls/privkey.pem
-CHIRAL_HTTP_LISTEN=:443
-CHIRAL_GRPC_LISTEN=:8443
+CHIRAL_HTTP_LISTEN=:26080
+CHIRAL_GRPC_LISTEN=:26443
 ```
 
 一对证书同时用于 HTTP 与 gRPC 两个监听，两者必须同时设置。证书从哪来不限（Let's
@@ -150,8 +163,8 @@ CHIRAL_TLS_KEY=%d/tls-key
 `core.env` 里不写任何证书，两个监听留在 loopback 明文：
 
 ```
-CHIRAL_HTTP_LISTEN=127.0.0.1:8080
-CHIRAL_GRPC_LISTEN=127.0.0.1:8443
+CHIRAL_HTTP_LISTEN=127.0.0.1:26080
+CHIRAL_GRPC_LISTEN=127.0.0.1:26443
 CHIRAL_TRUSTED_PROXY=127.0.0.1
 ```
 
@@ -159,10 +172,10 @@ Caddy：
 
 ```
 panel.example.com {
-    reverse_proxy 127.0.0.1:8080
+    reverse_proxy 127.0.0.1:26080
 }
-panel.example.com:8443 {
-    reverse_proxy h2c://127.0.0.1:8443
+panel.example.com:26443 {
+    reverse_proxy h2c://127.0.0.1:26443
 }
 ```
 
@@ -177,14 +190,14 @@ server {
     server_name panel.example.com;
     ssl_certificate     /etc/letsencrypt/live/panel.example.com/fullchain.pem;
     ssl_certificate_key /etc/letsencrypt/live/panel.example.com/privkey.pem;
-    location / { proxy_pass http://127.0.0.1:8080; }
+    location / { proxy_pass http://127.0.0.1:26080; }
 }
 server {
-    listen 8443 ssl http2;
+    listen 26443 ssl http2;
     server_name panel.example.com;
     ssl_certificate     /etc/letsencrypt/live/panel.example.com/fullchain.pem;
     ssl_certificate_key /etc/letsencrypt/live/panel.example.com/privkey.pem;
-    location / { grpc_pass grpc://127.0.0.1:8443; }
+    location / { grpc_pass grpc://127.0.0.1:26443; }
 }
 ```
 
