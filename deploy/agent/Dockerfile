@@ -24,6 +24,13 @@ RUN apk add --no-cache curl unzip jq \
     && if [ -z "$VERSION" ]; then \
          VERSION=$(curl -fsSL "https://api.github.com/repos/XTLS/Xray-core/releases?per_page=1" | jq -r '.[0].tag_name'); \
        fi \
+    # An unreachable GitHub API leaves VERSION empty, and the pipeline above
+    # cannot fail on its own: jq reads the empty stream and exits 0. Without
+    # this guard the case-arm below "corrects" the empty string to a bare "v"
+    # and the build dies later on a 404 for .../download/v/... — a nonsense URL
+    # that says nothing about what actually went wrong. Fail here, with words.
+    && { [ -n "$VERSION" ] && [ "$VERSION" != "null" ] \
+         || { echo "could not determine the latest Xray version (is api.github.com reachable from the build? pin one with --build-arg XRAY_VERSION=...)" >&2; exit 1; }; } \
     && case "$VERSION" in v*) ;; *) VERSION="v$VERSION" ;; esac \
     && echo "Fetching Xray-core $VERSION (snapshot channel)" \
     && curl -fsSL -o /tmp/xray.zip "https://github.com/XTLS/Xray-core/releases/download/${VERSION}/Xray-linux-${XRAY_ARCH}.zip" \
