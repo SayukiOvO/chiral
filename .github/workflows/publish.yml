@@ -32,6 +32,8 @@ jobs:
   # where a broken release is only discovered by whoever pulled it.
   verify:
     runs-on: ubuntu-latest
+    outputs:
+      xray_version: ${{ steps.xray.outputs.version }}
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
@@ -39,6 +41,42 @@ jobs:
           go-version-file: go.mod
       - run: go vet ./...
       - run: go test ./...
+
+      # Resolve the Xray version ONCE, here, and hand the same answer to both
+      # images.
+      #
+      # Letting each Dockerfile ask for "latest" independently meant the two
+      # builds could disagree: they run in parallel, and a snapshot landing
+      # between them ships a panel that validates configs with one kernel and
+      # nodes that run another — the exact drift core/internal/kernel exists to
+      # prevent. Resolving here also halves the API calls and puts the one that
+      # remains behind a token, on a step whose failure names itself instead of
+      # surfacing as a build error two stages deep.
+      - name: Resolve the Xray-core version
+        id: xray
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PINNED: ${{ inputs.xray_version }}
+        run: |
+          set -euo pipefail
+          if [ -n "${PINNED}" ]; then
+            echo "version=${PINNED}" >> "$GITHUB_OUTPUT"
+            echo "pinned to ${PINNED}"
+            exit 0
+          fi
+          for attempt in 1 2 3; do
+            v=$(curl -fsSL -H "Authorization: Bearer ${GH_TOKEN}" \
+                  "https://api.github.com/repos/XTLS/Xray-core/releases?per_page=1" \
+                  | jq -r '.[0].tag_name // empty') && [ -n "$v" ] && break
+            echo "attempt $attempt failed, retrying" >&2
+            sleep $((attempt * 5))
+          done
+          if [ -z "${v:-}" ]; then
+            echo "could not resolve the latest Xray-core release from api.github.com" >&2
+            exit 1
+          fi
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+          echo "both images will bundle Xray-core $v"
 
   publish:
     needs: verify
@@ -89,7 +127,37 @@ jobs:
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
             org.opencontainers.image.licenses=NOASSERTION
 
+      # Retried because the failure it guards against is not a defect: the
+      # v0.1.0 run published core and lost agent on the same commit that had
+      # published both minutes earlier, which is registry or cache flakiness,
+      # not something in this repository. Losing one image of a pair leaves
+      # `latest` half-published — the panel pullable and the agent not.
       - name: Build and push
+        id: push
+        continue-on-error: true
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: ${{ matrix.dockerfile }}
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          # Resolved once in verify, so core and agent cannot end up bundling
+          # different kernels.
+          build-args: |
+            XRAY_VERSION=${{ needs.verify.outputs.xray_version }}
+          # GITHUB_TOKEN lifts the anonymous GitHub API rate limit the Xray
+          # stage would otherwise hit — 60/hour is shared across every runner
+          # on this hosted IP, and exhausting it fails the build with a 404 on
+          # a nonsense URL rather than anything that names the cause.
+          secrets: |
+            GITHUB_TOKEN=${{ github.token }}
+          cache-from: type=gha,scope=${{ matrix.name }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.name }}
+
+      - name: Retry the push once
+        if: steps.push.outcome == 'failure'
         uses: docker/build-push-action@v7
         with:
           context: .
@@ -99,15 +167,12 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           build-args: |
-            XRAY_VERSION=${{ inputs.xray_version }}
-          # GITHUB_TOKEN lifts the anonymous GitHub API rate limit the Xray
-          # stage would otherwise hit — 60/hour is shared across every runner
-          # on this hosted IP, and exhausting it fails the build with a 404 on
-          # a nonsense URL rather than anything that names the cause.
+            XRAY_VERSION=${{ needs.verify.outputs.xray_version }}
           secrets: |
             GITHUB_TOKEN=${{ github.token }}
+          # No cache-to on the retry: if the cache export is what failed,
+          # repeating it is the one thing guaranteed not to help.
           cache-from: type=gha,scope=${{ matrix.name }}
-          cache-to: type=gha,mode=max,scope=${{ matrix.name }}
 
       - name: Report what was published
         run: |

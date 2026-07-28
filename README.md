@@ -5,6 +5,9 @@
 *A self-hosted Xray-core management panel: template-driven config delivery, per-user credentials, multi-client subscriptions, a subscriber portal, and canary kernel upgrades.*
 
 [![ci](https://github.com/SayukiOvO/chiral/actions/workflows/ci.yml/badge.svg)](https://github.com/SayukiOvO/chiral/actions/workflows/ci.yml)
+[![publish](https://github.com/SayukiOvO/chiral/actions/workflows/publish.yml/badge.svg)](https://github.com/SayukiOvO/chiral/actions/workflows/publish.yml)
+[![core](https://img.shields.io/docker/v/moonwx/chiral-core?label=chiral-core&sort=semver)](https://hub.docker.com/r/moonwx/chiral-core)
+[![agent](https://img.shields.io/docker/v/moonwx/chiral-agent?label=chiral-agent&sort=semver)](https://hub.docker.com/r/moonwx/chiral-agent)
 
 ---
 
@@ -171,7 +174,11 @@ M1–M6 完成：节点管理、模板 / 变量系统与配置下发、用户与
 
 已在真实 VPS 上做过带 TLS 的完整部署演练：Docker 部署、真证书校验的 gRPC、VLESS + REALITY + Vision 端到端通信、金丝雀升级全流程与容器重启不降级，均验证通过。演练记录见 [`docs/roadmap.md`](docs/roadmap.md)。
 
-项目仍然年轻，生产使用请自行评估。欢迎 issue 与 PR。
+当前发布 **v0.1.0**，镜像在 Docker Hub：[`moonwx/chiral-core`](https://hub.docker.com/r/moonwx/chiral-core)
+与 [`moonwx/chiral-agent`](https://hub.docker.com/r/moonwx/chiral-agent)，`linux/amd64` + `linux/arm64`。
+
+版本号是 0.x 而不是 1.0，说的就是字面意思：功能完整、真机验证过，但 API 与数据库 schema
+仍可能变动。生产使用请自行评估。欢迎 issue 与 PR。
 
 ## 许可
 
