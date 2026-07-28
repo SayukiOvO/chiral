@@ -118,6 +118,7 @@ func genX25519() (Group, error) {
 	if _, err := rand.Read(seed); err != nil {
 		return Group{}, err
 	}
+	clampX25519(seed)
 	priv, err := ecdh.X25519().NewPrivateKey(seed)
 	if err != nil {
 		return Group{}, fmt.Errorf("derive x25519 key: %w", err)
@@ -131,6 +132,28 @@ func genX25519() (Group, error) {
 	}, nil
 }
 
+// clampX25519 puts a scalar into the canonical form of RFC 7748 §5.
+//
+// This is not a detail. Go's ecdh clamps internally when it derives the public
+// half, so an unclamped seed still yields a CORRECT public key — the two halves
+// we publish agree with each other, every self-consistency test passes, and
+// `xray -test` is perfectly happy. But what we store as the private key is then
+// a scalar Xray's REALITY server does not treat the way we assumed, and the
+// handshake fails at runtime with the client reporting "received real
+// certificate": the server does not recognise it, and falls back to proxying
+// the genuine target site. Nothing anywhere says "wrong key".
+//
+// Measured, not reasoned: a live REALITY inbound rejected every client until
+// the stored private key was clamped, and accepted them immediately after. See
+// TestX25519MatchesTheXrayBinary, which asks the binary rather than asking
+// ourselves — the failure mode here is precisely that our own implementation
+// agrees with itself.
+func clampX25519(k []byte) {
+	k[0] &= 248
+	k[31] &= 127
+	k[31] |= 64
+}
+
 // X25519Public derives the public half from an existing private key, so an
 // operator can import a keypair they already deployed.
 func X25519Public(privateB64 string) (string, error) {
@@ -138,7 +161,15 @@ func X25519Public(privateB64 string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("private key must be base64.RawURLEncoding: %w", err)
 	}
-	priv, err := ecdh.X25519().NewPrivateKey(seed)
+	if len(seed) != 32 {
+		return "", fmt.Errorf("private key must be 32 bytes, got %d", len(seed))
+	}
+	// An imported key may well be unclamped; clamp before deriving so the
+	// public half we return belongs to the scalar that will actually be used.
+	clamped := make([]byte, 32)
+	copy(clamped, seed)
+	clampX25519(clamped)
+	priv, err := ecdh.X25519().NewPrivateKey(clamped)
 	if err != nil {
 		return "", err
 	}

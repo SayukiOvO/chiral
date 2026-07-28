@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"regexp"
+	"strings"
 	"testing"
 )
 
@@ -166,4 +167,120 @@ func TestMLKEM768MatchesXrayDerivation(t *testing.T) {
 	if _, present := g.Components["hash32"]; present {
 		t.Error("hash32 is emitted but its derivation is unverified against xray")
 	}
+}
+
+// The cross-check CLAUDE.md §7 demands, and the one that was missing.
+//
+// Every other x25519 test here asks our own implementation to confirm our own
+// implementation: generate a pair, re-derive the public half, compare. Both
+// paths go through Go's ecdh, which clamps the scalar internally, so they agree
+// with each other no matter what we stored — and for a while what we stored was
+// an unclamped seed. The public half was correct. `xray -test` accepted the
+// config. A live REALITY server then rejected every client and silently proxied
+// them to the real target site, which is the failure mode with no error message
+// attached to it.
+//
+// So this one asks the binary. `xray x25519 -i <private>` echoes the private
+// key back in canonical form; if ours differs, ours is not the scalar the
+// kernel will use.
+func TestX25519MatchesTheXrayBinary(t *testing.T) {
+	bin := os.Getenv("CHIRAL_XRAY_BIN")
+	if bin == "" {
+		var err error
+		if bin, err = exec.LookPath("xray"); err != nil {
+			t.Skip("no xray binary; cannot cross-validate key derivation")
+		}
+	}
+	for i := 0; i < 8; i++ {
+		g, err := Generate(GenX25519)
+		if err != nil {
+			t.Fatal(err)
+		}
+		priv, pub := g.Components["private"], g.Components["public"]
+
+		out, err := exec.Command(bin, "x25519", "-i", priv).Output()
+		if err != nil {
+			t.Fatalf("xray x25519 -i: %v", err)
+		}
+		kv := map[string]string{}
+		for _, line := range strings.Split(string(out), "\n") {
+			k, v, ok := strings.Cut(line, ":")
+			if !ok {
+				continue
+			}
+			kv[strings.TrimSpace(k)] = strings.TrimSpace(v)
+		}
+
+		// The private key must come back byte-identical. Anything else means
+		// the kernel normalised it, i.e. it will use a different scalar than
+		// the one we handed it — and the public key we published belongs to
+		// that other scalar, so no client can complete a handshake.
+		gotPriv := firstOf(kv, "PrivateKey", "Private key")
+		if gotPriv == "" {
+			t.Fatalf("could not parse a private key from:\n%s", out)
+		}
+		if gotPriv != priv {
+			t.Fatalf("xray normalised our private key: we stored %q, it uses %q.\n"+
+				"A REALITY server will reject every client and silently proxy them "+
+				"to the real target site.", priv, gotPriv)
+		}
+
+		gotPub := firstOf(kv, "Password (PublicKey)", "Password", "PublicKey", "Public key")
+		if gotPub == "" {
+			t.Fatalf("could not parse a public key from:\n%s", out)
+		}
+		if gotPub != pub {
+			t.Fatalf("public half disagrees with the binary: ours %q, xray %q", pub, gotPub)
+		}
+	}
+}
+
+// An imported, unclamped key must still yield the public half of the scalar
+// that will actually be used — otherwise importing an existing keypair produces
+// a config that cannot handshake.
+func TestX25519PublicClampsWhatItIsGiven(t *testing.T) {
+	bin := os.Getenv("CHIRAL_XRAY_BIN")
+	if bin == "" {
+		var err error
+		if bin, err = exec.LookPath("xray"); err != nil {
+			t.Skip("no xray binary")
+		}
+	}
+	// A deliberately unclamped scalar: low bits set, top bits wrong.
+	raw := make([]byte, 32)
+	for i := range raw {
+		raw[i] = byte(i * 7)
+	}
+	raw[0] |= 0x07
+	raw[31] |= 0x80
+	privB64 := b64.EncodeToString(raw)
+
+	pub, err := X25519Public(privB64)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := exec.Command(bin, "x25519", "-i", privB64).Output()
+	if err != nil {
+		t.Fatalf("xray x25519 -i: %v", err)
+	}
+	kv := map[string]string{}
+	for _, line := range strings.Split(string(out), "\n") {
+		k, v, ok := strings.Cut(line, ":")
+		if ok {
+			kv[strings.TrimSpace(k)] = strings.TrimSpace(v)
+		}
+	}
+	want := firstOf(kv, "Password (PublicKey)", "Password", "PublicKey", "Public key")
+	if pub != want {
+		t.Fatalf("X25519Public(%q) = %q, xray says %q", privB64, pub, want)
+	}
+}
+
+func firstOf(kv map[string]string, keys ...string) string {
+	for _, k := range keys {
+		if v := kv[k]; v != "" {
+			return v
+		}
+	}
+	return ""
 }

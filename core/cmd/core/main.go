@@ -216,6 +216,17 @@ func run(logger *slog.Logger, dbPath, grpcListen, httpListen, grpcPublic, public
 	// pushing it, and for key generators Go cannot implement. Plural, because
 	// `xray -test` only answers for the build that runs it and nodes no longer
 	// all run the same one — see core/internal/kernel.
+	// One-time repair for keys written before x25519 scalars were clamped.
+	// Safe to run every start: it changes only bits the published public key
+	// never depended on, so subscriptions already in customers' clients keep
+	// working — and until it runs, every REALITY inbound rejects every client.
+	if n, err := st.RepairX25519Clamping(); err != nil {
+		logger.Error("repairing x25519 private keys failed", "err", err)
+	} else if n > 0 {
+		logger.Warn("repaired x25519 private keys that REALITY could not use; "+
+			"re-apply the affected nodes to push the corrected config", "count", n)
+	}
+
 	baked := template.Xray{Bin: os.Getenv("CHIRAL_XRAY_BIN")}
 	if !baked.Available() {
 		logger.Warn("no Xray binary (CHIRAL_XRAY_BIN); configs are pushed without panel-side validation and ML-DSA-65 is unavailable")
