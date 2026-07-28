@@ -21,12 +21,12 @@ curl -fsSL https://raw.githubusercontent.com/SayukiOvO/chiral/main/deploy/instal
 
 TLS 两种方式任选：
 
-- **面板自签发** — 提供证书与私钥路径，面板直接在 443 上提供 HTTPS。
+- **面板自行提供 HTTPS** — 指定证书与私钥路径即可，无需反向代理。
 - **反向代理** — 面板在 loopback 上明文监听，由 nginx 或 Caddy 终结 TLS。
 
 两种方式的配置见[部署文档](docs/deployment.md#tls)。本项目不内置 ACME，证书来源不限。
 
-完成后访问 `https://<域名>/admin/`。
+安装程序会输出控制台地址与管理员密码。控制台路径为 `/admin/`。
 
 ### 节点
 

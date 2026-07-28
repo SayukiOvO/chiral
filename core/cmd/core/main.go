@@ -13,6 +13,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -305,9 +306,7 @@ func run(logger *slog.Logger, dbPath, grpcListen, httpListen, grpcPublic, public
 	// Repeating the hostname in a second setting is one more thing to get out
 	// of step with the first.
 	if grpcPublic == "" {
-		host := publicURL
-		host = strings.TrimPrefix(strings.TrimPrefix(host, "https://"), "http://")
-		host = strings.TrimSuffix(strings.SplitN(host, "/", 2)[0], ":443")
+		host := publicHost(publicURL)
 		if host == "" {
 			return errors.New("set CHIRAL_PUBLIC_URL (e.g. https://panel.example.com) so agents know where to connect")
 		}
@@ -526,6 +525,28 @@ func bootstrapAdmin(logger *slog.Logger, st *store.Store) error {
 		logger.Info("created the first admin account from the environment", "username", username)
 	}
 	return nil
+}
+
+// publicHost is the bare hostname of the panel's public URL, without scheme,
+// port or path.
+//
+// url.Parse rather than trimming prefixes: the panel's own port is not 443 by
+// default any more, so a hand-rolled TrimSuffix(":443") leaves "host:26080"
+// behind and JoinHostPort then produces "host:26080:26443" — an address no
+// agent can dial, in a command an operator pastes onto another machine.
+func publicHost(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return ""
+	}
+	if !strings.Contains(raw, "//") {
+		raw = "https://" + raw
+	}
+	u, err := url.Parse(raw)
+	if err != nil {
+		return ""
+	}
+	return u.Hostname()
 }
 
 func envOr(key, fallback string) string {
