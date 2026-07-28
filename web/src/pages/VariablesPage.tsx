@@ -9,7 +9,7 @@ import {
 } from "../api";
 import { Button, IconButton } from "../components/ui";
 import { Empty, ErrorBar, Field, Modal, Td, Th, inputCls } from "../components/primitives";
-import { PlusIcon, TrashIcon } from "../components/icons";
+import { PencilIcon, PlusIcon, TrashIcon } from "../components/icons";
 import { cn } from "../lib/cn";
 import { useT } from "../lib/i18n";
 
@@ -27,6 +27,7 @@ export function VariablesPage() {
   const [generators, setGenerators] = useState<GeneratorInfo[]>([]);
   const [error, setError] = useState("");
   const [adding, setAdding] = useState(false);
+  const [editing, setEditing] = useState<Variable | null>(null);
 
   async function refresh() {
     try {
@@ -130,23 +131,42 @@ export function VariablesPage() {
                     </div>
                   </Td>
                   <Td className="text-right">
-                    <IconButton
-                      label={t("删除变量")}
-                      className="hover:text-danger"
-                      onClick={async () => {
-                        if (!confirm(tf("删除变量「{name}」？引用它的模板会渲染失败。", { name: v.name }))) return;
-                        await api.deleteVariable(v.id);
-                        refresh();
-                      }}
-                    >
-                      <TrashIcon size={16} />
-                    </IconButton>
+                    <div className="inline-flex items-center gap-1">
+                      {/* Generated groups have no editable value: the point of a
+                          keypair is that the halves match, so changing one by
+                          hand would produce a config that passes xray -test and
+                          fails every handshake. Regenerate instead. */}
+                      {!v.generator && (
+                        <IconButton label={t("修改值")} onClick={() => setEditing(v)}>
+                          <PencilIcon size={16} />
+                        </IconButton>
+                      )}
+                      <IconButton
+                        label={t("删除变量")}
+                        className="hover:text-danger"
+                        onClick={async () => {
+                          if (!confirm(tf("删除变量「{name}」？引用它的模板会渲染失败。", { name: v.name }))) return;
+                          await api.deleteVariable(v.id);
+                          refresh();
+                        }}
+                      >
+                        <TrashIcon size={16} />
+                      </IconButton>
+                    </div>
                   </Td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
+      )}
+
+      {editing && (
+        <EditVariableDialog
+          variable={editing}
+          onClose={() => setEditing(null)}
+          onSaved={refresh}
+        />
       )}
 
       {adding && (
@@ -338,6 +358,80 @@ function AddVariableDialog({
             disabled={busy || !name.trim() || (needsOwner && !owner)}
           >
             {busy ? t("创建中…") : t("创建")}
+          </Button>
+        </div>
+      </form>
+    </Modal>
+  );
+}
+
+/**
+ * Change a static variable's value in place.
+ *
+ * Deliberately not offered for generated variables. A keypair's halves have to
+ * belong to each other, and a hand-edited private key produces a config that
+ * `xray -test` accepts and no client can handshake with — the exact failure
+ * this codebase has already been bitten by once.
+ */
+function EditVariableDialog({
+  variable,
+  onClose,
+  onSaved,
+}: {
+  variable: Variable;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const { t, tf } = useT();
+  const [value, setValue] = useState(variable.components[0]?.value ?? "");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    setBusy(true);
+    setError("");
+    try {
+      await api.createVariable({
+        name: variable.name,
+        scope: variable.scope,
+        profile_id: variable.profile_id || undefined,
+        node_id: variable.node_id || undefined,
+        value,
+      });
+      onSaved();
+      onClose();
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Modal onClose={onClose}>
+      <form onSubmit={submit} className="space-y-4">
+        <h2 className="font-display text-lg">
+          {tf("修改「{name}」", { name: variable.name })}
+        </h2>
+        <p className="text-xs text-muted">
+          {t("改完之后要重新下发受影响的节点，存储的配置才会跟着变。")}
+        </p>
+        <Field label={t("值")}>
+          <input
+            className={inputCls}
+            value={value}
+            onChange={(e) => setValue(e.target.value)}
+            autoFocus
+          />
+        </Field>
+        {error && <ErrorBar text={error} />}
+        <div className="flex justify-end gap-2">
+          <Button type="button" variant="ghost" onClick={onClose}>
+            {t("取消")}
+          </Button>
+          <Button type="submit" disabled={busy}>
+            {busy ? t("保存中…") : t("保存")}
           </Button>
         </div>
       </form>

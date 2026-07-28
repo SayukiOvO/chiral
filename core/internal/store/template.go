@@ -179,6 +179,27 @@ func (s *Store) NodeVariables(nodeID string) ([]Variable, error) {
 }
 
 // GetVariable loads one variable by id.
+// FindVariableID resolves a variable by the triple that actually identifies it
+// — scope, owner and name — which is what a caller editing "the sni of this
+// profile" has in hand. The unique index is on (profile_id, name) and
+// (node_id, name), so this is the same key the database enforces.
+func (s *Store) FindVariableID(scope, profileID, nodeID, name string) (string, error) {
+	var id string
+	var err error
+	switch scope {
+	case ScopeProfile:
+		err = s.db.QueryRow(
+			`SELECT id FROM variables WHERE profile_id = ? AND name = ?`, profileID, name).Scan(&id)
+	case ScopeNode:
+		err = s.db.QueryRow(
+			`SELECT id FROM variables WHERE node_id = ? AND name = ?`, nodeID, name).Scan(&id)
+	default:
+		err = s.db.QueryRow(
+			`SELECT id FROM variables WHERE profile_id IS NULL AND node_id IS NULL AND name = ?`, name).Scan(&id)
+	}
+	return id, err
+}
+
 func (s *Store) GetVariable(id string) (Variable, error) {
 	rows, err := s.db.Query(`SELECT `+variableCols+` FROM variables WHERE id = ?`, id)
 	if err != nil {

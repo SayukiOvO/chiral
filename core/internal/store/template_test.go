@@ -481,3 +481,108 @@ func nullStr(s string) sql.NullString {
 	}
 	return sql.NullString{String: s, Valid: true}
 }
+
+// Changing a port or an SNI is the most routine edit an operator makes, and it
+// used to require deleting the variable and creating it again — a window in
+// which the profile does not render at all.
+func TestFindVariableIDResolvesByScopeOwnerAndName(t *testing.T) {
+	s := testStore(t, storeTestKey)
+	p, err := s.CreateProfile("edit-me")
+	if err != nil {
+		t.Fatal(err)
+	}
+	n, err := s.CreateNode("edit-node", "join-hash")
+	if err != nil {
+		t.Fatal(err)
+	}
+	pid := sql.NullString{String: p.ID, Valid: true}
+	nid := sql.NullString{String: n.ID, Valid: true}
+
+	profVar, err := s.PutVariable(Variable{
+		Name: "port", Scope: ScopeProfile, ProfileID: pid,
+		Components: []Component{{Value: "443"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	nodeVar, err := s.PutVariable(Variable{
+		Name: "port", Scope: ScopeNode, NodeID: nid,
+		Components: []Component{{Value: "8443"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	globalVar, err := s.PutVariable(Variable{
+		Name: "port", Scope: ScopeGlobal,
+		Components: []Component{{Value: "80"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Three variables share the name "port" in three scopes; each must resolve
+	// to its own row, or an edit lands on somebody else's value.
+	for _, c := range []struct {
+		scope, profileID, nodeID, want string
+	}{
+		{ScopeProfile, p.ID, "", profVar.ID},
+		{ScopeNode, "", n.ID, nodeVar.ID},
+		{ScopeGlobal, "", "", globalVar.ID},
+	} {
+		got, err := s.FindVariableID(c.scope, c.profileID, c.nodeID, "port")
+		if err != nil {
+			t.Fatalf("%s scope: %v", c.scope, err)
+		}
+		if got != c.want {
+			t.Errorf("%s scope resolved to %q, want %q", c.scope, got, c.want)
+		}
+	}
+
+	if _, err := s.FindVariableID(ScopeProfile, p.ID, "", "nonexistent"); err == nil {
+		t.Error("a name that does not exist resolved to something")
+	}
+}
+
+// Writing to the resolved id updates in place rather than colliding with the
+// unique index, and does not multiply rows.
+func TestPutVariableWithAResolvedIDUpdatesInPlace(t *testing.T) {
+	s := testStore(t, storeTestKey)
+	p, err := s.CreateProfile("edit-me")
+	if err != nil {
+		t.Fatal(err)
+	}
+	pid := sql.NullString{String: p.ID, Valid: true}
+	first, err := s.PutVariable(Variable{
+		Name: "sni", Scope: ScopeProfile, ProfileID: pid,
+		Components: []Component{{Value: "www.apple.com"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	id, err := s.FindVariableID(ScopeProfile, p.ID, "", "sni")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.PutVariable(Variable{
+		ID: id, Name: "sni", Scope: ScopeProfile, ProfileID: pid,
+		Components: []Component{{Value: "www.lovelive-anime.jp"}}}); err != nil {
+		t.Fatalf("update in place failed: %v", err)
+	}
+
+	vars, err := s.ProfileVariables(p.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	n := 0
+	for _, v := range vars {
+		if v.Name == "sni" {
+			n++
+			if v.ID != first.ID {
+				t.Errorf("the row identity changed: %q -> %q", first.ID, v.ID)
+			}
+			if v.Components[0].Value != "www.lovelive-anime.jp" {
+				t.Errorf("value = %q, want the updated one", v.Components[0].Value)
+			}
+		}
+	}
+	if n != 1 {
+		t.Fatalf("%d rows named sni after an update, want 1", n)
+	}
+}

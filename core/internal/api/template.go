@@ -144,10 +144,24 @@ func (s *Server) createVariable(w http.ResponseWriter, r *http.Request) {
 	if req.Generator != "" {
 		v, err = s.profiles.GenerateVariable(req.Name, req.Scope, profileID, nodeID, template.Generator(req.Generator))
 	} else {
-		v, err = s.st.PutVariable(store.Variable{
+		// Reuse the existing row when this name is already taken in this
+		// scope, so setting a value is one call whether or not it is the
+		// first.
+		//
+		// Without this, changing a port or an SNI — the two most routine
+		// edits an operator makes — meant deleting the variable and creating
+		// it again, and between those two calls the profile does not render.
+		// The database's own key is (scope, owner, name), so writing to that
+		// key rather than to a surrogate id is also the only version of this
+		// that cannot silently create a duplicate.
+		v = store.Variable{
 			Name: req.Name, Scope: req.Scope, ProfileID: profileID, NodeID: nodeID,
 			Components: []store.Component{{Value: req.Value}},
-		})
+		}
+		if id, ferr := s.st.FindVariableID(req.Scope, req.ProfileID, req.NodeID, req.Name); ferr == nil {
+			v.ID = id
+		}
+		v, err = s.st.PutVariable(v)
 	}
 	if err != nil {
 		// Constraint violations and unknown generators are the caller's

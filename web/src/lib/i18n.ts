@@ -43,6 +43,9 @@ const EN: Record<string, string> = {
   预览: "Preview",
   "加载中…": "Loading…",
   "保存中…": "Saving…",
+  "修改值": "Edit value",
+  "修改「{name}」": "Edit “{name}”",
+  "改完之后要重新下发受影响的节点，存储的配置才会跟着变。": "Re-apply the affected nodes afterwards; the stored config is what a reconnecting agent gets.",
   "生成中…": "Generating…",
   暂无数据: "No data",
 
