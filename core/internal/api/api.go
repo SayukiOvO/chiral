@@ -438,20 +438,15 @@ func (s *Server) putConfig(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "body must be valid JSON (the node's config.json)")
 		return
 	}
-	// TODO(M2): validate with a panel-side `xray -test` before persisting.
-	//
-	// A hand-written config gets a probe rendered from the node's profiles all
-	// the same. It may not match what was pasted — that is the operator's
-	// business — but a node whose config was set by hand still deserves an
-	// upgrade check that means something.
-	probe, _ := s.profiles.ProbeOutbound(id)
-	c, err := s.st.InsertConfig(id, string(cfg), probe)
-	if err != nil {
-		s.internalErr(w, "persist config", err)
+	version, pushErr := s.profiles.ApplyRaw(r.Context(), id, cfg)
+	if version == 0 {
+		// Nothing was stored, which means validation refused it. Report Xray's
+		// own complaint verbatim: it names the offending field, and that is
+		// what the operator has to fix.
+		writeErr(w, http.StatusUnprocessableEntity, pushErr.Error())
 		return
 	}
-	pushErr := s.mgr.PushConfig(id, c.Version, []byte(c.Config), []byte(c.ProbeOutbound))
-	resp := map[string]any{"version": c.Version, "pushed": pushErr == nil}
+	resp := map[string]any{"version": version, "pushed": pushErr == nil}
 	if pushErr != nil {
 		// Not an error state: heartbeat reconciliation re-pushes as soon as
 		// the node is reachable again.

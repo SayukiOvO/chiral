@@ -45,7 +45,6 @@ Chiral 是一个 Xray 管理面板，定位类似 Remnawave：采用 **Panel + A
 
 ## 5. 搁置 / 待议
 
-- **回滚 UI**：后端能力早已具备（旧版本作为新 `ConfigPush` 重推），前端还没有入口。
 - **shadcn/ui 组件化下沉**：当前是手写原语，功能与观感已达标，属重构而非缺口。
 - **端用户 MFA**：不做。它守的东西比 `/sub/{token}` 已经免费给出去的还少。`portal_challenges` 的 CHECK 已预留 purpose，将来加不用重建表。
 - **超限自动断线**：做不到，不是不做——实测 `rmu` 与 `sib` 都掐不断已建立的会话（见 `docs/user-portal.md` §8）。

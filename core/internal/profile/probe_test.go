@@ -179,3 +179,50 @@ func TestApplyStoresTheProbeWithItsConfigVersion(t *testing.T) {
 		t.Errorf("stored probe tag = %v", probe["tag"])
 	}
 }
+
+// CLAUDE.md §7: a config that fails validation is NEITHER stored NOR pushed.
+// The hand-written route used to skip the check entirely, which made the rule
+// true of the safe path and false of the dangerous one.
+func TestAHandWrittenConfigMustPassTheSameGate(t *testing.T) {
+	if xrayBin() == "" {
+		t.Skip("no xray binary; validation cannot run")
+	}
+	svc, st, n, _ := probeFixture(t)
+
+	before, _ := st.ConfigVersions(n.ID, 50)
+	_, err := svc.ApplyRaw(t.Context(), n.ID, []byte(`{"inbounds":[{"protocol":"nonsense-protocol","port":443}]}`))
+	if err == nil {
+		t.Fatal("a config xray rejects was accepted")
+	}
+	after, _ := st.ConfigVersions(n.ID, 50)
+	if len(after) != len(before) {
+		t.Fatalf("a rejected config was stored anyway: %d versions before, %d after", len(before), len(after))
+	}
+}
+
+// And the escape hatch still works for something valid, or it is not an escape
+// hatch.
+func TestAValidHandWrittenConfigIsStoredAndPushed(t *testing.T) {
+	if xrayBin() == "" {
+		t.Skip("no xray binary; validation cannot run")
+	}
+	svc, st, n, _ := probeFixture(t)
+
+	version, err := svc.ApplyRaw(t.Context(), n.ID,
+		[]byte(`{"inbounds":[],"outbounds":[{"protocol":"freedom","tag":"direct"}]}`))
+	if err != nil {
+		t.Fatalf("a valid config was refused: %v", err)
+	}
+	c, err := st.ConfigAt(n.ID, version)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(c.Config, "freedom") {
+		t.Errorf("stored config is not the one written: %s", c.Config)
+	}
+	// The probe comes from the profiles, not from the pasted bytes, so a
+	// hand-configured node still has a canary that means something.
+	if c.ProbeOutbound == "" {
+		t.Error("a hand-written config left the node with no data-path probe")
+	}
+}
