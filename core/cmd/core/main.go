@@ -172,6 +172,19 @@ func run(logger *slog.Logger, dbPath, grpcListen, httpListen, grpcPublic, public
 			"the portal stores recoverable subscription tokens and will not do so in the clear. " +
 			"Generate a key with `openssl rand -base64 32`")
 	}
+	// The portal's other prerequisite, refused for the same reason.
+	//
+	// Without a public URL the subscription link comes out as a bare path —
+	// "/sub/<token>" — which is not something a customer can paste into any
+	// client. Showing someone their own link is the portal's primary action, so
+	// this is not a degraded feature but a broken one, and it fails silently on
+	// the customer's side where no operator ever sees it. A warning would scroll
+	// past exactly like the one this rule was written for.
+	if portalCfg.Enabled() && strings.TrimSpace(publicURL) == "" {
+		return errors.New("CHIRAL_PORTAL_MODE is set but CHIRAL_PUBLIC_URL is empty: " +
+			"every subscriber would be shown a relative subscription link that no client can use. " +
+			"Set it to the panel's externally reachable base URL, e.g. https://panel.example.com")
+	}
 
 	st, err := store.Open(dbPath, box)
 	if err != nil {

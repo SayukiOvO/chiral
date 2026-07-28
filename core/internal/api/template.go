@@ -399,6 +399,8 @@ func (s *Server) applyProfile(w http.ResponseWriter, r *http.Request) {
 			out[nodeID] = "ok"
 		}
 	}
+	s.audit(r, "profile.apply", "profile", r.PathValue("id"), "",
+		fmt.Sprintf("%d applied, %d failed", len(results)-failed, failed))
 	writeJSON(w, http.StatusOK, map[string]any{
 		"nodes": out, "applied": len(results) - failed, "failed": failed,
 	})
@@ -461,6 +463,14 @@ func (s *Server) previewNodeConfig(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) nodeConfigVersions(w http.ResponseWriter, r *http.Request) {
+	// A node that does not exist has no history, which is not the same answer as
+	// "this node has never had a config applied" — and 200 with an empty list
+	// says the second while meaning the first. A typo in an id would read as a
+	// node that simply has no versions yet.
+	if _, err := s.st.GetNode(r.PathValue("id")); err != nil {
+		s.notFoundOr(w, "load node", err, "no such node")
+		return
+	}
 	versions, err := s.st.ConfigVersions(r.PathValue("id"), 20)
 	if err != nil {
 		s.internalErr(w, "list config versions", err)
@@ -507,6 +517,11 @@ func (s *Server) applyNodeConfig(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusUnprocessableEntity, err.Error())
 		return
 	}
+	// Audited for the same reason a rollback is: this writes a new config
+	// version and pushes it to a live node. Rolling one back was in the trail
+	// and putting one there was not, which is the wrong half — a rollback is
+	// recoverable by definition, and an apply is what changed the node.
+	s.audit(r, "node.config_apply", "node", r.PathValue("id"), "", fmt.Sprintf("version %d", version))
 	writeJSON(w, http.StatusAccepted, map[string]any{"version": version})
 }
 

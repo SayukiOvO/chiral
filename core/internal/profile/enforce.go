@@ -161,10 +161,20 @@ func (s *Service) InboundTagFor(profileID, nodeID string) (string, error) {
 // SyncUser brings one user's live presence on the nodes in line with their
 // entitlement, and returns whether anything was pushed.
 //
-// The user's `active` flag is only flipped once every node accepted its
-// operation. A partial success stays "not yet done" so the next sweep retries
-// it — better to re-send a redundant removal than to record a ban that only
-// landed on half the fleet.
+// The user's `active` flag is only flipped once every node's operation was
+// ENQUEUED without error. A node that is offline stays "not yet done" so the
+// next sweep retries it — better to re-send a redundant removal than to record
+// a ban that only landed on half the fleet.
+//
+// Enqueued, not applied, and the difference is worth naming: SendUserOp hands
+// the frame to the session's send channel and returns. If the kernel then
+// refuses it — its API unreachable, the inbound gone, the user already absent —
+// the agent reports an Event that nothing here consumes, and `active` has
+// already been written as though the change landed. The flag therefore means
+// "Core believes this is installed", which is what the config re-assembly at
+// the end of EnforceQuotas exists to make true regardless: the stored config
+// is the authority, and the next restart converges to it even when the online
+// op was lost.
 func (s *Service) SyncUser(ctx context.Context, userID string) (bool, error) {
 	if s.userOps == nil {
 		return false, nil
@@ -251,6 +261,10 @@ func (s *Service) EnforceQuotas(ctx context.Context) (int, error) {
 	}
 	now := time.Now().Unix()
 	changed := 0
+	// Nodes whose stored config no longer matches who is entitled. Collected
+	// across the whole sweep and re-assembled once at the end: a node serving
+	// fifty users who all expire at midnight deserves one re-render, not fifty.
+	var dirty []string
 	for _, u := range users {
 		if renewed := s.renewIfDue(u, now); renewed {
 			// Re-read: renewal zeroes usage and moves expiry, which is
@@ -266,6 +280,32 @@ func (s *Service) EnforceQuotas(ctx context.Context) (int, error) {
 		}
 		if did {
 			changed++
+			nodes, err := s.NodesForUser(u.ID)
+			if err != nil {
+				s.logger.Error("listing a user's nodes failed", "user", u.Name, "err", err)
+				continue
+			}
+			dirty = append(dirty, nodes...)
+		}
+	}
+
+	// The half that was missing, and the half that makes the other half stick.
+	//
+	// SyncUser only edits the RUNNING kernel. The stored config is what a
+	// reconnecting agent replays, what the agent starts from before Core is
+	// even reachable, and what Core re-pushes on reconnect — so a user cut off
+	// by this sweep and never written out of the config comes back on the next
+	// agent restart, host reboot or Xray restart, and never leaves again:
+	// SyncUser returns early once active matches, so nothing retries. The panel
+	// goes on reporting allowed=false about somebody who is online.
+	//
+	// The interactive path has always done both (see updateUser). This one did
+	// not, which meant every cut-off that happened by the CLOCK rather than by
+	// an admin's click was the one that did not survive a restart.
+	if len(dirty) > 0 {
+		for id, err := range s.ApplyUserNodes(ctx, dirty) {
+			s.logger.Error("re-assembling a node after enforcement failed",
+				"node", id, "err", err)
 		}
 	}
 	return changed, nil

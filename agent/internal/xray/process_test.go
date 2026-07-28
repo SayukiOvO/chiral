@@ -171,3 +171,52 @@ func TestRunningVersionIsEmptyWhenNothingRuns(t *testing.T) {
 		t.Fatalf("BinaryVersion() = %q, want 26.7.11", got)
 	}
 }
+
+// The apply ack used to fire on fork/exec success, which is not the same claim
+// as "this config works". A config that passes `xray -test` and then cannot
+// bind its port dies milliseconds later — and the success ack beat the death
+// notice, so the panel's version history recorded the config that took the node
+// offline as cleanly applied. Which version broke a node is precisely what
+// rollback needs to know.
+func TestApplyFailsWhenTheKernelDiesRightAfterStarting(t *testing.T) {
+	bin := fakeKernel(t, "26.7.11", []string{
+		"Failed to start: app/proxyman/inbound: failed to listen TCP on 443",
+		"listen tcp4 0.0.0.0:443: bind: address already in use",
+	}, 255)
+	m := managerWith(t, bin, nil)
+
+	err := m.Apply(7, []byte(`{"inbounds":[],"outbounds":[]}`))
+	if err == nil {
+		t.Fatal("Apply reported success for a kernel that exited immediately")
+	}
+	if !strings.Contains(err.Error(), "address already in use") {
+		t.Errorf("the error does not carry the kernel's own reason: %v", err)
+	}
+}
+
+// And an apply whose kernel stays up must still succeed, promptly.
+func TestApplySucceedsWhenTheKernelStaysUp(t *testing.T) {
+	dir := t.TempDir()
+	bin := filepath.Join(dir, "fake-xray")
+	if err := os.WriteFile(bin, []byte(
+		"#!/bin/sh\n"+
+			"if [ \"$1\" = version ]; then echo 'Xray 26.7.11 (Xray, Penetrates Everything.)'; exit 0; fi\n"+
+			"if [ \"$1\" = -test ]; then echo 'Configuration OK.'; exit 0; fi\n"+
+			"exec sleep 60\n",
+	), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	m := managerWith(t, bin, nil)
+	defer m.Stop()
+
+	start := time.Now()
+	if err := m.Apply(8, []byte(`{"inbounds":[],"outbounds":[]}`)); err != nil {
+		t.Fatalf("Apply failed for a healthy kernel: %v", err)
+	}
+	if m.ConfigVersion() != 8 {
+		t.Errorf("config version = %d, want 8", m.ConfigVersion())
+	}
+	if took := time.Since(start); took > 20*time.Second {
+		t.Errorf("Apply took %s; the settle window should be seconds, not tens of them", took)
+	}
+}

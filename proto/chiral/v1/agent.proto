@@ -206,14 +206,24 @@ enum XrayInstallPhase {
   XRAY_INSTALL_PHASE_VERIFYING = 2;
   // On disk, checksum matched, binary answers `version` — but not yet running.
   XRAY_INSTALL_PHASE_INSTALLED = 3;
-  // Restarted into the new binary; the health probe is in flight.
+  // Restarted into the new binary; the data-path probe is in flight.
   XRAY_INSTALL_PHASE_ACTIVATING = 4;
-  // Running and answering. The only phase that justifies promoting a canary.
+  // A CLIENT GOT ONLINE through this node on the new binary. The only phase
+  // that justifies promoting a canary.
+  //
+  // Not "the process is up", and not "the kernel answers its own API" — both
+  // are true of a kernel whose transport layer is broken and whose subscribers
+  // are all dark, which is the failure an upgrade actually causes. The agent
+  // runs a throwaway client kernel from the binary under test, with the client
+  // outbound Core rendered from the same template a subscription comes from,
+  // and fetches a URL through this node's own inbound.
   XRAY_INSTALL_PHASE_ACTIVE = 5;
-  // Running, but the agent could not confirm it is serving — no API inbound to
-  // probe, usually. Deliberately NOT folded into ACTIVE: "it did not fail" and
+  // Running, but nothing confirmed traffic flows: no profile bound, no
+  // xray-json client template, no enabled user, or the pre-upgrade baseline was
+  // already failing. Deliberately NOT folded into ACTIVE: "it did not fail" and
   // "it works" are different claims, and only the second should let an operator
-  // roll an upgrade out to the rest of the fleet.
+  // roll an upgrade out to the rest of the fleet. The reason travels in
+  // XrayStatus.message — each of these is a one-line fix once you know which.
   XRAY_INSTALL_PHASE_INCONCLUSIVE = 6;
   // Could not download, verify, or start. The previous binary may or may not
   // be serving; ROLLED_BACK is the one that says it is.

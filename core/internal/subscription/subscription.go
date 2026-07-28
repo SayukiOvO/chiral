@@ -57,6 +57,10 @@ type Result struct {
 	// Fragments is how many access points made it in, for logging and for
 	// telling an operator that a subscription came out empty.
 	Fragments int
+	// Skipped explains each access point that could not be rendered. A
+	// subscription with fragments AND skips is degraded rather than broken,
+	// and the operator is the only one who can tell the difference.
+	Skipped []string
 }
 
 // Render assembles the subscription for a user.
@@ -73,6 +77,9 @@ func (s *Service) Render(u store.User, client string) (Result, error) {
 	sort.Strings(profileIDs)
 
 	var fragments []string
+	// Access points that could not be rendered, with the reason. Not an error:
+	// see the skip below.
+	var skipped []string
 	for _, pid := range profileIDs {
 		tmpl, err := s.templateFor(pid, client)
 		if err != nil {
@@ -98,20 +105,35 @@ func (s *Service) Render(u store.User, client string) (Result, error) {
 			}
 			ctx, err := s.ctx.ClientContext(pid, nid)
 			if err != nil {
-				return Result{}, err
+				skipped = append(skipped, fmt.Sprintf("%s on %s: %v", pid, nid, err))
+				continue
 			}
 			// ClientContext has already stripped secret components, so a
-			// template referencing a private key fails loudly here rather
-			// than leaking it into a subscription.
+			// template referencing a private key fails here rather than
+			// leaking it into a subscription.
+			//
+			// One unrenderable access point is skipped, not fatal — the same
+			// treatment the missing credential above already gets, and for the
+			// same reason. A subscription is a LIST of access points, and one
+			// bad template in one profile used to blank the whole list: every
+			// healthy node the customer was entitled to disappeared along with
+			// it, for every user bound to that profile. Losing one line is a
+			// degraded subscription; losing all of them is an outage.
+			//
+			// The reasons are collected and returned so the caller can say so
+			// rather than serve a quietly short list.
 			body, err := ctx.With(user.CredentialVars(cred)).Render(tmpl)
 			if err != nil {
-				return Result{}, fmt.Errorf("rendering %s fragment: %w", client, err)
+				skipped = append(skipped, fmt.Sprintf("%s on %s: %v", pid, nid, err))
+				continue
 			}
 			fragments = append(fragments, strings.TrimSpace(body))
 		}
 	}
 
-	return assemble(client, fragments), nil
+	r := assemble(client, fragments)
+	r.Skipped = skipped
+	return r, nil
 }
 
 func (s *Service) templateFor(profileID, client string) (string, error) {

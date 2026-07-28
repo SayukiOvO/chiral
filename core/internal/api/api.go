@@ -316,20 +316,30 @@ func (s *Server) updateNode(w http.ResponseWriter, r *http.Request) {
 		s.notFoundOr(w, "load node", err, "no such node")
 		return
 	}
+	// Pointers so an OMITTED field and an EXPLICITLY EMPTY one stay different.
+	//
+	// Blank display_name is a meaningful value — it clears the customer-facing
+	// name and puts the line back to being numbered — which is exactly why it
+	// cannot also be what "I did not mention this field" decodes to. With plain
+	// strings, a request that only renamed the box silently wiped the name
+	// subscribers see, while the same omission of `name` was preserved. Two
+	// fields, two opposite behaviours, one struct.
 	var req struct {
-		Name        string `json:"name"`
-		DisplayName string `json:"display_name"`
+		Name        *string `json:"name"`
+		DisplayName *string `json:"display_name"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeErr(w, http.StatusBadRequest, "body must be JSON")
 		return
 	}
-	if name := strings.TrimSpace(req.Name); name != "" {
-		n.Name = name
+	if req.Name != nil {
+		if name := strings.TrimSpace(*req.Name); name != "" {
+			n.Name = name
+		}
 	}
-	// Blank is a meaningful value here: it clears the customer-facing name and
-	// puts the line back to being numbered.
-	n.DisplayName = strings.TrimSpace(req.DisplayName)
+	if req.DisplayName != nil {
+		n.DisplayName = strings.TrimSpace(*req.DisplayName)
+	}
 
 	if err := s.st.UpdateNode(n.ID, n.Name, n.DisplayName); err != nil {
 		if isConflict(err) {

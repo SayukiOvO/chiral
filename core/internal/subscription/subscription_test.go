@@ -3,9 +3,13 @@ package subscription
 import (
 	"encoding/json"
 	"net/http/httptest"
+	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 
+	"github.com/SayukiOvO/chiral/core/internal/secret"
+	"github.com/SayukiOvO/chiral/core/internal/store"
 	"github.com/SayukiOvO/chiral/core/internal/template"
 )
 
@@ -270,5 +274,128 @@ func TestClashOffersBothManualAndAutomaticGroups(t *testing.T) {
 	}
 	if !strings.Contains(r.Body, "interval: 300") {
 		t.Errorf("the automatic group has no interval:\n%s", r.Body)
+	}
+}
+
+// --- degradation: one bad access point must not blank the list ---
+
+// stubContexts stands in for the profile service. Each profile gets a context
+// carrying one secret component, so a template that reaches for it fails the
+// same way it would in production.
+type stubContexts struct{}
+
+func (stubContexts) ClientContext(profileID, nodeID string) (*template.Context, error) {
+	return template.NewContext(map[string]string{
+		"reality.private": "PRIVATE-KEY",
+		"reality.public":  "PUBLIC-KEY",
+		"address":         "203.0.113." + nodeID[len(nodeID)-1:],
+	}, []string{"reality.private"}).ForClient(), nil
+}
+
+// twoProfileFixture gives one user two entitled profiles on one node, each with
+// its own xray-json template, and returns the store, service and user.
+func twoProfileFixture(t *testing.T) (*store.Store, *Service, store.User) {
+	t.Helper()
+	box, err := secret.NewBox("subscription-test-key-0123456789ab")
+	if err != nil {
+		t.Fatal(err)
+	}
+	st, err := store.Open(filepath.Join(t.TempDir(), "t.db"), box)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { st.Close() })
+
+	n, err := st.CreateNode("node1", "join-hash")
+	if err != nil {
+		t.Fatal(err)
+	}
+	u, err := st.CreateUser(store.User{Name: "sub", Enabled: true}, "sub-hash")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"alpha", "beta"} {
+		p, err := st.CreateProfile(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := st.BindProfileNode(p.ID, n.ID); err != nil {
+			t.Fatal(err)
+		}
+		if err := st.BindUserProfile(u.ID, p.ID); err != nil {
+			t.Fatal(err)
+		}
+		if err := st.PutClientTemplate(p.ID, ClientXrayJSON,
+			`{"tag":"`+name+`","address":"{{address}}","pbk":"{{reality.public}}"}`); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := st.PutCredential(store.Credential{
+			UserID: u.ID, ProfileID: p.ID, NodeID: n.ID,
+			Email: name + "@node1", Secret: "uuid-" + name,
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return st, NewService(st, stubContexts{}), u
+}
+
+// One typo in one profile used to blank the entire subscription: every healthy
+// access point the customer was entitled to vanished with it, for every user
+// bound to that profile. A degraded list beats an empty one.
+func TestOneUnrenderableProfileDoesNotTakeTheOthersDown(t *testing.T) {
+	st, svc, u := twoProfileFixture(t)
+
+	profiles, err := st.UserProfileIDs(u.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sort.Strings(profiles)
+	// Break exactly one, by pointing it at a component the client context
+	// deliberately strips.
+	if err := st.PutClientTemplate(profiles[0], ClientXrayJSON,
+		`{"leak":"{{reality.private}}"}`); err != nil {
+		t.Fatal(err)
+	}
+
+	res, err := svc.Render(u, ClientXrayJSON)
+	if err != nil {
+		t.Fatalf("a broken template failed the whole subscription: %v", err)
+	}
+	if res.Fragments != 1 {
+		t.Fatalf("Fragments = %d, want 1 — the healthy profile's fragment was lost too", res.Fragments)
+	}
+	if len(res.Skipped) != 1 {
+		t.Fatalf("Skipped = %v, want exactly the broken profile", res.Skipped)
+	}
+	if !strings.Contains(strings.Join(res.Skipped, " "), profiles[0]) {
+		t.Errorf("the skip does not name the profile that failed: %v", res.Skipped)
+	}
+	if strings.Contains(res.Body, "PRIVATE-KEY") {
+		t.Fatalf("a secret leaked into the served body:\n%s", res.Body)
+	}
+}
+
+// When nothing renders, the caller must be able to tell that apart from a
+// legitimately empty entitlement — the handler turns one of them into a non-2xx.
+func TestAllProfilesBrokenReportsZeroFragmentsAndWhy(t *testing.T) {
+	st, svc, u := twoProfileFixture(t)
+	profiles, err := st.UserProfileIDs(u.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, pid := range profiles {
+		if err := st.PutClientTemplate(pid, ClientXrayJSON, `{"leak":"{{reality.private}}"}`); err != nil {
+			t.Fatal(err)
+		}
+	}
+	res, err := svc.Render(u, ClientXrayJSON)
+	if err != nil {
+		t.Fatalf("Render returned an error instead of an empty result: %v", err)
+	}
+	if res.Fragments != 0 {
+		t.Fatalf("Fragments = %d, want 0", res.Fragments)
+	}
+	if len(res.Skipped) != len(profiles) {
+		t.Errorf("Skipped = %v, want one entry per profile", res.Skipped)
 	}
 }

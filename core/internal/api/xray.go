@@ -98,7 +98,20 @@ func (s *Server) xrayUpgrade(w http.ResponseWriter, r *http.Request) {
 		if store.IsNotFound(err) {
 			// Not an error: "nothing in progress" is the normal state, and a
 			// 404 would make the console treat it as a fault.
-			writeJSON(w, http.StatusOK, map[string]any{"active": nil})
+			//
+			// The history still ships. Dropping it here meant the past
+			// disappeared exactly when there was nothing else on the page to
+			// look at — which is when an operator asking "what happened to the
+			// last upgrade?" is most likely to be asking.
+			past, herr := s.st.UpgradeHistory(10)
+			if herr != nil {
+				s.internalErr(w, "read upgrade history", herr)
+				return
+			}
+			if past == nil {
+				past = []store.Upgrade{}
+			}
+			writeJSON(w, http.StatusOK, map[string]any{"active": nil, "history": past})
 			return
 		}
 		s.internalErr(w, "read the active upgrade", err)

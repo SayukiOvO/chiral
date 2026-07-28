@@ -3,6 +3,7 @@ package api
 import (
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/SayukiOvO/chiral/core/internal/auth"
@@ -46,6 +47,34 @@ func (s *Server) serveSubscription(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		s.internalErr(w, "rendering subscription", err)
 		return
+	}
+
+	// An empty subscription is not a successful one.
+	//
+	// Clash and Stash overwrite the profile they hold with whatever a 200
+	// returns, so serving an empty document replaces a customer's working
+	// config with nothing — a self-inflicted outage that looks, from their
+	// side, exactly like the panel deciding to cut them off. A non-2xx makes
+	// every client keep what it already has and show the update as failed,
+	// which is the truthful outcome: we could not produce a subscription.
+	//
+	// This is a different condition from a cut-off user, who still gets their
+	// (populated) list — see above.
+	if res.Fragments == 0 {
+		reason := "no access point is available for this subscription"
+		if len(res.Skipped) > 0 {
+			reason = "no access point could be rendered: " + strings.Join(res.Skipped, "; ")
+		}
+		s.logger.Warn("subscription came out empty", "user", u.Name,
+			"client", res.Client, "skipped", res.Skipped)
+		writeErr(w, http.StatusConflict, reason)
+		return
+	}
+	if len(res.Skipped) > 0 {
+		// Served, but short. The customer cannot tell; the operator can.
+		s.logger.Warn("subscription served with access points missing",
+			"user", u.Name, "client", res.Client,
+			"fragments", res.Fragments, "skipped", res.Skipped)
 	}
 
 	w.Header().Set("Content-Type", res.ContentType)

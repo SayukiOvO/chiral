@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strings"
 	"time"
@@ -89,10 +90,37 @@ type userRequest struct {
 	DeviceLimit int    `json:"device_limit"`
 }
 
+// validate rejects the values that are not merely unusual but incoherent.
+//
+// A negative quota is the one that matters: user.Allowed compares
+// used_bytes >= quota_bytes with a "0 means unlimited" special case, so -1 is
+// neither unlimited nor a limit — it is a user who is over quota the moment
+// they are created, permanently, with no way to tell from the API why. The
+// others are the same kind of nonsense with milder consequences.
+func (r userRequest) validate() error {
+	if r.QuotaBytes < 0 {
+		return fmt.Errorf("quota_bytes must be 0 (unlimited) or positive, got %d", r.QuotaBytes)
+	}
+	if r.RenewPeriod < 0 {
+		return fmt.Errorf("renew_period must be 0 (no auto-renewal) or positive, got %d", r.RenewPeriod)
+	}
+	if r.ExpiresAt < 0 {
+		return fmt.Errorf("expires_at must be 0 (no expiry) or a unix timestamp, got %d", r.ExpiresAt)
+	}
+	if r.DeviceLimit < 0 {
+		return fmt.Errorf("device_limit must be 0 (no limit) or positive, got %d", r.DeviceLimit)
+	}
+	return nil
+}
+
 func (s *Server) createUser(w http.ResponseWriter, r *http.Request) {
 	var req userRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || strings.TrimSpace(req.Name) == "" {
 		writeErr(w, http.StatusBadRequest, `body must be JSON with a non-empty "name"`)
+		return
+	}
+	if err := req.validate(); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	enabled := true
@@ -179,6 +207,10 @@ func (s *Server) updateUser(w http.ResponseWriter, r *http.Request) {
 	var req userRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeErr(w, http.StatusBadRequest, "body must be JSON")
+		return
+	}
+	if err := req.validate(); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	if name := strings.TrimSpace(req.Name); name != "" {

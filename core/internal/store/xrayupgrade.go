@@ -71,6 +71,14 @@ func (s *Store) StartUpgrade(version, canaryNodeID string, at time.Time) (Upgrad
 		u.ID, u.Version, u.State, nullable(canaryNodeID), u.StartedAt, u.UpdatedAt)
 	if err != nil {
 		if IsConstraint(err) {
+			// Two different constraints reach here and they mean opposite
+			// things: the partial unique index on in-flight upgrades, and the
+			// foreign key on canary_node_id. Reporting a bad node id as "an
+			// upgrade is already in progress" sent an operator looking for an
+			// upgrade that does not exist. Ask which it was.
+			if _, ferr := s.ActiveUpgrade(); ferr != nil {
+				return Upgrade{}, fmt.Errorf("cannot start an upgrade on node %q: no such node", canaryNodeID)
+			}
 			return Upgrade{}, fmt.Errorf("another kernel upgrade is already in progress")
 		}
 		return Upgrade{}, err

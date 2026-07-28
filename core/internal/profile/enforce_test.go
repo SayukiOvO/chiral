@@ -434,3 +434,113 @@ func TestUniqueDropsDuplicateNodes(t *testing.T) {
 		t.Errorf("got %v", got)
 	}
 }
+
+// The failure this repository shipped with: a user cut off by the CLOCK — not
+// by an admin's click — was removed from the running kernel and left in the
+// stored config. An agent restart replays that config, the user is back, and
+// SyncUser never retries because `active` already matches. The panel goes on
+// reporting allowed=false about somebody who is online.
+func TestEnforcementWritesTheCutOffIntoTheStoredConfig(t *testing.T) {
+	svc, st, push := newFixture(t)
+	p, n := realityProfile(t, svc, st)
+
+	// Entitled first, so assembly installs them and there is a stored config
+	// to be wrong about.
+	u, err := st.CreateUser(store.User{
+		Name: "expiring", Enabled: true,
+		ExpiresAt: time.Now().Add(time.Hour).Unix(),
+	}, "sub-hash")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.BindUserProfile(u.ID, p.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.Apply(t.Context(), n.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	// Now let the CLOCK cut them off. No admin write follows — this is exactly
+	// the path that used to leave the stored config stale.
+	u.ExpiresAt = time.Now().Add(-time.Hour).Unix()
+	if err := st.UpdateUser(u); err != nil {
+		t.Fatal(err)
+	}
+	before, err := st.LatestPushableConfig(n.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(before.Config, u.ID[:8]) && !strings.Contains(before.Config, "expiring") {
+		t.Fatalf("fixture is wrong: the user is not in the stored config:\n%s", before.Config)
+	}
+
+	// Mark them active, as a previous successful sync would have.
+	if err := st.SetUserActive(u.ID, true); err != nil {
+		t.Fatal(err)
+	}
+
+	changed, err := svc.EnforceQuotas(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if changed == 0 {
+		t.Fatal("the sweep did not notice an expired user")
+	}
+
+	after, err := st.LatestPushableConfig(n.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after.Version == before.Version {
+		t.Fatal("the sweep cut the user off without rewriting the stored config; " +
+			"an agent restart would bring them straight back")
+	}
+	if strings.Contains(after.Config, "expiring") {
+		t.Errorf("the expired user is still in the re-assembled config:\n%s", after.Config)
+	}
+	if push.pushed[n.ID] != after.Version {
+		t.Errorf("the corrected config was not pushed: node is at %d, stored %d",
+			push.pushed[n.ID], after.Version)
+	}
+}
+
+// A user who is still entitled must not be churned out of the config by the
+// sweep, and a sweep with nothing to do must not rewrite anything — otherwise
+// every node gets a new config version every 60 seconds forever.
+func TestAQuietSweepRewritesNothing(t *testing.T) {
+	svc, st, _ := newFixture(t)
+	p, n := realityProfile(t, svc, st)
+
+	u, err := st.CreateUser(store.User{Name: "fine", Enabled: true}, "sub-hash")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.BindUserProfile(u.ID, p.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.Apply(t.Context(), n.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.EnforceQuotas(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	settled, err := st.LatestPushableConfig(n.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for i := 0; i < 3; i++ {
+		if _, err := svc.EnforceQuotas(t.Context()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	again, err := st.LatestPushableConfig(n.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if again.Version != settled.Version {
+		t.Fatalf("three idle sweeps produced %d new config versions; "+
+			"the node would be re-rendered every 60 seconds forever",
+			again.Version-settled.Version)
+	}
+}

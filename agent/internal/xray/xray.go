@@ -3,6 +3,7 @@
 package xray
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"log/slog"
@@ -15,6 +16,12 @@ import (
 
 	chiralv1 "github.com/SayukiOvO/chiral/proto/chiral/v1"
 )
+
+// applySettleWindow is how long a freshly applied config's kernel must stay up
+// before the apply is acked as successful. Xray fails fast — a bad config or a
+// port collision aborts within a second — so this is generous rather than
+// tuned, and it is deliberately the same discipline the upgrade path applies.
+const applySettleWindow = 3 * time.Second
 
 // EventFunc receives asynchronous process events (crash/restart) for
 // forwarding to Core. It must not block.
@@ -222,13 +229,33 @@ func (m *Manager) Apply(version int64, configJSON []byte) error {
 	}
 
 	m.mu.Lock()
-	defer m.mu.Unlock()
 	m.stopLocked()
 	if err := m.startLocked(); err != nil {
 		m.state = chiralv1.XrayState_XRAY_STATE_ERROR
+		m.mu.Unlock()
 		return err
 	}
 	m.configVersion = version
+	m.mu.Unlock()
+
+	// startLocked returns as soon as fork/exec succeeds, which says nothing
+	// about whether the kernel stayed up: a config that passes `xray -test` can
+	// still fail to bind a port that is already taken, and dies milliseconds
+	// later. Returning nil there meant the agent acked applied=true — the
+	// success beat the death notice by about a millisecond — and the config
+	// history recorded a version that took the node offline as cleanly applied.
+	// Which version broke a node is exactly the input rollback needs.
+	//
+	// So wait out the same settle window an upgrade uses, and report what the
+	// kernel actually did. The lock is released first on purpose: the waiter
+	// goroutine takes it to record a crash.
+	if !m.staysUp(context.Background(), applySettleWindow) {
+		msg := "the kernel started and exited immediately"
+		if tail := m.StderrTail(10); tail != "" {
+			msg += ":\n" + tail
+		}
+		return fmt.Errorf("%s", msg)
+	}
 	return nil
 }
 
