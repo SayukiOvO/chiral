@@ -45,7 +45,7 @@ const EN: Record<string, string> = {
   "保存中…": "Saving…",
   "修改值": "Edit value",
   "修改「{name}」": "Edit “{name}”",
-  "改完之后要重新下发受影响的节点，存储的配置才会跟着变。": "Re-apply the affected nodes afterwards; the stored config is what a reconnecting agent gets.",
+  "修改后需重新下发受影响的节点。": "Re-apply the affected nodes afterwards.",
   "生成中…": "Generating…",
   暂无数据: "No data",
 
@@ -60,28 +60,28 @@ const EN: Record<string, string> = {
   "用户名或密码不正确。": "Incorrect username or password.",
   "验证中…": "Checking…",
   二次验证: "Two-factor check",
-  "密码正确，还需要一个验证方式。": "Password accepted. One more factor to go.",
+  "需要第二因素验证。": "A second factor is required.",
   通行密钥: "Passkey",
   验证器应用: "Authenticator app",
   邮箱验证码: "Emailed code",
   恢复码: "Recovery code",
-  "用你的通行密钥、指纹或安全密钥完成验证。":
-    "Finish with your passkey, fingerprint or security key.",
+  "使用通行密钥、指纹或安全密钥完成验证。":
+    "Verify with your passkey, fingerprint or security key.",
   "等待验证…": "Waiting…",
   使用通行密钥: "Use passkey",
-  "通行密钥已取消。": "Passkey prompt cancelled.",
+  "通行密钥验证已取消。": "Passkey verification cancelled.",
   发送验证码: "Send code",
   重新发送: "Send again",
   "验证码已发送至 {addr}": "Code sent to {addr}",
   "6 位验证码": "6-digit code",
   验证: "Verify",
   请重新登录: "Start again",
-  "这次登录已超时。": "This sign-in took too long.",
+  "本次登录已超时。": "This sign-in timed out.",
   重新开始: "Start over",
   "← 换个账号": "← Different account",
 
   // nodes page
-  "你的代理节点集群与实时状态。": "Your proxy fleet and its live state.",
+  "代理节点集群与实时状态。": "The proxy fleet and its live state.",
   "+ 新增节点": "+ Add node",
   新增节点: "Add node",
   在线节点: "Online",
@@ -98,8 +98,8 @@ const EN: Record<string, string> = {
   已停止: "Stopped",
   异常: "Error",
   还没有节点: "No nodes yet",
-  "新增第一个节点后，它的实时状态会显示在这里。":
-    "Add your first node and its live state will appear here.",
+  "新增节点后，此处显示其实时状态。":
+    "Add a node and its live state appears here.",
   "删除此节点？": "Delete this node?",
   重启内核: "Restart kernel",
   已发送重启: "Restart sent",
@@ -118,7 +118,7 @@ const EN: Record<string, string> = {
   暂无采样: "No samples yet",
 
   // users page
-  "订阅者、他们的配额，以及每个接入点上的独立凭证。":
+  "订阅者、配额，以及每个接入点上的独立凭证。":
     "Subscribers, their quotas, and a separate credential per access point.",
   "+ 新增用户": "+ Add user",
   新增用户: "Add user",
@@ -135,11 +135,11 @@ const EN: Record<string, string> = {
   不续期: "No renewal",
   不限: "Unlimited",
   还没有用户: "No users yet",
-  "新增用户后，授权他们使用某个接入配置，凭证会自动下发到该配置绑定的所有节点。":
-    "Add a user, grant them a profile, and their credentials reach every node bound to it.",
+  "新增用户并授权接入配置后，凭证自动下发至该配置绑定的所有节点。":
+    "Add a user and grant a profile; credentials reach every node bound to it.",
   "删除此用户？": "Delete this user?",
   可访问的接入配置: "Profiles they may use",
-  "授权后，该用户会自动获得这个接入配置绑定的每个节点上的独立凭证。":
+  "授权后，在该配置绑定的每个节点上生成独立凭证。":
     "Granting a profile mints a separate credential on each of its nodes.",
   还没有接入配置: "No profiles yet",
   流量趋势: "Traffic over time",
@@ -154,12 +154,12 @@ const EN: Record<string, string> = {
   // something the kernel does not measure.
   并发地址: "Addresses",
   并发地址上限: "Address limit",
-  "0 表示不限。仅作展示提醒，不会自动断开连接。":
-    "0 means unlimited. Shown as a hint only — nothing is disconnected.",
+  "0 表示不限。仅作提示，不会自动断开连接。":
+    "0 means unlimited. A hint only — nothing is disconnected.",
   来源地址: "Source addresses",
-  "还没有记录到任何地址。": "No addresses recorded yet.",
-  "只有超级管理员能查看具体地址。": "Only a superadmin can view the addresses themselves.",
-  "每次查看都会记入审计日志。": "Every view is written to the audit log.",
+  "暂无地址记录。": "No addresses recorded.",
+  "仅超级管理员可查看具体地址。": "Only a superadmin can view the addresses.",
+  "每次查看均记入审计日志。": "Every view is written to the audit log.",
   "最近 {when}": "last seen {when}",
   节点已删除: "node deleted",
   用户名: "Name",
@@ -169,32 +169,32 @@ const EN: Record<string, string> = {
   启用: "Enabled",
   "0 表示不限": "0 means unlimited",
   留空表示永不过期: "Leave blank for no expiry",
-  "到期时顺延一个周期，并把已用流量清零":
+  "到期顺延一个周期，并清零已用流量":
     "On expiry, roll forward one period and reset usage",
-  "改动会立即下发到节点。": "Changes reach the nodes immediately.",
-  "创建后会给出订阅链接，只显示这一次。":
-    "You will get the subscription link once, at creation.",
-  "流量配额必须是 0 或正数（0 表示不限）":
+  "改动立即下发至节点。": "Changes reach the nodes immediately.",
+  "订阅链接在创建后仅显示一次。":
+    "The subscription link is shown once, at creation.",
+  "流量配额须为 0 或正数（0 表示不限）":
     "Quota must be 0 or more (0 means unlimited)",
   "每 30 天": "Every 30 days",
   "每 7 天": "Every 7 days",
   "每 90 天": "Every 90 days",
 
   // profiles / variables / node config
-  "渲染后作为一项进节点 config.json 的 inbounds。clients 留空，由 Core 按绑定用户注入。":
-    "Rendered as one entry in the node's config.json inbounds. Leave clients empty — Core fills it from the bound users.",
-  "clients 数组里单个用户对象的模板。M3 的在线增删用户改的就是这一条。":
-    "The template for one entry of the clients array. This is exactly what online add/remove edits.",
-  "每种客户端手写一份，避开订阅转换的表达力上限。私钥变量在这里不可用。":
-    "One hand-written template per client, so nothing is limited by what a converter can express. Secret variables are unavailable here.",
+  "渲染后作为一项写入节点 config.json 的 inbounds。clients 留空，由 Core 按绑定用户注入。":
+    "Rendered as one entry of the node's config.json inbounds. Leave clients empty; Core fills it from the bound users.",
+  "clients 数组中单个用户对象的模板。在线增删用户即修改此项。":
+    "The template for one entry of the clients array. Online add/remove edits exactly this.",
+  "每种客户端各写一份，不经订阅转换。此处不可引用私钥变量。":
+    "One hand-written template per client, with no converter in between. Secret variables are unavailable here.",
   未填: "empty",
   "创建中…": "Creating…",
   "（需要 xray 二进制，当前不可用）": " (needs the xray binary; unavailable)",
   "{ok} 个成功，{bad} 个失败：": "{ok} succeeded, {bad} failed: ",
-  "删除接入配置「{name}」？绑定关系与其变量会一并删除。":
-    "Delete profile \u201c{name}\u201d? Its bindings and variables go with it.",
-  "删除变量「{name}」？引用它的模板会渲染失败。":
-    "Delete variable \u201c{name}\u201d? Templates referencing it will fail to render.",
+  "删除接入配置「{name}」？其绑定关系与变量将一并删除。":
+    "Delete profile “{name}”? Its bindings and variables go with it.",
+  "删除变量「{name}」？引用它的模板将渲染失败。":
+    "Delete variable “{name}”? Templates referencing it will fail to render.",
   "骨架不是合法 JSON：{msg}": "The skeleton is not valid JSON: {msg}",
   属于哪个接入配置: "Which profile",
   属于哪个节点: "Which node",
@@ -208,18 +208,18 @@ const EN: Record<string, string> = {
   下发: "Apply",
   "xray -test 通过": "xray -test passed",
   "xray -test 未通过": "xray -test failed",
-  "磁盘上是 {v}，但运行中的进程还是旧版本；重启内核后才会生效":
-    "{v} is on disk, but the running process is still the older build; it takes effect after a kernel restart",
+  "磁盘上为 {v}，运行中的进程仍是旧版本，重启内核后生效":
+    "{v} is on disk; the running process is still the older build. Takes effect after a kernel restart.",
 
   // kernel upgrades
-  "先升一台，确认没问题再放行到全部节点。起不来会自动回滚，节点继续用旧版本服务。": "Upgrade one node first, confirm it, then release to the rest. A kernel that will not start is rolled back automatically and the node keeps serving on the old one.",
+  "先升级一台并确认，再放行至全部节点。新内核无法启动时自动回滚，节点继续以旧版本服务。": "Upgrade one node and confirm it, then release to the rest. A kernel that will not start is rolled back automatically and the node keeps serving on the old one.",
   上游最新版本: "Latest upstream release",
   预发布: "prerelease",
   面板已具备校验能力: "the panel can validate for it",
-  取不到上游版本: "could not reach upstream",
+  "无法获取上游版本": "could not reach upstream",
   "查询中…": "checking…",
-  选一台做金丝雀: "pick a canary node",
-  升级这一台: "Upgrade this one",
+  "选择金丝雀节点": "Pick a canary node",
+  "升级此节点": "Upgrade this node",
   各节点内核: "Kernel per node",
   磁盘上: "On disk",
   架构未知: "architecture unknown",
@@ -229,8 +229,8 @@ const EN: Record<string, string> = {
   最近一次升级: "Last upgrade",
   金丝雀: "canary",
   放行到全部节点: "Release to all nodes",
-  "修好了，再试一次": "Fixed it, try again",
-  结束这次升级: "End this upgrade",
+  "重试": "Retry",
+  "结束升级": "End upgrade",
   金丝雀升级中: "Canary upgrading",
   等待放行: "Waiting for release",
   正在放行: "Releasing",
@@ -241,49 +241,49 @@ const EN: Record<string, string> = {
   校验中: "Verifying",
   "已就位（未启用）": "Staged (not activated)",
   切换中: "Switching over",
-  "已验证客户可上网": "Verified: a client got online",
-  "起来了，但没验证到通": "Up, but nothing confirmed traffic",
+  "已验证可上网": "Verified: traffic flows",
+  "运行中，未验证": "Running, unverified",
   已回滚: "Rolled back",
   // subscription dialog
   订阅链接: "subscription link",
   重置订阅链接: "Reset subscription link",
-  "面板只保存令牌的哈希，所以这个链接": "The panel only stores a hash of the token, so this link is ",
+  "面板仅保存令牌哈希，此链接": "The panel stores only a hash of the token, so this link is ",
   只显示这一次: "shown only once",
-  "。 客户端会按自己的类型自动取到对应格式。":
-    ". Clients receive the format they ask for automatically.",
+  "。客户端将自动获取对应格式。":
+    ". Clients receive the format they ask for.",
   "需要指定格式时可加": "To force a format, append",
   "的订阅链接": "'s subscription link",
 
   // add-node dialog
-  "为节点起个名字，生成一次性加入命令。":
+  "填写节点名称，生成一次性加入命令。":
     "Name the node to generate its one-time join command.",
   "例如 tokyo-1": "e.g. tokyo-1",
   生成加入命令: "Generate join command",
   节点已创建: "Node created",
   在目标主机保存为: "On the target host, save this as",
   "，然后运行": ", then run",
-  "。加入令牌仅可使用一次。": ". The join token can only be used once.",
+  "。加入令牌仅可使用一次。": ". The join token can be used once.",
 
   // node config dialog
-  "骨架是 inbounds 之外的部分；inbounds 由绑定的接入配置渲染装配。":
-    "The skeleton is everything but inbounds; those are assembled from the profiles bound to this node.",
+  "骨架为 inbounds 之外的部分。inbounds 由绑定的接入配置渲染装配。":
+    "The skeleton is everything except inbounds. Those are assembled from the profiles bound to this node.",
   关闭: "Close",
   "config 骨架": "Config skeleton",
   保存骨架: "Save skeleton",
   装配预览: "Assembly preview",
-  "无法装配。先绑定接入配置，并确认模板里的变量都已定义。":
-    "Cannot assemble. Bind a profile first, and check every variable the template uses is defined.",
+  "无法装配。请先绑定接入配置，并确认模板引用的变量均已定义。":
+    "Cannot assemble. Bind a profile, and check every variable the template references is defined.",
   未校验: "Not validated",
-  "面板未配置 xray 二进制，下发前不做预校验":
-    "No xray binary on the panel, so configs are pushed without validation",
+  "面板未配置 xray 二进制，下发前不做校验":
+    "No xray binary on the panel; configs are pushed without validation",
   "骨架不是合法 JSON：": "Skeleton is not valid JSON: ",
   "已下发，版本 v{n}": "Applied as v{n}",
 
   // profiles page
-  "一套接入方式：服务端 inbound 骨架 + 每用户凭证 + 各客户端模板。":
+  "一套接入方式：服务端 inbound 骨架、每用户凭证与各客户端模板。":
     "One way in: a server inbound skeleton, a per-user credential, and a template per client.",
   新增: "New",
-  "还没有接入配置。新建一个，再把它绑定到节点上。":
+  "暂无接入配置。新建后绑定至节点。":
     "No profiles yet. Create one, then bind it to a node.",
   "{n} 个节点": "{n} nodes",
   "{n} 份客户端模板": "{n} client templates",
@@ -296,17 +296,17 @@ const EN: Record<string, string> = {
   "载入中…": "Loading…",
 
   // variables page
-  "模板里 {{名字}} 引用的值。私钥类分量只存不取。":
+  "模板通过 {{名字}} 引用的值。私钥类分量只存不取。":
     "The values templates reference. Secret components are stored but never returned.",
   新增变量: "New variable",
-  "还没有变量。生成一组 REALITY 密钥或填一个静态值，模板就能引用它。":
-    "No variables yet. Generate a REALITY keypair or set a static value, and templates can use it.",
+  "暂无变量。生成一组 REALITY 密钥或填入静态值后，模板即可引用。":
+    "No variables yet. Generate a REALITY keypair or set a static value, and templates can reference it.",
   作用域: "Scope",
   取值: "Value",
   删除变量: "Delete variable",
-  "生成器会产出成组的分量（如": "A generator produces a group of components (for example",
+  "生成器产出成组分量（如": "A generator produces a group of components (for example",
 
-  "绑上以后，下发即把这套 inbound 装配进该节点的 config。":
+  "绑定后，下发时将此 inbound 装配进该节点配置。":
     "Once bound, applying assembles this inbound into that node's config.",
 
   // template editor
@@ -330,7 +330,7 @@ const EN: Record<string, string> = {
   "每用户 client-entry": "Per-user client entry",
   绑定节点: "Bound nodes",
   "还没有节点。": "No nodes yet.",
-  "服务端与客户端引用同一组变量的不同分量，因此不可能配错。":
+  "服务端与客户端引用同一变量组的不同分量，因此不会配错。":
     "Server and client reference different components of the same variable, so they cannot drift apart.",
 
   // variables page detail
@@ -340,8 +340,8 @@ const EN: Record<string, string> = {
   模板里: "Templates reference",
   "引用的值。私钥类分量只存不取。":
     " — these values. Secret components are stored but never returned.",
-  "该生成器由面板调用 xray 二进制产出，保证格式与内核一致。":
-    "The panel produces this by running the xray binary, so the format always matches the kernel.",
+  "由面板调用 xray 二进制产出，格式与内核一致。":
+    "Produced by running the xray binary, so the format matches the kernel.",
   "），服务端与客户端各引用一半，天然配对。":
     "); the server and client each reference one half, so they always match.",
   "例如 alice": "e.g. alice",
@@ -354,83 +354,85 @@ const EN: Record<string, string> = {
   操作员: "Operator",
   只读: "Read-only",
   邮箱: "Email",
-  "只有密码。加一个第二因素，密码泄露就不足以登录。":
+  "当前仅使用密码。添加第二因素后，密码泄露不足以登录。":
     "Password only. Add a second factor and a leaked password is no longer enough.",
-  "登录时，密码之外还需要下面任意一项。":
+  "登录时需密码，加以下任意一项。":
     "Signing in needs the password plus any one of these.",
-  "还没有第二因素。": "No second factor yet.",
+  "暂无第二因素。": "No second factor.",
   "最近使用 {when}": "Last used {when}",
   从未使用: "Never used",
   移除: "Remove",
-  "这是最后一个第二因素，移除后只剩密码。确定？":
-    "This is the last second factor — removing it leaves only the password. Continue?",
-  "移除这个第二因素？": "Remove this second factor?",
+  "这是最后一个第二因素，移除后仅剩密码。是否继续？":
+    "This is the last second factor; removing it leaves only the password. Continue?",
+  "移除此第二因素？": "Remove this second factor?",
   更换邮箱: "Change email",
   "面板未配置 SMTP": "SMTP is not configured on this panel",
-  "通行密钥需要面板经 https（或 localhost）访问": "Passkeys need https (or localhost)",
-  "通行密钥需要面板经 https（或 localhost）访问，且 CHIRAL_PUBLIC_URL 指向它。":
+  "通行密钥需面板经 https（或 localhost）访问": "Passkeys need https (or localhost)",
+  "通行密钥需面板经 https（或 localhost）访问，且 CHIRAL_PUBLIC_URL 指向该地址。":
     "Passkeys need the panel served over https (or localhost), with CHIRAL_PUBLIC_URL pointing at it.",
-  "邮箱验证码需要在 .env 里配置 CHIRAL_SMTP_HOST 与 CHIRAL_SMTP_FROM。":
+  "邮箱验证码需在 .env 中配置 CHIRAL_SMTP_HOST 与 CHIRAL_SMTP_FROM。":
     "Emailed codes need CHIRAL_SMTP_HOST and CHIRAL_SMTP_FROM set in .env.",
-  "设备丢了的时候用它登录。每个只能用一次，重新生成会作废旧的。":
-    "Your way back in if you lose a device. Each works once; regenerating voids the old set.",
+  "设备丢失时用于登录。每个仅可使用一次，重新生成将作废现有恢复码。":
+    "Your way back in if you lose a device. Each works once; regenerating voids the existing set.",
   "剩余 {n} 个未使用": "{n} unused",
-  "还没有恢复码。": "No recovery codes yet.",
-  "重新生成会作废现有的恢复码。确定？":
-    "Regenerating voids your existing recovery codes. Continue?",
+  "暂无恢复码。": "No recovery codes.",
+  "重新生成将作废现有恢复码。是否继续？":
+    "Regenerating voids the existing recovery codes. Continue?",
   重新生成: "Regenerate",
   生成: "Generate",
-  "改密码会让所有已登录的会话失效，包括当前这个。":
+  "修改密码将使所有会话失效，包括当前会话。":
     "Changing it signs out every session, including this one.",
   修改密码: "Change password",
-  "当前是用环境变量里的管理令牌进入的，它没有对应的账号，也就没有第二因素可设。用一个管理员账号登录后再来这里。":
-    "You are in with the admin token from the environment. It has no account behind it, so there is nothing here to configure. Sign in with an admin account instead.",
+  "当前使用环境变量中的管理令牌登录。该令牌没有对应账号，无法配置第二因素。请改用管理员账号登录。":
+    "You are signed in with the admin token from the environment. It has no account behind it, so there is nothing here to configure. Sign in with an admin account instead.",
   添加验证器应用: "Add an authenticator app",
-  "用 Authy、1Password、Google Authenticator 之类的应用扫码，再填一次它给出的验证码。":
-    "Scan this with Authy, 1Password, Google Authenticator or similar, then type back the code it shows.",
+  "使用 Authy、1Password、Google Authenticator 等应用扫码，然后填入其显示的验证码。":
+    "Scan this with Authy, 1Password, Google Authenticator or similar, then enter the code it shows.",
   或手动输入密钥: "Or enter the secret by hand",
-  "应用给出的 6 位验证码": "The app's 6-digit code",
+  "应用显示的 6 位验证码": "The 6-digit code from the app",
   开启: "Turn on",
   验证邮箱: "Verify email",
-  "验证后，这个地址可以作为登录时的第二因素接收验证码。":
+  "验证后，此地址可作为第二因素接收登录验证码。":
     "Once verified, this address can receive sign-in codes as a second factor.",
   邮箱地址: "Email address",
   发送: "Send",
-  "邮件里的 6 位验证码": "The 6-digit code from the email",
-  "现在就存好。面板只保存它们的哈希，关掉这个窗口后再也看不到。":
-    "Save these now. The panel keeps only their hashes — close this and they are gone.",
+  "邮件中的 6 位验证码": "The 6-digit code from the email",
+  "请立即保存。面板仅保存其哈希，关闭后无法再次查看。":
+    "Save these now. The panel keeps only their hashes; they are not shown again.",
   复制全部: "Copy all",
-  我存好了: "I've saved them",
-  "改完需要重新登录。": "You will need to sign in again afterwards.",
+  // The recovery-code button, distinct from the 已保存 status label:
+  // the English has to differ, so the Chinese key does too.
+  我已保存: "I have saved them",
+  "修改后需重新登录。": "You will need to sign in again.",
   当前密码: "Current password",
   新密码: "New password",
-  再输一次: "Repeat it",
-  "两次输入不一致。": "Those do not match.",
+  "确认新密码": "Confirm new password",
+  "两次输入不一致。": "The two entries do not match.",
 
   // config rollback
   下发历史: "Push history",
-  "还没有下发过配置。": "No config has been pushed yet.",
+  "暂无下发记录。": "No config has been pushed.",
   当前: "current",
   节点拒绝: "rejected by the node",
   等待确认: "awaiting ack",
   回滚到此版本: "Roll back to this",
   "回滚中…": "Rolling back…",
-  "回滚到版本 {v}？它会作为一个新版本重新下发。":
-    "Roll back to v{v}? It gets pushed again as a new version.",
-  "只保留最近 {n} 个版本。回滚会重新跑一次 xray -test——内核升级过之后，老配置未必还合法。":
-    "The last {n} versions are kept. A rollback re-runs xray -test — after a kernel upgrade an old config is not necessarily still valid.",
+  "回滚到版本 {v}？该内容将作为新版本重新下发。":
+    "Roll back to v{v}? The content is pushed again as a new version.",
+  "仅保留最近 {n} 个版本。回滚前会重新执行 xray -test：内核升级后，旧配置未必仍合法。":
+    "The last {n} versions are kept. A rollback re-runs xray -test: after a kernel upgrade an old config may no longer be valid.",
 
   // alerts page
   告警: "Alerts",
-  "节点上线 / 掉线的通知去处。状态要稳定两分钟才播报，避免抖动刷屏。":
+  "节点上线 / 掉线通知的接收方。状态需稳定两分钟才播报，避免抖动。":
     "Where node up/down notifications go. A state must hold for two minutes before it is announced, so a flapping link does not flood the channel.",
   新增目标: "Add target",
   新增通知目标: "Add a notification target",
-  "还没有通知目标。加一个之后，节点掉线时才有人知道。":
-    "No targets yet. Until there is one, a node going down tells nobody.",
-  "创建后发一条测试消息——填错的 chat id 在真出事之前和正常的一模一样。":
-    "Send a test afterwards — a wrong chat id looks exactly like a working one until the night it matters.",
-  发一条测试: "Send a test",
+  "暂无通知目标。未配置时，节点掉线不会通知任何人。":
+    "No targets yet. Until one exists, a node going down tells nobody.",
+  "创建后请发送测试消息：填错的 chat id 在真正告警前与正常配置无异。":
+    "Send a test afterwards: a wrong chat id looks exactly like a working one until the night it matters.",
+  "发送测试": "Send a test",
   已送达: "Delivered",
   发送失败: "Failed",
   最近发送: "last sent",
@@ -439,55 +441,55 @@ const EN: Record<string, string> = {
   // 配置 already means the node's "Configure" action; this is a noun.
   目标配置: "Target config",
   "例如 运维群": "e.g. Ops group",
-  "格式 <bot-token>:<chat-id>。bot token 里本来就有冒号，从最右边的冒号切分。":
+  "格式 <bot-token>:<chat-id>。bot token 自身含冒号，按最右侧冒号切分。":
     "Format <bot-token>:<chat-id>. The bot token contains a colon itself, so it is split at the rightmost one.",
-  "POST 一个 JSON body 过去。": "POSTs a JSON body.",
+  "以 POST 发送 JSON body。": "POSTs a JSON body.",
 
   // admins page
   管理员: "Admins",
   新增管理员: "Add admin",
-  "能登录控制台的人，以及他们的角色。": "Who can sign in to the console, and as what.",
-  "还没有管理员账号。": "No admin accounts yet.",
-  "只有超级管理员能管理管理员账号。": "Only a superadmin can manage admin accounts.",
-  "对方首次登录后可以在「安全」页自行改密码并加第二因素。":
+  "可登录控制台的账号及其角色。": "Who can sign in to the console, and as what.",
+  "暂无管理员账号。": "No admin accounts.",
+  "仅超级管理员可管理管理员账号。": "Only a superadmin can manage admin accounts.",
+  "该账号首次登录后，可在「安全」页自行修改密码并添加第二因素。":
     "After their first sign-in they can change the password and add a second factor from Security.",
   "初始密码（至少 8 位）": "Initial password (8 characters or more)",
   角色: "Role",
   "全部权限，含管理其他管理员": "Everything, including managing other admins",
-  "改状态：节点 / 接入配置 / 变量 / 用户": "Changes state: nodes, profiles, variables, users",
-  只能看: "Read-only",
-  "（你自己）": "(you)",
+  "可修改：节点 / 接入配置 / 变量 / 用户": "Can change nodes, profiles, variables and users",
+  "仅可查看": "Read-only",
+  "（当前账号）": "(current account)",
   最近登录: "last signed in",
   "最近登录 {when}": "last signed in {when}",
   从未登录: "never signed in",
-  不能改自己的角色: "You cannot change your own role",
+  "不可修改自己的角色": "You cannot change your own role",
   删除管理员: "Delete admin",
 
   // audit page
   审计: "Audit",
-  "谁在什么时候改了什么。保留 180 天。": "Who changed what, and when. Kept for 180 days.",
+  "变更记录，保留 180 天。": "Who changed what, and when. Kept for 180 days.",
   "按动作过滤，例如 user.delete": "Filter by action, e.g. user.delete",
-  "还没有审计记录。": "Nothing recorded yet.",
-  "没有匹配的记录。": "No entries match.",
+  "暂无审计记录。": "Nothing recorded.",
+  "无匹配记录。": "No entries match.",
   加载更多: "Load more",
 
   // node naming / portal handover (console side)
   重命名节点: "Rename node",
   重命名: "Rename",
-  "内部名给运维看，对客名称给订阅者看。":
-    "The internal name is for you; the customer-facing one is what subscribers see.",
+  "内部名用于运维，对客名称展示给订阅者。":
+    "The internal name is for operators; the customer-facing one is what subscribers see.",
   内部名: "Internal name",
   对客名称: "Customer-facing name",
-  "只在控制台出现，不会发给订阅者。": "Console only — never sent to subscribers.",
+  "仅在控制台显示，不会发送给订阅者。": "Console only; never sent to subscribers.",
   "例如 日本 · 东京 01": "e.g. Japan · Tokyo 01",
-  "留空则门户显示「线路 01」这样的编号，不会回落到内部名。":
+  "留空时门户按序号显示为「线路 01」，不会回落到内部名。":
     "Leave blank and the portal numbers the line instead. It never falls back to the internal name.",
   未设对客名称: "no customer-facing name",
   门户认领链接: "Portal claim link",
-  "把这条链接发给 {name}，他用它设置自己的门户密码。":
-    "Send this to {name}; they use it to set their own portal password.",
-  "7 天内有效，只能用一次，关掉这个窗口就再也看不到。账号已存在时它只能改密码，不能改邮箱。":
-    "Valid for 7 days, usable once, and gone when you close this. If the account already exists it can set a new password but cannot change the email address.",
+  "将此链接发送给 {name}，用于设置门户密码。":
+    "Send this to {name} to set their portal password.",
+  "7 天内有效，仅可使用一次，关闭后无法再次查看。若账号已存在，仅可重设密码，不可修改邮箱。":
+    "Valid for 7 days, usable once, and not shown again after this window closes. If the account already exists it can set a new password but cannot change the email address.",
 
   // --- portal (the subscriber's side) ---
   //
@@ -510,12 +512,12 @@ const EN: Record<string, string> = {
   注册: "Sign up",
   "还没有账号？": "No account yet?",
   "已经有账号？": "Already have an account?",
-  "查看你的订阅、线路与用量。": "Your subscription, lines and usage.",
+  "查看订阅、线路与用量。": "Your subscription, lines and usage.",
   "注册后请联系管理员开通线路。": "After signing up, ask the operator to enable your lines.",
   "忘记密码请联系管理员重置。": "Forgotten your password? Ask the operator to reset it.",
-  "这个面板暂不开放注册。": "This panel is not accepting new accounts.",
+  "本面板暂不开放注册。": "This panel is not accepting new accounts.",
   可以登录了: "Ready to sign in",
-  "如果这个邮箱还没被注册，账号已经建好。":
+  "若该邮箱尚未注册，账号已创建。":
     "If that address was not already registered, the account is ready.",
   去登录: "Go to sign in",
   账户: "Account",
@@ -524,11 +526,11 @@ const EN: Record<string, string> = {
 
   // claim / reset
   设置密码: "Set a password",
-  "这个链接属于账号 {name}。": "This link is for the account {name}.",
+  "此链接对应账号 {name}。": "This link is for the account {name}.",
   "邮箱（首次设置时填写）": "Email (only when setting up)",
   设置密码并登录: "Set password and sign in",
   链接无效: "That link does not work",
-  "这个链接已失效或已被使用。请向管理员再要一个。":
+  "此链接已失效或已被使用，请联系管理员重新获取。":
     "It has expired or already been used. Ask the operator for another.",
 
   // home
@@ -539,35 +541,35 @@ const EN: Record<string, string> = {
   正常: "available",
   开通中: "being set up",
   暂不可用: "unavailable",
-  "你的账户还没有开通任何线路。": "No lines have been enabled on your account yet.",
+  "账户尚未开通任何线路。": "No lines have been enabled on this account.",
   "最近 24 小时": "Last 24 hours",
   "最近 24 小时没有流量": "No traffic in the last 24 hours",
 
   // subscription
   我的订阅链接: "Subscription link",
-  "复制到你的客户端，它会自动获取全部线路。":
-    "Paste it into your client; it will pull every line automatically.",
+  "复制到客户端，将自动获取全部线路。":
+    "Paste it into your client to pull every line.",
   通用: "Generic",
   分享链接: "Share link",
   显示二维码: "Show QR code",
   收起二维码: "Hide QR code",
-  "二维码包含你的订阅密钥，不要分享截图。":
-    "This code contains your subscription key — do not share a screenshot.",
-  "这个账户的订阅链接是旧版本创建的，面板无法显示。请联系管理员重新生成。":
-    "This account's link predates the panel being able to show it. Ask the operator to regenerate it.",
+  "二维码含订阅密钥，请勿分享截图。":
+    "This code contains your subscription key. Do not share a screenshot.",
+  "此订阅链接由旧版本创建，面板无法显示，请联系管理员重新生成。":
+    "This link predates the panel being able to display it. Ask the operator to regenerate it.",
 
   // status banners
   "账户已停用，请联系管理员。": "This account has been suspended. Please contact the operator.",
   "订阅已到期，请联系管理员续期。": "Your subscription has expired. Please contact the operator.",
   "本期流量已用完。": "You have used all of this period's traffic.",
-  "账户已创建，但还没有开通线路。请联系管理员。":
-    "Your account exists but no lines have been enabled yet. Please contact the operator.",
+  "账户已创建，尚未开通线路，请联系管理员。":
+    "The account exists but no lines are enabled yet. Please contact the operator.",
 
   // addresses
   "最近连接过的来源地址。": "Source addresses seen recently.",
-  "最近连接过的来源地址，上限 {n} 个。":
-    "Source addresses seen recently. The limit is {n}.",
-  "最近没有记录到连接。": "No connections recorded recently.",
+  "最近连接的来源地址，上限 {n} 个。":
+    "Recently seen source addresses, limit {n}.",
+  "暂无连接记录。": "No connections recorded.",
 };
 
 const DICT: Record<Lang, Record<string, string>> = { zh: {}, en: EN };

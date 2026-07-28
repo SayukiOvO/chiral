@@ -48,5 +48,5 @@ export const authInput =
 /** A hint that the panel is not accepting new accounts, said plainly. */
 export function ClosedNotice() {
   const { t } = useT();
-  return <p className="text-sm text-muted">{t("这个面板暂不开放注册。")}</p>;
+  return <p className="text-sm text-muted">{t("本面板暂不开放注册。")}</p>;
 }

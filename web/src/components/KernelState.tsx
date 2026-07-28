@@ -55,7 +55,7 @@ export function KernelState({
       {installed && installed !== version && (
         <span
           className="font-mono text-xs text-muted"
-          title={t("磁盘上是 {v}，但运行中的进程还是旧版本；重启内核后才会生效").replace("{v}", installed)}
+          title={t("磁盘上为 {v}，运行中的进程仍是旧版本，重启内核后生效").replace("{v}", installed)}
         >
           →{installed}
         </span>

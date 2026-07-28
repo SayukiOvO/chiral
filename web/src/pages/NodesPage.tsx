@@ -61,7 +61,7 @@ export function NodesPage({ onSignOut }: { onSignOut: () => void }) {
       <div className="mb-6 flex items-end justify-between gap-4">
         <div className="animate-rise">
           <h1 className="font-display text-[26px] font-semibold tracking-tight">{t("节点")}</h1>
-          <p className="mt-1 text-sm text-muted">{t("你的代理节点集群与实时状态。")}</p>
+          <p className="mt-1 text-sm text-muted">{t("代理节点集群与实时状态。")}</p>
         </div>
         <Button variant="primary" onClick={() => setAddOpen(true)}>
           <PlusIcon size={16} />

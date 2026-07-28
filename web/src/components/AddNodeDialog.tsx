@@ -53,7 +53,7 @@ export function AddNodeDialog({
         {!result ? (
           <form onSubmit={create}>
             <h3 className="font-display text-lg font-semibold tracking-tight">{t("新增节点")}</h3>
-            <p className="mt-1 text-sm text-muted">{t("为节点起个名字，生成一次性加入命令。")}</p>
+            <p className="mt-1 text-sm text-muted">{t("填写节点名称，生成一次性加入命令。")}</p>
             <input
               autoFocus
               value={name}

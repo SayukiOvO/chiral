@@ -197,7 +197,7 @@ function SecondFactor({
     } catch (err) {
       // A cancelled prompt is not a failure worth shouting about.
       const msg = (err as Error).message;
-      setError(/NotAllowed|abort/i.test(msg) ? t("通行密钥已取消。") : msg);
+      setError(/NotAllowed|abort/i.test(msg) ? t("通行密钥验证已取消。") : msg);
     } finally {
       setBusy(false);
     }
@@ -220,7 +220,7 @@ function SecondFactor({
     return (
       <div>
         <h1 className="font-display text-2xl font-semibold tracking-tight">{t("请重新登录")}</h1>
-        <p className="mt-1.5 text-sm text-muted">{t("这次登录已超时。")}</p>
+        <p className="mt-1.5 text-sm text-muted">{t("本次登录已超时。")}</p>
         <Button variant="primary" onClick={onRestart} className="mt-4 w-full">
           {t("重新开始")}
         </Button>
@@ -231,7 +231,7 @@ function SecondFactor({
   return (
     <div>
       <h1 className="font-display text-2xl font-semibold tracking-tight">{t("二次验证")}</h1>
-      <p className="mt-1.5 text-sm text-muted">{t("密码正确，还需要一个验证方式。")}</p>
+      <p className="mt-1.5 text-sm text-muted">{t("需要第二因素验证。")}</p>
 
       {available.length > 1 && (
         <div className="mt-5 flex flex-wrap gap-1.5">
@@ -258,7 +258,7 @@ function SecondFactor({
 
       {choice === "passkey" ? (
         <div className="mt-5">
-          <p className="text-sm text-muted">{t("用你的通行密钥、指纹或安全密钥完成验证。")}</p>
+          <p className="text-sm text-muted">{t("使用通行密钥、指纹或安全密钥完成验证。")}</p>
           <Button variant="primary" onClick={usePasskey} disabled={busy} className="mt-4 w-full">
             {busy ? t("等待验证…") : t("使用通行密钥")}
           </Button>

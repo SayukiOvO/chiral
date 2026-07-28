@@ -50,7 +50,7 @@ export function UsersPage() {
         <div className="animate-rise">
           <h1 className="font-display text-[26px] font-semibold tracking-tight">{t("用户")}</h1>
           <p className="mt-1 text-sm text-muted">
-            {t("订阅者、他们的配额，以及每个接入点上的独立凭证。")}
+            {t("订阅者、配额，以及每个接入点上的独立凭证。")}
           </p>
         </div>
         <Button variant="primary" onClick={() => setCreating(true)}>
@@ -295,7 +295,7 @@ function UserCard({
             </div>
           )}
           <p className="mt-2 text-xs text-faint">
-            {t("授权后，该用户会自动获得这个接入配置绑定的每个节点上的独立凭证。")}
+            {t("授权后，在该配置绑定的每个节点上生成独立凭证。")}
           </p>
 
           <div className="mt-5">
@@ -393,7 +393,7 @@ function EmptyState() {
     <div className="rounded-2xl border border-dashed border-line-strong bg-surface px-8 py-16 text-center">
       <p className="font-medium text-ink">{t("还没有用户")}</p>
       <p className="mt-1.5 text-sm text-muted">
-        {t("新增用户后，授权他们使用某个接入配置，凭证会自动下发到该配置绑定的所有节点。")}
+        {t("新增用户并授权接入配置后，凭证自动下发至该配置绑定的所有节点。")}
       </p>
     </div>
   );

@@ -40,7 +40,7 @@ export function AccountPage({ onSignOut }: { onSignOut: () => void }) {
 
       <section className="mt-5 rounded-2xl border border-line bg-surface px-5 py-5">
         <h2 className="font-display text-[15px] font-semibold tracking-tight">{t("修改密码")}</h2>
-        <p className="mt-1 text-sm text-muted">{t("改完需要重新登录。")}</p>
+        <p className="mt-1 text-sm text-muted">{t("修改后需重新登录。")}</p>
         <form onSubmit={submit}>
           <Field label={t("当前密码")}>
             <input
@@ -60,7 +60,7 @@ export function AccountPage({ onSignOut }: { onSignOut: () => void }) {
               className={inputCls}
             />
           </Field>
-          <Field label={t("再输一次")}>
+          <Field label={t("确认新密码")}>
             <input
               type="password"
               autoComplete="new-password"

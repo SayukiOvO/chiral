@@ -34,7 +34,7 @@ export function SignIn({
   }
 
   return (
-    <AuthShell title={t("登录")} subtitle={t("查看你的订阅、线路与用量。")}>
+    <AuthShell title={t("登录")} subtitle={t("查看订阅、线路与用量。")}>
       <form onSubmit={submit}>
         <input
           autoFocus

@@ -86,12 +86,12 @@ export function SecurityPage() {
         title={t("二次验证")}
         note={
           confirmed.length === 0
-            ? t("只有密码。加一个第二因素，密码泄露就不足以登录。")
-            : t("登录时，密码之外还需要下面任意一项。")
+            ? t("当前仅使用密码。添加第二因素后，密码泄露不足以登录。")
+            : t("登录时需密码，加以下任意一项。")
         }
       >
         {confirmed.length === 0 ? (
-          <Empty>{t("还没有第二因素。")}</Empty>
+          <Empty>{t("暂无第二因素。")}</Empty>
         ) : (
           <div className="overflow-hidden rounded-2xl border border-line bg-surface">
             {confirmed.map((f) => (
@@ -119,8 +119,8 @@ export function SecurityPage() {
                     if (
                       !confirm(
                         confirmed.length === 1
-                          ? t("这是最后一个第二因素，移除后只剩密码。确定？")
-                          : t("移除这个第二因素？"),
+                          ? t("这是最后一个第二因素，移除后仅剩密码。是否继续？")
+                          : t("移除此第二因素？"),
                       )
                     )
                       return;
@@ -150,7 +150,7 @@ export function SecurityPage() {
             title={
               status.passkey_ready
                 ? undefined
-                : t("通行密钥需要面板经 https（或 localhost）访问")
+                : t("通行密钥需面板经 https（或 localhost）访问")
             }
           >
             <PlusIcon size={16} />
@@ -167,32 +167,32 @@ export function SecurityPage() {
         </div>
         {!status.passkey_ready && (
           <p className="mt-2 text-xs text-faint">
-            {t("通行密钥需要面板经 https（或 localhost）访问，且 CHIRAL_PUBLIC_URL 指向它。")}
+            {t("通行密钥需面板经 https（或 localhost）访问，且 CHIRAL_PUBLIC_URL 指向该地址。")}
           </p>
         )}
         {!status.email_ready && (
           <p className="mt-2 text-xs text-faint">
-            {t("邮箱验证码需要在 .env 里配置 CHIRAL_SMTP_HOST 与 CHIRAL_SMTP_FROM。")}
+            {t("邮箱验证码需在 .env 中配置 CHIRAL_SMTP_HOST 与 CHIRAL_SMTP_FROM。")}
           </p>
         )}
       </Section>
 
       <Section
         title={t("恢复码")}
-        note={t("设备丢了的时候用它登录。每个只能用一次，重新生成会作废旧的。")}
+        note={t("设备丢失时用于登录。每个仅可使用一次，重新生成将作废现有恢复码。")}
       >
         <div className="flex items-center justify-between gap-4 rounded-2xl border border-line bg-surface px-4 py-3">
           <span className="text-sm text-muted">
             {status.recovery_left > 0
               ? tf("剩余 {n} 个未使用", { n: status.recovery_left })
-              : t("还没有恢复码。")}
+              : t("暂无恢复码。")}
           </span>
           <Button
             size="sm"
             onClick={async () => {
               if (
                 status.recovery_left > 0 &&
-                !confirm(t("重新生成会作废现有的恢复码。确定？"))
+                !confirm(t("重新生成将作废现有恢复码。是否继续？"))
               )
                 return;
               try {
@@ -209,7 +209,7 @@ export function SecurityPage() {
         </div>
       </Section>
 
-      <Section title={t("密码")} note={t("改密码会让所有已登录的会话失效，包括当前这个。")}>
+      <Section title={t("密码")} note={t("修改密码将使所有会话失效，包括当前会话。")}>
         <Button onClick={() => setChangingPassword(true)}>{t("修改密码")}</Button>
       </Section>
 
@@ -270,7 +270,7 @@ function TokenNotice() {
     <div>
       <h1 className="font-display text-[26px] font-semibold tracking-tight">{t("安全")}</h1>
       <p className="mt-4 max-w-prose text-sm text-muted">
-        {t("当前是用环境变量里的管理令牌进入的，它没有对应的账号，也就没有第二因素可设。用一个管理员账号登录后再来这里。")}
+        {t("当前使用环境变量中的管理令牌登录。该令牌没有对应账号，无法配置第二因素。请改用管理员账号登录。")}
       </p>
     </div>
   );
@@ -320,7 +320,7 @@ function TotpDialog({
     <Modal onClose={onClose}>
       <h3 className="font-display text-lg font-semibold tracking-tight">{t("添加验证器应用")}</h3>
       <p className="mt-1 text-sm text-muted">
-        {t("用 Authy、1Password、Google Authenticator 之类的应用扫码，再填一次它给出的验证码。")}
+        {t("使用 Authy、1Password、Google Authenticator 等应用扫码，然后填入其显示的验证码。")}
       </p>
 
       {error && !begun && <p className="mt-3 text-sm text-danger">{error}</p>}
@@ -342,7 +342,7 @@ function TotpDialog({
             </div>
           </div>
 
-          <Field label={t("应用给出的 6 位验证码")}>
+          <Field label={t("应用显示的 6 位验证码")}>
             <input
               autoFocus
               value={code}
@@ -420,7 +420,7 @@ function EmailDialog({
       <form onSubmit={confirm}>
         <h3 className="font-display text-lg font-semibold tracking-tight">{t("验证邮箱")}</h3>
         <p className="mt-1 text-sm text-muted">
-          {t("验证后，这个地址可以作为登录时的第二因素接收验证码。")}
+          {t("验证后，此地址可作为第二因素接收登录验证码。")}
         </p>
 
         <Field label={t("邮箱地址")}>
@@ -444,7 +444,7 @@ function EmailDialog({
             <p className="mt-2 text-xs text-muted">
               {tf("验证码已发送至 {addr}", { addr: sentTo })}
             </p>
-            <Field label={t("邮件里的 6 位验证码")}>
+            <Field label={t("邮件中的 6 位验证码")}>
               <input
                 value={code}
                 onChange={(e) => setCode(e.target.value)}
@@ -478,7 +478,7 @@ function RecoveryCodes({ codes, onClose }: { codes: string[]; onClose: () => voi
     <Modal onClose={onClose}>
       <h3 className="font-display text-lg font-semibold tracking-tight">{t("恢复码")}</h3>
       <p className="mt-1 text-sm text-muted">
-        {t("现在就存好。面板只保存它们的哈希，关掉这个窗口后再也看不到。")}
+        {t("请立即保存。面板仅保存其哈希，关闭后无法再次查看。")}
       </p>
       <div className="mt-4 grid grid-cols-2 gap-x-4 gap-y-1.5 rounded-xl border border-line bg-surface px-4 py-3.5 font-mono text-[13px]">
         {codes.map((c) => (
@@ -488,7 +488,7 @@ function RecoveryCodes({ codes, onClose }: { codes: string[]; onClose: () => voi
       <div className="mt-5 flex justify-between gap-2">
         <CopyButton value={codes.join("\n")} label={t("复制全部")} />
         <Button variant="primary" onClick={onClose}>
-          {t("我存好了")}
+          {t("我已保存")}
         </Button>
       </div>
     </Modal>
@@ -523,7 +523,7 @@ function PasswordDialog({ id, onClose }: { id: string; onClose: () => void }) {
     <Modal onClose={onClose}>
       <form onSubmit={submit}>
         <h3 className="font-display text-lg font-semibold tracking-tight">{t("修改密码")}</h3>
-        <p className="mt-1 text-sm text-muted">{t("改完需要重新登录。")}</p>
+        <p className="mt-1 text-sm text-muted">{t("修改后需重新登录。")}</p>
 
         <Field label={t("当前密码")}>
           <input
@@ -544,7 +544,7 @@ function PasswordDialog({ id, onClose }: { id: string; onClose: () => void }) {
             className={inputCls}
           />
         </Field>
-        <Field label={t("再输一次")}>
+        <Field label={t("确认新密码")}>
           <input
             type="password"
             autoComplete="new-password"

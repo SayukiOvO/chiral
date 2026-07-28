@@ -40,9 +40,9 @@ export function SubscriptionDialog({
           {t("的订阅链接")}
         </h3>
         <p className="mt-1 text-sm text-muted">
-          {t("面板只保存令牌的哈希，所以这个链接")}
+          {t("面板仅保存令牌哈希，此链接")}
           <b className="text-ink">{t("只显示这一次")}</b>
-          {t("。 客户端会按自己的类型自动取到对应格式。")}
+          {t("。客户端将自动获取对应格式。")}
         </p>
 
         <div className="relative mt-4">

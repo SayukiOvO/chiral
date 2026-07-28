@@ -44,7 +44,7 @@ export function AlertsPage() {
         <div className="animate-rise">
           <h1 className="font-display text-[26px] font-semibold tracking-tight">{t("告警")}</h1>
           <p className="mt-1 text-sm text-muted">
-            {t("节点上线 / 掉线的通知去处。状态要稳定两分钟才播报，避免抖动刷屏。")}
+            {t("节点上线 / 掉线通知的接收方。状态需稳定两分钟才播报，避免抖动。")}
           </p>
         </div>
         <Button variant="primary" onClick={() => setAdding(true)}>
@@ -57,7 +57,7 @@ export function AlertsPage() {
 
       {loaded &&
         (targets.length === 0 ? (
-          <Empty>{t("还没有通知目标。加一个之后，节点掉线时才有人知道。")}</Empty>
+          <Empty>{t("暂无通知目标。未配置时，节点掉线不会通知任何人。")}</Empty>
         ) : (
           <div className="flex flex-col gap-2.5">
             {targets.map((tg) => (
@@ -143,7 +143,7 @@ function TargetCard({ target, onChanged }: { target: AlertTarget; onChanged: () 
               {tested === "ok" ? (
                 <CheckIcon size={14} className="text-online" />
               ) : null}
-              {tested === "ok" ? t("已送达") : tested === "failed" ? t("发送失败") : t("发一条测试")}
+              {tested === "ok" ? t("已送达") : tested === "failed" ? t("发送失败") : t("发送测试")}
             </Button>
             <Button
               size="sm"
@@ -176,13 +176,13 @@ const KINDS = [
     placeholder: "123456:ABC-DEF… : -1001234567890",
     // The bot token contains a colon itself, which is why the server splits
     // from the right. Worth saying here so nobody quotes it defensively.
-    hint: "格式 <bot-token>:<chat-id>。bot token 里本来就有冒号，从最右边的冒号切分。",
+    hint: "格式 <bot-token>:<chat-id>。bot token 自身含冒号，按最右侧冒号切分。",
   },
   {
     kind: "webhook",
     label: "Webhook",
     placeholder: "https://example.com/hook",
-    hint: "POST 一个 JSON body 过去。",
+    hint: "以 POST 发送 JSON body。",
   },
 ];
 
@@ -222,7 +222,7 @@ function AddTargetDialog({
       <form onSubmit={submit}>
         <h3 className="font-display text-lg font-semibold tracking-tight">{t("新增通知目标")}</h3>
         <p className="mt-1 text-sm text-muted">
-          {t("创建后发一条测试消息——填错的 chat id 在真出事之前和正常的一模一样。")}
+          {t("创建后请发送测试消息：填错的 chat id 在真正告警前与正常配置无异。")}
         </p>
 
         <Field label={t("类型")}>

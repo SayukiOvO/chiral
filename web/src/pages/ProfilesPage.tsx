@@ -76,7 +76,7 @@ function ProfileList({
         <div>
           <h1 className="font-display text-[26px] font-semibold tracking-tight">{t("接入配置")}</h1>
           <p className="mt-1 text-sm text-muted">
-            {t("一套接入方式：服务端 inbound 骨架 + 每用户凭证 + 各客户端模板。")}
+            {t("一套接入方式：服务端 inbound 骨架、每用户凭证与各客户端模板。")}
           </p>
         </div>
         <Button variant="primary" onClick={() => setAdding(true)}>
@@ -88,7 +88,7 @@ function ProfileList({
       {error && <ErrorBar text={error} />}
 
       {profiles.length === 0 ? (
-        <Empty>{t("还没有接入配置。新建一个，再把它绑定到节点上。")}</Empty>
+        <Empty>{t("暂无接入配置。新建后绑定至节点。")}</Empty>
       ) : (
         <div className="flex flex-col gap-2.5">
           {profiles.map((p) => (
@@ -278,7 +278,7 @@ function ProfileEditor({ id, onChanged }: { id: string; onChanged: () => void })
             {profile.name}
           </h1>
           <p className="mt-1 text-sm text-muted">
-            {t("服务端与客户端引用同一组变量的不同分量，因此不可能配错。")}
+            {t("服务端与客户端引用同一变量组的不同分量，因此不会配错。")}
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -308,7 +308,7 @@ function ProfileEditor({ id, onChanged }: { id: string; onChanged: () => void })
 
       <Section
         title={t("服务端 inbound 骨架")}
-        hint={t("渲染后作为一项进节点 config.json 的 inbounds。clients 留空，由 Core 按绑定用户注入。")}
+        hint={t("渲染后作为一项写入节点 config.json 的 inbounds。clients 留空，由 Core 按绑定用户注入。")}
       >
         <TemplateEditor
           value={inbound}
@@ -322,7 +322,7 @@ function ProfileEditor({ id, onChanged }: { id: string; onChanged: () => void })
 
       <Section
         title={t("每用户 client-entry")}
-        hint={t("clients 数组里单个用户对象的模板。M3 的在线增删用户改的就是这一条。")}
+        hint={t("clients 数组中单个用户对象的模板。在线增删用户即修改此项。")}
       >
         <TemplateEditor
           value={clientEntry}
@@ -336,7 +336,7 @@ function ProfileEditor({ id, onChanged }: { id: string; onChanged: () => void })
 
       <Section
         title={t("客户端模板")}
-        hint={t("每种客户端手写一份，避开订阅转换的表达力上限。私钥变量在这里不可用。")}
+        hint={t("每种客户端各写一份，不经订阅转换。此处不可引用私钥变量。")}
       >
         <div className="mb-2.5 flex flex-wrap gap-1.5">
           {CLIENT_KINDS.map((k) => (
@@ -367,7 +367,7 @@ function ProfileEditor({ id, onChanged }: { id: string; onChanged: () => void })
         />
       </Section>
 
-      <Section title={t("绑定节点")} hint={t("绑上以后，下发即把这套 inbound 装配进该节点的 config。")}>
+      <Section title={t("绑定节点")} hint={t("绑定后，下发时将此 inbound 装配进该节点配置。")}>
         {nodes.length === 0 ? (
           <p className="text-sm text-muted">{t("还没有节点。")}</p>
         ) : (
@@ -403,7 +403,7 @@ function ProfileEditor({ id, onChanged }: { id: string; onChanged: () => void })
         <Button
           variant="danger"
           onClick={async () => {
-            if (!confirm(tf("删除接入配置「{name}」？绑定关系与其变量会一并删除。", { name: profile.name }))) return;
+            if (!confirm(tf("删除接入配置「{name}」？其绑定关系与变量将一并删除。", { name: profile.name }))) return;
             await api.deleteProfile(id);
             onChanged();
             navigate({ view: "profiles" });

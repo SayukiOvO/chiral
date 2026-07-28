@@ -88,7 +88,7 @@ export function KernelPage() {
       <div className="mb-6 animate-rise">
         <h1 className="font-display text-[26px] font-semibold tracking-tight">{t("内核")}</h1>
         <p className="mt-1 text-sm text-muted">
-          {t("先升一台，确认没问题再放行到全部节点。起不来会自动回滚，节点继续用旧版本服务。")}
+          {t("先升级一台并确认，再放行至全部节点。新内核无法启动时自动回滚，节点继续以旧版本服务。")}
         </p>
       </div>
 
@@ -114,7 +114,7 @@ export function KernelPage() {
               </div>
             ) : (
               <div className="mt-1 text-sm text-muted">
-                {availError ? t("取不到上游版本") : t("查询中…")}
+                {availError ? t("无法获取上游版本") : t("查询中…")}
               </div>
             )}
             {availError && <p className="mt-1 max-w-lg text-xs text-muted">{availError}</p>}
@@ -127,7 +127,7 @@ export function KernelPage() {
                 value={canary}
                 onChange={(e) => setCanary(e.target.value)}
               >
-                <option value="">{t("选一台做金丝雀")}</option>
+                <option value="">{t("选择金丝雀节点")}</option>
                 {/* A node whose architecture is unknown has no release asset
                     to be handed, so it cannot be a canary. Disabled with the
                     reason attached beats a button that fails on click. */}
@@ -144,7 +144,7 @@ export function KernelPage() {
                 disabled={busy || !canary}
                 onClick={() => act(() => api.startXrayCanary(avail.version, canary))}
               >
-                {t("升级这一台")}
+                {t("升级此节点")}
               </Button>
             </div>
           )}
@@ -266,11 +266,11 @@ function UpgradeCard({
           )}
           {blocked && (
             <Button variant="primary" disabled={busy} onClick={onRetry}>
-              {t("修好了，再试一次")}
+              {t("重试")}
             </Button>
           )}
           <Button disabled={busy} onClick={onAbandon}>
-            {t("结束这次升级")}
+            {t("结束升级")}
           </Button>
         </div>
       </div>
@@ -305,8 +305,8 @@ const PHASE_LABEL: Record<string, string> = {
   VERIFYING: "校验中",
   INSTALLED: "已就位（未启用）",
   ACTIVATING: "切换中",
-  ACTIVE: "已验证客户可上网",
-  INCONCLUSIVE: "起来了，但没验证到通",
+  ACTIVE: "已验证可上网",
+  INCONCLUSIVE: "运行中，未验证",
   FAILED: "失败",
   ROLLED_BACK: "已回滚",
 };

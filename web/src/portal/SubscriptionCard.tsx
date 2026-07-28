@@ -43,7 +43,7 @@ export function SubscriptionCard({ sub }: { sub: Subscription }) {
       <section className="mt-4 rounded-2xl border border-line bg-surface px-5 py-5">
         <h2 className="font-display text-[15px] font-semibold tracking-tight">{t("我的订阅链接")}</h2>
         <p className="mt-1.5 text-sm text-muted">
-          {t("这个账户的订阅链接是旧版本创建的，面板无法显示。请联系管理员重新生成。")}
+          {t("此订阅链接由旧版本创建，面板无法显示，请联系管理员重新生成。")}
         </p>
       </section>
     );
@@ -52,7 +52,7 @@ export function SubscriptionCard({ sub }: { sub: Subscription }) {
   return (
     <section className="mt-4 rounded-2xl border border-line bg-surface px-5 py-5">
       <h2 className="font-display text-[15px] font-semibold tracking-tight">{t("我的订阅链接")}</h2>
-      <p className="mt-1.5 text-sm text-muted">{t("复制到你的客户端，它会自动获取全部线路。")}</p>
+      <p className="mt-1.5 text-sm text-muted">{t("复制到客户端，将自动获取全部线路。")}</p>
 
       {sub.kinds.length > 1 && (
         <div className="mt-4 flex flex-wrap gap-1.5">
@@ -109,7 +109,7 @@ export function SubscriptionCard({ sub }: { sub: Subscription }) {
             <QRCode value={url} size={176} />
           </div>
           <p className="mt-2 text-xs text-faint">
-            {t("二维码包含你的订阅密钥，不要分享截图。")}
+            {t("二维码含订阅密钥，请勿分享截图。")}
           </p>
         </div>
       )}

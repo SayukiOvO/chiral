@@ -84,7 +84,7 @@ export function Home() {
           {t("线路")}
         </h2>
         {me.nodes.length === 0 ? (
-          <Empty>{t("你的账户还没有开通任何线路。")}</Empty>
+          <Empty>{t("账户尚未开通任何线路。")}</Empty>
         ) : (
           <div className="flex flex-col gap-2">
             {me.nodes.map((n) => (
@@ -122,11 +122,11 @@ export function Home() {
               using the credentials. */}
           <p className="mb-3 text-xs text-faint">
             {me.account.device_limit > 0
-              ? tf("最近连接过的来源地址，上限 {n} 个。", { n: me.account.device_limit })
+              ? tf("最近连接的来源地址，上限 {n} 个。", { n: me.account.device_limit })
               : t("最近连接过的来源地址。")}
           </p>
           {me.devices.length === 0 ? (
-            <Empty>{t("最近没有记录到连接。")}</Empty>
+            <Empty>{t("暂无连接记录。")}</Empty>
           ) : (
             <div className="rounded-2xl border border-line bg-surface">
               {me.devices.map((d) => (
@@ -170,7 +170,7 @@ function StatusBanner({ status }: { status: string }) {
     suspended: "账户已停用，请联系管理员。",
     expired: "订阅已到期，请联系管理员续期。",
     quota_exhausted: "本期流量已用完。",
-    no_access: "账户已创建，但还没有开通线路。请联系管理员。",
+    no_access: "账户已创建，尚未开通线路，请联系管理员。",
   };
   const message = copy[status];
   if (!message) return null;

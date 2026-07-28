@@ -80,7 +80,7 @@ export function VariablesPage() {
 
       {vars.length === 0 ? (
         <Empty>
-          {t("还没有变量。生成一组 REALITY 密钥或填一个静态值，模板就能引用它。")}
+          {t("暂无变量。生成一组 REALITY 密钥或填入静态值后，模板即可引用。")}
         </Empty>
       ) : (
         <div className="overflow-hidden rounded-2xl border border-line bg-surface">
@@ -145,7 +145,7 @@ export function VariablesPage() {
                         label={t("删除变量")}
                         className="hover:text-danger"
                         onClick={async () => {
-                          if (!confirm(tf("删除变量「{name}」？引用它的模板会渲染失败。", { name: v.name }))) return;
+                          if (!confirm(tf("删除变量「{name}」？引用它的模板将渲染失败。", { name: v.name }))) return;
                           await api.deleteVariable(v.id);
                           refresh();
                         }}
@@ -236,7 +236,7 @@ function AddVariableDialog({
       <form onSubmit={submit}>
         <h3 className="font-display text-lg font-semibold tracking-tight">{t("新增变量")}</h3>
         <p className="mt-1 text-sm text-muted">
-          {t("生成器会产出成组的分量（如")} <code className="font-mono">reality.private</code> /{" "}
+          {t("生成器产出成组分量（如")} <code className="font-mono">reality.private</code> /{" "}
           <code className="font-mono">reality.public</code>{t("），服务端与客户端各引用一半，天然配对。")}
         </p>
 
@@ -331,7 +331,7 @@ function AddVariableDialog({
             </select>
             {chosen?.needs_xray && (
               <p className="mt-1.5 text-xs text-muted">
-                {t("该生成器由面板调用 xray 二进制产出，保证格式与内核一致。")}
+                {t("由面板调用 xray 二进制产出，格式与内核一致。")}
               </p>
             )}
           </Field>
@@ -415,7 +415,7 @@ function EditVariableDialog({
           {tf("修改「{name}」", { name: variable.name })}
         </h2>
         <p className="text-xs text-muted">
-          {t("改完之后要重新下发受影响的节点，存储的配置才会跟着变。")}
+          {t("修改后需重新下发受影响的节点。")}
         </p>
         <Field label={t("值")}>
           <input

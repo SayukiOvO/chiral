@@ -33,7 +33,7 @@ export function Register({ config }: { config: PortalConfig }) {
   // signed in to if it exists. Saying more here would undo the server's care.
   if (done) {
     return (
-      <AuthShell title={t("可以登录了")} subtitle={t("如果这个邮箱还没被注册，账号已经建好。")}>
+      <AuthShell title={t("可以登录了")} subtitle={t("若该邮箱尚未注册，账号已创建。")}>
         <Button
           variant="primary"
           className="w-full"

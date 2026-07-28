@@ -43,7 +43,7 @@ export function ConfigHistory({
   }, [nodeId]);
 
   async function rollback(version: number) {
-    if (!confirm(tf("回滚到版本 {v}？它会作为一个新版本重新下发。", { v: version }))) return;
+    if (!confirm(tf("回滚到版本 {v}？该内容将作为新版本重新下发。", { v: version }))) return;
     setBusy(version);
     setError("");
     try {
@@ -60,7 +60,7 @@ export function ConfigHistory({
   if (error && !versions) return <p className="text-sm text-danger">{error}</p>;
   if (!versions) return null;
   if (versions.length === 0) {
-    return <p className="text-sm text-muted">{t("还没有下发过配置。")}</p>;
+    return <p className="text-sm text-muted">{t("暂无下发记录。")}</p>;
   }
 
   return (
@@ -101,7 +101,7 @@ export function ConfigHistory({
         ))}
       </div>
       <p className="mt-2 text-xs text-faint">
-        {tf("只保留最近 {n} 个版本。回滚会重新跑一次 xray -test——内核升级过之后，老配置未必还合法。", {
+        {tf("仅保留最近 {n} 个版本。回滚前会重新执行 xray -test：内核升级后，旧配置未必仍合法。", {
           n: depth,
         })}
       </p>

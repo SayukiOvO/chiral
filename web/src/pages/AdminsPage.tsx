@@ -9,8 +9,8 @@ import { useT } from "../lib/i18n";
 
 const ROLES: { role: Admin["role"]; label: string; note: string }[] = [
   { role: "superadmin", label: "超级管理员", note: "全部权限，含管理其他管理员" },
-  { role: "operator", label: "操作员", note: "改状态：节点 / 接入配置 / 变量 / 用户" },
-  { role: "viewer", label: "只读", note: "只能看" },
+  { role: "operator", label: "操作员", note: "可修改：节点 / 接入配置 / 变量 / 用户" },
+  { role: "viewer", label: "只读", note: "仅可查看" },
 ];
 
 /**
@@ -52,7 +52,7 @@ export function AdminsPage() {
         <h1 className="font-display text-[26px] font-semibold tracking-tight">{t("管理员")}</h1>
         <p className="mt-4 max-w-prose text-sm text-muted">
           {/unauthorized|forbidden|403/i.test(error)
-            ? t("只有超级管理员能管理管理员账号。")
+            ? t("仅超级管理员可管理管理员账号。")
             : error}
         </p>
       </div>
@@ -65,7 +65,7 @@ export function AdminsPage() {
         <div className="animate-rise">
           <h1 className="font-display text-[26px] font-semibold tracking-tight">{t("管理员")}</h1>
           <p className="mt-1 text-sm text-muted">
-            {t("能登录控制台的人，以及他们的角色。")}
+            {t("可登录控制台的账号及其角色。")}
           </p>
         </div>
         <Button variant="primary" onClick={() => setAdding(true)}>
@@ -78,7 +78,7 @@ export function AdminsPage() {
 
       {loaded &&
         (admins.length === 0 ? (
-          <Empty>{t("还没有管理员账号。")}</Empty>
+          <Empty>{t("暂无管理员账号。")}</Empty>
         ) : (
           <div className="overflow-hidden rounded-2xl border border-line bg-surface">
             {admins.map((a) => (
@@ -130,7 +130,7 @@ function AdminRow({
       <div className="min-w-0">
         <div className="flex items-center gap-2">
           <span className="truncate text-sm font-medium">{admin.username}</span>
-          {isMe && <span className="text-xs text-faint">{t("（你自己）")}</span>}
+          {isMe && <span className="text-xs text-faint">{t("（当前账号）")}</span>}
           {admin.disabled && <span className="text-xs text-danger">{t("已停用")}</span>}
         </div>
         <div className="mt-0.5 text-xs text-faint">
@@ -147,7 +147,7 @@ function AdminRow({
           onChange={(e) => patch({ role: e.target.value as Admin["role"] })}
           // Changing your own role is refused by the server too; disabling it
           // here just means the refusal is not a surprise.
-          title={isMe ? t("不能改自己的角色") : undefined}
+          title={isMe ? t("不可修改自己的角色") : undefined}
           className="rounded-lg border border-line-strong bg-surface px-2 py-1.5 text-[13px] outline-none focus:border-signal disabled:opacity-50"
         >
           {ROLES.map((r) => (
@@ -235,7 +235,7 @@ function AddAdminDialog({
       <form onSubmit={submit}>
         <h3 className="font-display text-lg font-semibold tracking-tight">{t("新增管理员")}</h3>
         <p className="mt-1 text-sm text-muted">
-          {t("对方首次登录后可以在「安全」页自行改密码并加第二因素。")}
+          {t("该账号首次登录后，可在「安全」页自行修改密码并添加第二因素。")}
         </p>
 
         <Field label={t("登录名")}>

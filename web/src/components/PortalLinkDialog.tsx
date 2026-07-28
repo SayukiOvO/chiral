@@ -50,7 +50,7 @@ export function PortalLinkDialog({
     <Modal onClose={onClose}>
       <h3 className="font-display text-lg font-semibold tracking-tight">{t("门户认领链接")}</h3>
       <p className="mt-1 text-sm text-muted">
-        {tf("把这条链接发给 {name}，他用它设置自己的门户密码。", { name: userName })}
+        {tf("将此链接发送给 {name}，用于设置门户密码。", { name: userName })}
       </p>
 
       {error && <p className="mt-3 text-sm text-danger">{error}</p>}
@@ -74,7 +74,7 @@ export function PortalLinkDialog({
             </Button>
           </div>
           <p className="mt-2 text-xs text-faint">
-            {t("7 天内有效，只能用一次，关掉这个窗口就再也看不到。账号已存在时它只能改密码，不能改邮箱。")}
+            {t("7 天内有效，仅可使用一次，关闭后无法再次查看。若账号已存在，仅可重设密码，不可修改邮箱。")}
           </p>
         </>
       )}

@@ -239,7 +239,7 @@ function EmptyState() {
     <div className="rounded-2xl border border-dashed border-line-strong bg-surface px-8 py-16 text-center">
       <p className="text-ink font-medium">{t("还没有节点")}</p>
       <p className="mt-1.5 text-sm text-muted">
-        {t("新增第一个节点后，它的实时状态会显示在这里。")}
+        {t("新增节点后，此处显示其实时状态。")}
       </p>
     </div>
   );

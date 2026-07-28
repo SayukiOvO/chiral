@@ -52,7 +52,7 @@ export function NodeNameDialog({
       <form onSubmit={save}>
         <h3 className="font-display text-lg font-semibold tracking-tight">{t("重命名节点")}</h3>
         <p className="mt-1 text-sm text-muted">
-          {t("内部名给运维看，对客名称给订阅者看。")}
+          {t("内部名用于运维，对客名称展示给订阅者。")}
         </p>
 
         <Field label={t("内部名")}>
@@ -64,7 +64,7 @@ export function NodeNameDialog({
             className={inputCls}
           />
           <span className="mt-1 block text-xs text-faint">
-            {t("只在控制台出现，不会发给订阅者。")}
+            {t("仅在控制台显示，不会发送给订阅者。")}
           </span>
         </Field>
 
@@ -76,7 +76,7 @@ export function NodeNameDialog({
             className={inputCls}
           />
           <span className="mt-1 block text-xs text-faint">
-            {t("留空则门户显示「线路 01」这样的编号，不会回落到内部名。")}
+            {t("留空时门户按序号显示为「线路 01」，不会回落到内部名。")}
           </span>
         </Field>
 

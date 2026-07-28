@@ -50,7 +50,7 @@ export function AuditPage() {
       <div className="mb-6 animate-rise">
         <h1 className="font-display text-[26px] font-semibold tracking-tight">{t("审计")}</h1>
         <p className="mt-1 text-sm text-muted">
-          {t("谁在什么时候改了什么。保留 180 天。")}
+          {t("变更记录，保留 180 天。")}
         </p>
       </div>
 
@@ -65,7 +65,7 @@ export function AuditPage() {
 
       {loaded &&
         (entries.length === 0 ? (
-          <Empty>{action ? t("没有匹配的记录。") : t("还没有审计记录。")}</Empty>
+          <Empty>{action ? t("无匹配记录。") : t("暂无审计记录。")}</Empty>
         ) : (
           <>
             <div className="overflow-hidden rounded-2xl border border-line bg-surface">

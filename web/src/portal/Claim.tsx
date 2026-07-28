@@ -52,7 +52,7 @@ export function Claim({ token, onAuthed }: { token: string; onAuthed: () => void
 
   if (lookupError) {
     return (
-      <AuthShell title={t("链接无效")} subtitle={t("这个链接已失效或已被使用。请向管理员再要一个。")}>
+      <AuthShell title={t("链接无效")} subtitle={t("此链接已失效或已被使用，请联系管理员重新获取。")}>
         <Button variant="primary" className="w-full" onClick={() => navigate({ view: "signin" })}>
           {t("去登录")}
         </Button>
@@ -64,7 +64,7 @@ export function Claim({ token, onAuthed }: { token: string; onAuthed: () => void
   const mismatch = again.length > 0 && password !== again;
 
   return (
-    <AuthShell title={t("设置密码")} subtitle={tf("这个链接属于账号 {name}。", { name })}>
+    <AuthShell title={t("设置密码")} subtitle={tf("此链接对应账号 {name}。", { name })}>
       <form onSubmit={submit}>
         {/* Only offered when the account has no address yet. The server
             rejects an attempt to change an existing one, and asking for
@@ -91,7 +91,7 @@ export function Claim({ token, onAuthed }: { token: string; onAuthed: () => void
           autoComplete="new-password"
           value={again}
           onChange={(e) => setAgain(e.target.value)}
-          placeholder={t("再输一次")}
+          placeholder={t("确认新密码")}
           className={authInput + " mt-2.5"}
         />
         {mismatch && <p className="mt-2 text-sm text-danger">{t("两次输入不一致。")}</p>}

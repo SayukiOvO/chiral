@@ -35,14 +35,14 @@ export function UserDevices({ userId }: { userId: string }) {
     return (
       <p className="text-sm text-muted">
         {/unauthorized|forbidden|403/i.test(error)
-          ? t("只有超级管理员能查看具体地址。")
+          ? t("仅超级管理员可查看具体地址。")
           : error}
       </p>
     );
   }
   if (!devices) return <p className="text-sm text-faint">{t("加载中…")}</p>;
   if (devices.length === 0) {
-    return <p className="text-sm text-muted">{t("还没有记录到任何地址。")}</p>;
+    return <p className="text-sm text-muted">{t("暂无地址记录。")}</p>;
   }
 
   return (
@@ -58,7 +58,7 @@ export function UserDevices({ userId }: { userId: string }) {
         </div>
       ))}
       <p className="mt-1 text-xs text-faint">
-        {t("每次查看都会记入审计日志。")}
+        {t("每次查看均记入审计日志。")}
       </p>
     </div>
   );

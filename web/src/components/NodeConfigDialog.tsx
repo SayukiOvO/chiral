@@ -85,7 +85,7 @@ export function NodeConfigDialog({ node, onClose }: { node: Node; onClose: () =>
             {node.name} · {t("配置")}
           </h3>
           <p className="mt-1 text-sm text-muted">
-            {t("骨架是 inbounds 之外的部分；inbounds 由绑定的接入配置渲染装配。")}
+            {t("骨架为 inbounds 之外的部分。inbounds 由绑定的接入配置渲染装配。")}
           </p>
         </div>
         <Button variant="ghost" onClick={onClose}>
@@ -172,7 +172,7 @@ export function NodeConfigDialog({ node, onClose }: { node: Node; onClose: () =>
           </>
         ) : (
           <p className="rounded-xl border border-dashed border-line-strong px-4 py-8 text-center text-sm text-muted">
-            {t("无法装配。先绑定接入配置，并确认模板里的变量都已定义。")}
+            {t("无法装配。请先绑定接入配置，并确认模板引用的变量均已定义。")}
           </p>
         )}
       </div>
@@ -209,7 +209,7 @@ function TestBadge({
   const { t } = useT();
   if (!tested) {
     return (
-      <span className="text-xs text-muted" title={t("面板未配置 xray 二进制，下发前不做预校验")}>
+      <span className="text-xs text-muted" title={t("面板未配置 xray 二进制，下发前不做校验")}>
         {t("未校验")}
       </span>
     );

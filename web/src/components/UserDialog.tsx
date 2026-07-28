@@ -41,7 +41,7 @@ export function UserDialog({
     e.preventDefault();
     const quota = Math.round(Number(quotaGB) * GB);
     if (!Number.isFinite(quota) || quota < 0) {
-      setError(t("流量配额必须是 0 或正数（0 表示不限）"));
+      setError(t("流量配额须为 0 或正数（0 表示不限）"));
       return;
     }
     const input: UserInput = {
@@ -84,7 +84,7 @@ export function UserDialog({
           {user ? t("编辑用户") : t("新增用户")}
         </h3>
         <p className="mt-1 text-sm text-muted">
-          {user ? t("改动会立即下发到节点。") : t("创建后会给出订阅链接，只显示这一次。")}
+          {user ? t("改动立即下发至节点。") : t("订阅链接在创建后仅显示一次。")}
         </p>
 
         <label className="mt-4 block">
@@ -145,7 +145,7 @@ export function UserDialog({
             ))}
           </select>
           <span className="mt-1 block text-xs text-faint">
-            {t("到期时顺延一个周期，并把已用流量清零")}
+            {t("到期顺延一个周期，并清零已用流量")}
           </span>
         </label>
 
@@ -166,7 +166,7 @@ export function UserDialog({
               between wifi and cellular is 2. Saying "devices" would promise
               something the kernel cannot deliver. */}
           <span className="mt-1 block text-xs text-faint">
-            {t("0 表示不限。仅作展示提醒，不会自动断开连接。")}
+            {t("0 表示不限。仅作提示，不会自动断开连接。")}
           </span>
         </label>
 
