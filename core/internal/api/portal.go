@@ -112,7 +112,11 @@ func (s *Server) requireUser(h portalHandler) http.Handler {
 		// Nothing goes into the request context. Any admin handler reached by
 		// mistake therefore sees a zero auth.Identity, whose empty role ranks
 		// below viewer and can do nothing — fail closed.
-		h(w, r, portal.Identity{UserID: u.ID, Name: u.Name})
+		email := ""
+		if acct, aerr := s.st.UserAccount(u.ID); aerr == nil {
+			email = acct.Email
+		}
+		h(w, r, portal.Identity{UserID: u.ID, Name: u.Name, Email: email})
 	})
 }
 

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { portal } from "./api";
 import { Button } from "../components/ui";
 import { Field, inputCls } from "../components/primitives";
@@ -15,6 +15,13 @@ export function AccountPage({ onSignOut }: { onSignOut: () => void }) {
   const [again, setAgain] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  // Fetched here rather than threaded down: it is one field, and the page is
+  // reachable directly by URL.
+  const [email, setEmail] = useState("");
+
+  useEffect(() => {
+    portal.me().then((r) => setEmail(r.account.email)).catch(() => {});
+  }, []);
 
   const mismatch = again.length > 0 && next !== again;
 
@@ -37,6 +44,11 @@ export function AccountPage({ onSignOut }: { onSignOut: () => void }) {
   return (
     <div className="animate-rise">
       <h1 className="font-display text-[22px] font-semibold tracking-tight">{t("账户")}</h1>
+
+      {/* The address this session signed in with. What somebody checks before
+          changing a password, or when they are unsure which of two accounts
+          they are in. */}
+      {email && <p className="mt-2 font-mono text-[13px] text-muted">{email}</p>}
 
       <section className="mt-5 rounded-2xl border border-line bg-surface px-5 py-5">
         <h2 className="font-display text-[15px] font-semibold tracking-tight">{t("修改密码")}</h2>

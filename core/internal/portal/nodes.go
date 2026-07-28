@@ -122,7 +122,17 @@ func (v *View) Nodes() ([]Node, error) {
 			if _, err := v.data.FindCredential(v.id.UserID, pid, nid); err != nil {
 				avail = AvailProvisioning
 			} else if up, err := v.data.NodeAnnouncedOnline(nid); err == nil && up {
-				avail = AvailAvailable
+				// Announced up is only half of it. The agent stays connected
+				// through a kernel that has died — that is the whole reason
+				// this field is a three-state summary and not the `online`
+				// boolean — so a node whose Xray is not running must not be
+				// shown as available. XrayVersion is the RUNNING process's
+				// version and is empty when nothing runs; an agent too old to
+				// report it keeps the value Hello established, so this cannot
+				// mark a working fleet unavailable.
+				if n.XrayVersion != "" {
+					avail = AvailAvailable
+				}
 			}
 			out = append(out, Node{
 				ID:           nid,

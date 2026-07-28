@@ -350,11 +350,58 @@ func (s *Server) putClientTemplate(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "body must be JSON")
 		return
 	}
+	// Validated before it is stored, against the same client context a
+	// subscription renders with.
+	//
+	// Without this the first sign of a template reaching for a private key was
+	// a subscriber's client failing to update — the operator who wrote it saw
+	// a clean save, and the person who paid for the service saw nothing at all.
+	// template.Context.Validate exists for exactly this and had no caller
+	// outside its own tests.
+	//
+	// Node-scoped variables are deliberately not resolvable here: a client
+	// template is written once and rendered against every bound node, so it is
+	// validated against what all of them share. A reference only some nodes
+	// define is a template that only sometimes works, and it is caught at
+	// preview and at render.
+	if reasons := s.validateClientTemplate(r.PathValue("id"), req.Template); len(reasons) > 0 {
+		writeErr(w, http.StatusBadRequest, strings.Join(reasons, "; "))
+		return
+	}
 	if err := s.st.PutClientTemplate(r.PathValue("id"), r.PathValue("client"), req.Template); err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// validateClientTemplate reports why a client template cannot be rendered, or
+// nothing when it can.
+//
+// Only the checks that hold for EVERY node: a secret reference is always wrong
+// in a client template, whereas an unresolved name may simply be node-scoped.
+// Being strict about the second here would refuse templates that are correct.
+func (s *Server) validateClientTemplate(profileID, tmpl string) []string {
+	if s.profiles == nil {
+		return nil
+	}
+	nodeIDs, err := s.st.ProfileNodeIDs(profileID)
+	if err != nil || len(nodeIDs) == 0 {
+		// Nothing bound yet, so there is no context to check against. Preview
+		// and render still catch it later.
+		return nil
+	}
+	ctx, err := s.profiles.ClientContext(profileID, nodeIDs[0])
+	if err != nil {
+		return nil
+	}
+	var out []string
+	for _, e := range ctx.Validate(tmpl) {
+		if strings.Contains(e.Error(), "secret variable") {
+			out = append(out, e.Error())
+		}
+	}
+	return out
 }
 
 func (s *Server) deleteClientTemplate(w http.ResponseWriter, r *http.Request) {

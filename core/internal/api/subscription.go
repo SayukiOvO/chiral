@@ -81,6 +81,15 @@ func (s *Server) serveSubscription(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, res.Filename))
 	// The conventional header clients read to show quota and expiry.
 	w.Header().Set("Subscription-Userinfo", userinfoHeader(u))
+	// Suspension has no representation in Subscription-Userinfo: expiry shows
+	// as a past `expire`, an exhausted quota as download > total, and a
+	// disabled account as nothing at all — the client draws a perfectly
+	// healthy subscription for somebody who cannot connect. This header is
+	// not a standard, and it is the only place to say so before the customer
+	// concludes the service is broken rather than switched off.
+	if reason := user.Reason(u, time.Now().Unix()); reason != "" {
+		w.Header().Set("Subscription-Status", reason)
+	}
 	w.Header().Set("Profile-Update-Interval", "12")
 	// Subscriptions carry credentials; they must not be cached by anything in
 	// between.

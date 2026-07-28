@@ -31,6 +31,12 @@ import (
 type Identity struct {
 	UserID string
 	Name   string
+	// Email is the address this session signed in with. Carried on the
+	// identity rather than fetched through Data because it is not a fact about
+	// the fleet — it is the credential the caller already proved they hold,
+	// and the portal's rule is that anything about the FLEET comes through
+	// View.
+	Email string
 }
 
 // ErrNoAccess is returned when a user has no profiles at all. Not an error
@@ -106,6 +112,7 @@ func (v *View) Account() (Account, error) {
 		RenewPeriod: u.RenewPeriod,
 		CreatedAt:   u.CreatedAt,
 		DeviceLimit: u.DeviceLimit,
+		Email:       v.id.Email,
 		Status:      status(u, len(profileIDs), v.now().Unix()),
 	}, nil
 }
@@ -124,6 +131,11 @@ type Account struct {
 	RenewPeriod int64  `json:"renew_period"`
 	CreatedAt   int64  `json:"created_at"`
 	DeviceLimit int    `json:"device_limit"`
+	// Email is the address this account signs in with. The least sensitive
+	// thing the portal holds about somebody — they typed it — and the first
+	// thing they check when they are not sure which of two accounts they are
+	// in, or before changing a password.
+	Email string `json:"email"`
 	// Status is the single reason the account is not usable, or "active".
 	Status string `json:"status"`
 }

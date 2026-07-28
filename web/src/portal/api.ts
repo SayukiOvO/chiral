@@ -46,6 +46,7 @@ export interface Account {
   renew_period: number;
   created_at: number;
   device_limit: number;
+  email: string;
   status: AccountStatus;
 }
 

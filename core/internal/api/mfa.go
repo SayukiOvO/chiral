@@ -64,6 +64,11 @@ func (s *Server) issueSession(w http.ResponseWriter, a store.Admin, how string) 
 	}
 	if err := s.st.TouchAdminLogin(a.ID); err != nil {
 		s.logger.Error("recording login time failed", "admin", a.Username, "err", err)
+	} else if fresh, rerr := s.st.GetAdmin(a.ID); rerr == nil {
+		// Re-read, or the view below is built from the row loaded BEFORE the
+		// touch and last_login is always one sign-in behind — the console
+		// would show the previous session's time as the current one's.
+		a = fresh
 	}
 	identity := auth.Identity{ID: a.ID, Name: a.Username, Role: a.Role}
 	if err := s.st.Audit(identity, "login", "admin", a.ID, a.Username, how); err != nil {

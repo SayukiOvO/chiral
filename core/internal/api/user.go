@@ -26,6 +26,11 @@ type userView struct {
 	Active bool `json:"active"`
 	// Allowed is the computed verdict: enabled, in date, and under quota.
 	Allowed bool `json:"allowed"`
+	// Reason names WHICH of those failed, empty when allowed. The precedence
+	// between them lives in one place (user.Reason) precisely so nothing has
+	// to reimplement it; serving only the boolean forced the console to do
+	// exactly that, and the portal already receives this.
+	Reason string `json:"reason,omitempty"`
 	// DeviceLimit is the expected number of concurrent source addresses, 0 for
 	// none. Nothing enforces it — see store.User.DeviceLimit.
 	DeviceLimit int `json:"device_limit"`
@@ -58,6 +63,7 @@ func (s *Server) userView(u store.User, withCredentials bool) (userView, error) 
 		ExpiresAt: u.ExpiresAt, RenewPeriod: u.RenewPeriod,
 		Enabled: u.Enabled, Active: u.Active,
 		Allowed:     user.Allowed(u, time.Now().Unix()),
+		Reason:      user.Reason(u, time.Now().Unix()),
 		DeviceLimit: u.DeviceLimit,
 		ProfileIDs:  profileIDs,
 		CreatedAt:   u.CreatedAt,
