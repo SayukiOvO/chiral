@@ -70,7 +70,7 @@ func TestTheCheckedInTemplateAgreesWithTheSnippet(t *testing.T) {
 		"CHIRAL_STATE_DIR: /var/lib/chiral-agent",
 		"chiral-agent-data:/var/lib/chiral-agent",
 		"network_mode: host",
-		"image: ghcr.io/sayukiovo/chiral-agent:latest",
+		"image: moonwx/chiral-agent:latest",
 	} {
 		if !strings.Contains(tmpl, want) {
 			t.Errorf("the template is missing %q", want)

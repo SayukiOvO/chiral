@@ -145,8 +145,10 @@ cd web && npm ci && npm run dev      # 门户 / ，控制台 /admin/
 
 仓库需要两项配置（Settings → Secrets and variables → Actions）：
 `DOCKERHUB_USERNAME`（Variable，同时是镜像命名空间）与 `DOCKERHUB_TOKEN`（Secret，
-Docker Hub 访问令牌，不是账号密码）。发布到自己的命名空间后，面板要设
-`CHIRAL_AGENT_IMAGE`，否则「新增节点」生成的命令仍指向本项目的默认镜像。
+Docker Hub 访问令牌，不是账号密码）。
+
+fork 或用自建 registry 时，面板要设 `CHIRAL_AGENT_IMAGE` / `CHIRAL_CORE_IMAGE`，
+否则「新增节点」生成的命令指向的是上游镜像。
 
 细节见 [`docs/deployment.md`](docs/deployment.md#发布镜像)。
 

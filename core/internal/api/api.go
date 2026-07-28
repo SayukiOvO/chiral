@@ -360,11 +360,14 @@ func (s *Server) updateNode(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, s.view(n))
 }
 
-// DefaultAgentImage is where the agent is published. Overridable because a
-// fork, a private registry or a pinned tag are all ordinary, and because the
-// snippet this produces is pasted straight into a shell — a wrong image here
-// fails on somebody else's machine, several minutes after the mistake.
-const DefaultAgentImage = "ghcr.io/sayukiovo/chiral-agent:latest"
+// DefaultAgentImage is where this project publishes the agent, and what the
+// join snippet names unless CHIRAL_AGENT_IMAGE says otherwise.
+//
+// Overridable because a fork, a private registry or a pinned tag are all
+// ordinary — and because the snippet this produces is pasted straight into a
+// shell on another machine, so a wrong image here fails minutes later and one
+// host away from the mistake.
+const DefaultAgentImage = "moonwx/chiral-agent:latest"
 
 // SetAgentImage overrides the image the join snippet names. Empty keeps
 // DefaultAgentImage.

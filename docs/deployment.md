@@ -99,9 +99,10 @@ Core:  推送首份 config → Agent 落盘 + xray -test + 拉起 Xray-core → 
 | Secret | `DOCKERHUB_TOKEN` | Docker Hub **访问令牌**（Account Settings → Personal access tokens），权限 Read & Write。不要用账号密码 |
 
 推出来的就是 `<DOCKERHUB_USERNAME>/chiral-core` 和 `<DOCKERHUB_USERNAME>/chiral-agent`。
+上游发布在 `moonwx/` 下，这也是代码里的默认值——用上游镜像时什么都不用配。
 
-发布到自己的命名空间之后，**面板要设 `CHIRAL_AGENT_IMAGE`**，否则控制台「新增节点」
-生成的 compose 片段仍然指向本项目的默认镜像。
+**fork 或换 registry 的话，面板要设 `CHIRAL_AGENT_IMAGE`**，否则控制台「新增节点」
+生成的 compose 片段指向的是上游镜像，而不是你自己那份。
 
 ### 跨平台构建
 

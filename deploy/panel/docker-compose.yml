@@ -6,7 +6,7 @@ services:
     build:
       context: ../..
       dockerfile: deploy/panel/Dockerfile.core
-    image: ${CHIRAL_CORE_IMAGE:-ghcr.io/sayukiovo/chiral-core:latest}
+    image: ${CHIRAL_CORE_IMAGE:-moonwx/chiral-core:latest}
     restart: unless-stopped
     ports:
       - "8080:8080" # REST API / frontend
