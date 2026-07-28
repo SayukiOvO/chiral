@@ -309,6 +309,7 @@ func (s *Server) createNode(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, map[string]any{
 		"node":       s.view(n),
 		"join_token": joinToken,
+		"install":    s.installCommand(joinToken),
 		"compose":    s.composeSnippet(joinToken),
 	})
 }
@@ -373,6 +374,20 @@ const DefaultAgentImage = "moonwx/chiral-agent:latest"
 // SetAgentImage overrides the image the join snippet names. Empty keeps
 // DefaultAgentImage.
 func (s *Server) SetAgentImage(image string) { s.agentImage = image }
+
+// installCommand is the one line an operator runs on a new node.
+//
+// Offered before the compose snippet because it is the shorter true answer:
+// the installer fetches the release, installs Xray beside it, writes the unit
+// and starts it. The compose file remains for anyone already running
+// containers, which is a preference rather than a requirement now that the
+// panel ships as a static binary.
+func (s *Server) installCommand(joinToken string) string {
+	return fmt.Sprintf(
+		"curl -fsSL https://raw.githubusercontent.com/SayukiOvO/chiral/main/deploy/install.sh "+
+			"| sudo sh -s -- --agent --panel-url %s --token %s",
+		s.grpcPublicAddr, joinToken)
+}
 
 // composeSnippet renders the docker-compose the operator pastes onto the node
 // machine. Kept in sync with deploy/agent/docker-compose.yml.tmpl.
@@ -448,6 +463,7 @@ func (s *Server) resetJoinToken(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"join_token": joinToken,
+		"install":    s.installCommand(joinToken),
 		"compose":    s.composeSnippet(joinToken),
 	})
 }

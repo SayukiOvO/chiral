@@ -262,6 +262,9 @@ const EN: Record<string, string> = {
   节点已创建: "Node created",
   在目标主机保存为: "On the target host, save this as",
   "，然后运行": ", then run",
+  "在目标主机上运行这条命令。加入令牌仅可使用一次。": "Run this on the node. The join token can be used once.",
+  "改用 Docker": "Use Docker instead",
+  "保存为 docker-compose.yml 后运行 docker compose up -d。": "Save as docker-compose.yml, then run docker compose up -d.",
   "。加入令牌仅可使用一次。": ". The join token can be used once.",
 
   // node config dialog

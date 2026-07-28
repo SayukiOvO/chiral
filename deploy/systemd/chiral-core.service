@@ -1,16 +1,3 @@
-# Panel, deployed as a binary rather than a container.
-#
-# Install:
-#   install -m755 chiral-core /usr/local/bin/
-#   install -d -m750 -o chiral -g chiral /var/lib/chiral
-#   install -m600 core.env /etc/chiral/core.env      # edit it first
-#   install -m644 chiral-core.service /etc/systemd/system/
-#   systemctl daemon-reload && systemctl enable --now chiral-core
-#
-# The frontend is compiled into the binary, so there is no asset directory to
-# deploy or keep in step. What lives beside it is the database, the Xray binary
-# it validates configs with, and the kernels it has installed on the fleet.
-
 [Unit]
 Description=Chiral panel
 Documentation=https://github.com/SayukiOvO/chiral
@@ -19,20 +6,43 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-User=chiral
-Group=chiral
 EnvironmentFile=/etc/chiral/core.env
 ExecStart=/usr/local/bin/chiral-core
 Restart=on-failure
 RestartSec=5s
 
-# Binding 443 is not this process's job — a reverse proxy or the agent's Xray
-# does that — so it needs no privileged ports and gets none.
+# No account to create and no directory to chown.
+#
+# DynamicUser allocates a throwaway UID for the lifetime of the service, and
+# StateDirectory creates /var/lib/chiral owned by it. The alternative — useradd,
+# install -o, and remembering both on every upgrade — is three steps that exist
+# only to arrive here.
+#
+# The database is the one thing that must outlive the process, and it does:
+# systemd keeps the directory across restarts and reassigns it to whatever UID
+# the next start gets.
+DynamicUser=yes
+StateDirectory=chiral
+StateDirectoryMode=0700
+
+# If Core terminates TLS itself instead of sitting behind a proxy, the dynamic
+# UID cannot read a root-owned private key. Uncomment these and point
+# CHIRAL_TLS_CERT / CHIRAL_TLS_KEY at the credential paths systemd exposes:
+#   LoadCredential=tls-cert:/etc/chiral/tls/fullchain.pem
+#   LoadCredential=tls-key:/etc/chiral/tls/privkey.pem
+# then set, in core.env:
+#   CHIRAL_TLS_CERT=%d/tls-cert
+#   CHIRAL_TLS_KEY=%d/tls-key
+# systemd reads them as root and hands them over; nothing has to be made
+# world-readable. Behind a reverse proxy none of this applies — the proxy holds
+# the certificate and Core has no TLS configuration at all.
+
+# Binding 443 is the node agent's problem, not the panel's, so this needs no
+# privileged ports and is given none.
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=true
-ReadWritePaths=/var/lib/chiral
 ProtectKernelTunables=true
 ProtectKernelModules=true
 ProtectControlGroups=true
@@ -40,8 +50,7 @@ RestrictSUIDSGID=true
 RestrictNamespaces=true
 LockPersonality=true
 # The panel runs `xray -test` and the key generators as subprocesses, so
-# execution cannot be blocked wholesale; MemoryDenyWriteExecute would break the
-# Go runtime anyway.
+# execution cannot be blocked wholesale.
 SystemCallFilter=@system-service
 SystemCallErrorNumber=EPERM
 

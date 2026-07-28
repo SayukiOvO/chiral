@@ -46,6 +46,9 @@ export interface Node {
 export interface CreateNodeResult {
   node: Node;
   join_token: string;
+  /** The one line to run on the node. */
+  install: string;
+  /** For anyone already running containers. */
   compose: string;
 }
 
@@ -333,7 +336,7 @@ export const api = {
     req<Node>("PUT", `/api/nodes/${id}`, patch),
   deleteNode: (id: string) => req<void>("DELETE", `/api/nodes/${id}`),
   resetJoinToken: (id: string) =>
-    req<{ join_token: string; compose: string }>(
+    req<{ join_token: string; install: string; compose: string }>(
       "POST",
       `/api/nodes/${id}/join-token`,
     ),

@@ -1,4 +1,0 @@
-Keeps this directory in the repository so `//go:embed all:dist` always has
-something to match, and `go build ./...` works whether or not the frontend has
-been built. A build with only this file serves no UI; Core falls back to
-CHIRAL_WEB_DIR, or to serving nothing at all.

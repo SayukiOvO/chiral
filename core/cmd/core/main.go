@@ -280,21 +280,38 @@ func run(logger *slog.Logger, dbPath, grpcListen, httpListen, grpcPublic, public
 	// the person who pressed the button is still watching.
 	upgrades.EnableAlerts(alerts)
 
-	tlsEnabled := tlsCert != "" || tlsKey != ""
+	// Whether CORE terminates TLS, and whether AGENTS should expect it, are two
+	// different questions, and conflating them broke the most ordinary
+	// deployment there is.
+	//
+	// Behind a reverse proxy, the proxy holds the certificate and Core listens
+	// in plaintext on loopback — so `tlsCert` is empty while the endpoint
+	// agents dial is very much TLS. Deriving one from the other made the panel
+	// hand every operator a join command containing CHIRAL_INSECURE=1, which
+	// tells the agent to send its credential in the clear to a public address.
+	//
+	// So agents are told TLS unless somebody says otherwise. A plaintext public
+	// endpoint is a development choice and has to be stated.
+	terminatesTLS := tlsCert != "" || tlsKey != ""
+	publicTLS := envOr("CHIRAL_GRPC_PUBLIC_TLS", "true") != "false"
 	// Keepalive so both sides detect dead connections in ~40s instead of the
 	// OS TCP default (minutes). MinTime guards against ping abuse.
 	opts := []grpc.ServerOption{
 		grpc.KeepaliveParams(keepalive.ServerParameters{Time: 30 * time.Second, Timeout: 10 * time.Second}),
 		grpc.KeepaliveEnforcementPolicy(keepalive.EnforcementPolicy{MinTime: 10 * time.Second, PermitWithoutStream: true}),
 	}
-	if tlsEnabled {
+	if terminatesTLS {
 		creds, err := credentials.NewServerTLSFromFile(tlsCert, tlsKey)
 		if err != nil {
 			return err
 		}
 		opts = append(opts, grpc.Creds(creds))
+	} else if publicTLS {
+		logger.Info("gRPC endpoint is plaintext; agents are told to use TLS, " +
+			"so something in front of it must terminate TLS for " + grpcPublic)
 	} else {
-		logger.Warn("gRPC endpoint is PLAINTEXT; set CHIRAL_TLS_CERT/CHIRAL_TLS_KEY in production")
+		logger.Warn("gRPC endpoint is PLAINTEXT and agents are told so " +
+			"(CHIRAL_GRPC_PUBLIC_TLS=false): node credentials cross the network in the clear")
 	}
 	grpcSrv := grpc.NewServer(opts...)
 	chiralv1.RegisterAgentServiceServer(grpcSrv, svc)
@@ -304,7 +321,7 @@ func run(logger *slog.Logger, dbPath, grpcListen, httpListen, grpcPublic, public
 		return err
 	}
 	apiServer := api.NewServer(st, mgr, profiles, subs, alerts, passkeys, mailer,
-		adminToken, grpcPublic, publicURL, tlsEnabled, baked.Available(), logger)
+		adminToken, grpcPublic, publicURL, publicTLS, baked.Available(), logger)
 	// Where the join snippet tells a node to pull the agent from. Defaults to
 	// the published image; set it when running a fork or a private registry,
 	// or the snippet an operator pastes points at something that is not there.

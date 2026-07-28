@@ -27,6 +27,7 @@
 | `CHIRAL_XRAY_BIN` | 面板侧 Xray 二进制（镜像内已打包）。下发前 `xray -test` 校验、ML-DSA-65 生成都靠它 |
 | `CHIRAL_DB_PATH` / `CHIRAL_HTTP_LISTEN` / `CHIRAL_GRPC_LISTEN` | 路径与监听地址 |
 | `CHIRAL_TLS_CERT` / `CHIRAL_TLS_KEY` | gRPC 端 TLS（生产必需） |
+| `CHIRAL_GRPC_PUBLIC_TLS` | agent 是否应当用 TLS 连接，默认 `true`。与 Core 自己是否持证书**无关**——反代场景下 Core 明文监听，而 agent 面对的是反代的 TLS 端口。只有开发环境让 agent 明文直连时才设 `false`；设错会让节点凭证明文过网 |
 | `CHIRAL_TRUSTED_PROXY` | **有反代时必需**。逗号分隔的地址或 CIDR，只写 core 前面那一层。不设则限流按对端地址计（反代后就是所有人共用一个桶）；设错则任何调用方一个 `X-Forwarded-For` 就能自选桶，限流形同虚设 |
 | `CHIRAL_WEB_DIR` | 前端构建产物目录（镜像内已设）。留空则不伺服静态文件 |
 | `CHIRAL_PORTAL_MODE` | 端用户门户：`off`（默认）/ `closed`（仅登录，账号靠认领链接发放）/ `open`（开放注册） |
@@ -88,52 +89,115 @@ Core:  推送首份 config → Agent 落盘 + xray -test + 拉起 Xray-core → 
 
 ## 二进制部署
 
-从 [Releases](https://github.com/SayukiOvO/chiral/releases) 取对应平台的压缩包，内含两个二进制、systemd 单元与配置样例。
-
-### Panel
+### 一键安装
 
 ```bash
-sudo useradd -r -s /usr/sbin/nologin chiral
+curl -fsSL https://raw.githubusercontent.com/SayukiOvO/chiral/main/deploy/install.sh | sudo sh
+```
+
+问你装面板还是装节点、面板的域名，其余自动：下载对应平台的 release、装 Xray 与 geo
+资源、生成 `CHIRAL_ADMIN_TOKEN` 与 `CHIRAL_SECRET_KEY`、写 `/etc/chiral/core.env`、
+装 systemd 单元并启动，最后打印首个管理员密码。
+
+节点侧由控制台「新增节点」给出带令牌的完整命令，无需交互：
+
+```bash
+curl -fsSL .../install.sh | sudo sh -s -- --agent --panel-url panel.example.com:8443 --token <令牌>
+```
+
+**不建系统用户，不用手动建目录。** 面板服务用 systemd 的 `DynamicUser=yes` 跑在一个
+临时 UID 上，`StateDirectory=chiral` 负责创建并保管 `/var/lib/chiral`——重启后目录
+仍在，UID 换了也会重新授权。Agent 以 root 运行，因为它要监管绑 443 的 Xray；给
+xray 二进制加 `CAP_NET_BIND_SERVICE` 是替代方案，但内核升级装了新二进制之后那个能力
+不会跟过去，静默失效比明摆着以 root 跑更糟。
+
+### 反向代理与 TLS
+
+**推荐形态：Core 两个监听都在 loopback 明文，证书交给前面的反代。** 这样 Core 不碰
+任何证书文件，续期也与它无关。
+
+```
+panel.example.com {
+    reverse_proxy 127.0.0.1:8080
+}
+panel.example.com:8443 {
+    reverse_proxy h2c://127.0.0.1:8443
+}
+```
+
+Caddy 会自己签证书。`h2c://` 是必须的：gRPC 走 HTTP/2，而后端是明文，不写它 Caddy
+会用 HTTP/1.1 连过去，agent 那边表现为连不上。
+
+nginx 对应写法：
+
+```nginx
+server {
+    listen 443 ssl;
+    server_name panel.example.com;
+    ssl_certificate     /etc/letsencrypt/live/panel.example.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/panel.example.com/privkey.pem;
+    location / { proxy_pass http://127.0.0.1:8080; }
+}
+server {
+    listen 8443 ssl http2;
+    server_name panel.example.com;
+    ssl_certificate     /etc/letsencrypt/live/panel.example.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/panel.example.com/privkey.pem;
+    location / { grpc_pass grpc://127.0.0.1:8443; }
+}
+```
+
+用反代时**必须**设 `CHIRAL_TRUSTED_PROXY` 为反代的地址，否则限流会把所有请求算到
+反代那一个 IP 上；设成过宽的范围则任何调用者都能用一个请求头自选桶位。
+
+**`CHIRAL_GRPC_PUBLIC_TLS` 默认为 `true`**，也就是「agent 应当用 TLS 连」。它跟
+Core 自己是否持有证书是两回事：反代场景下 Core 明文监听，但 agent 面对的是反代的
+TLS 端口。只有在开发环境里让 agent 明文直连时才设成 `false`。
+
+### 让 Core 自己终结 TLS
+
+不放反代的话，给 Core 证书：
+
+```
+CHIRAL_TLS_CERT=/etc/chiral/tls/fullchain.pem
+CHIRAL_TLS_KEY=/etc/chiral/tls/privkey.pem
+CHIRAL_GRPC_LISTEN=:8443
+```
+
+注意 `DynamicUser` 下的动态 UID 读不了 root 权限的私钥。用 systemd 的
+`LoadCredential=` 把文件交给它（`chiral-core.service` 里有注释好的现成写法），不要
+把私钥改成全局可读。
+
+### 手动安装
+
+安装脚本做的事就是下面这些，想自己控制每一步的话：
+
+```bash
+# 从 Releases 下载对应平台的压缩包
+tar xzf chiral-v0.2.0-linux-amd64.tar.gz && cd chiral-v0.2.0-linux-amd64
+
 sudo install -m755 chiral-core /usr/local/bin/
-sudo install -d -m750 -o chiral -g chiral /var/lib/chiral
-sudo install -D -m600 core.env.example /etc/chiral/core.env
 sudo install -m644 chiral-core.service /etc/systemd/system/
+sudo install -D -m600 core.env.example /etc/chiral/core.env   # 编辑它
 sudo systemctl daemon-reload && sudo systemctl enable --now chiral-core
 ```
 
-编辑 `/etc/chiral/core.env` 前先看它的注释；至少要填 `CHIRAL_GRPC_PUBLIC_ADDR`、
-`CHIRAL_ADMIN_TOKEN`、`CHIRAL_SECRET_KEY`，生产还要填 TLS 证书路径。
+节点侧把 `core` 换成 `agent` 即可。`/var/lib/chiral` 不用建，systemd 会处理。
 
-### 节点
-
-```bash
-sudo install -m755 chiral-agent /usr/local/bin/
-sudo install -d -m750 /var/lib/chiral-agent
-sudo install -D -m600 agent.env.example /etc/chiral/agent.env
-sudo install -m644 chiral-agent.service /etc/systemd/system/
-sudo systemctl daemon-reload && sudo systemctl enable --now chiral-agent
-```
-
-`JOIN_TOKEN` 从控制台「新增节点」取，一次性。Agent 以 root 运行，因为它监管的
-Xray 要绑 443——替代方案是给 xray 二进制加 `CAP_NET_BIND_SERVICE`，但内核升级
-装了新版本之后那个能力不会自动跟过去，静默失效比明摆着以 root 跑更糟。
-
-### Xray-core
-
-两侧都需要。面板用它做下发前校验与密钥派生，节点用它跑代理：
+两侧都还需要一个 Xray-core：
 
 ```bash
 VER=$(curl -fsSL "https://api.github.com/repos/XTLS/Xray-core/releases?per_page=1" | jq -r '.[0].tag_name')
 curl -fsSL -o /tmp/xray.zip "https://github.com/XTLS/Xray-core/releases/download/${VER}/Xray-linux-64.zip"
-sudo unzip -o /tmp/xray.zip -d /tmp/xray
+unzip -o /tmp/xray.zip -d /tmp/xray
 sudo install -m755 /tmp/xray/xray /usr/local/bin/xray
 sudo install -D -m644 -t /usr/local/share/xray /tmp/xray/geoip.dat /tmp/xray/geosite.dat
 ```
 
-geo 资源不能省：用到 `geosite:` / `geoip:` 的路由规则少了它们会加载失败，面板那边
-会把完全合法的 config 判成不合法。
+geo 资源不能省：用到 `geosite:` / `geoip:` 的路由规则少了它们会加载失败，面板会把
+完全合法的 config 判成不合法。
 
-节点侧只需要这一份作为**起点**——内核在线升级会把新版本装到
+节点侧这一份只是**起点**——内核在线升级会把新版本装到
 `CHIRAL_STATE_DIR/kernels/<版本>/` 并切过去，这一份是回滚的地板。
 
 ## 发布镜像

@@ -1,18 +1,3 @@
-# Node agent, deployed as a binary rather than a container.
-#
-# Install:
-#   install -m755 chiral-agent /usr/local/bin/
-#   install -d -m750 /var/lib/chiral-agent
-#   install -m600 agent.env /etc/chiral/agent.env    # edit it first
-#   install -m644 chiral-agent.service /etc/systemd/system/
-#   systemctl daemon-reload && systemctl enable --now chiral-agent
-#
-# Runs as root, unlike the panel, and for one reason: it supervises Xray-core,
-# which binds 443. The alternative is CAP_NET_BIND_SERVICE on the xray binary,
-# which a kernel upgrade then has to reapply to every new version it installs —
-# a capability that silently goes missing after an upgrade is worse than one
-# that is plainly there.
-
 [Unit]
 Description=Chiral node agent
 Documentation=https://github.com/SayukiOvO/chiral
@@ -26,19 +11,23 @@ ExecStart=/usr/local/bin/chiral-agent
 Restart=always
 RestartSec=5s
 
-# The agent starts, stops and replaces Xray-core processes, so process controls
-# stay open. What is closed is everything it has no business touching.
-NoNewPrivileges=false
+# Root, unlike the panel, for one reason: it supervises Xray-core, which binds
+# 443. The alternative is CAP_NET_BIND_SERVICE on the xray binary — but a kernel
+# upgrade installs a new binary, and a capability that silently fails to follow
+# it is worse than one that is plainly there.
+#
+# StateDirectory still applies: no mkdir, and the identity survives upgrades.
+StateDirectory=chiral-agent
+StateDirectoryMode=0700
+
 PrivateTmp=true
 ProtectHome=true
-ProtectSystem=full
-ReadWritePaths=/var/lib/chiral-agent
 ProtectKernelModules=true
 LockPersonality=true
 
-# Xray holds one file descriptor per connection; the default 1024 is a ceiling
-# a busy node reaches, and it fails as unexplained connection refusals rather
-# than as anything naming the limit.
+# Xray holds a descriptor per connection. The default 1024 is a ceiling a busy
+# node reaches, and it arrives as unexplained connection refusals rather than
+# as anything naming the limit.
 LimitNOFILE=1048576
 
 [Install]

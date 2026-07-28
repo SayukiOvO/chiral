@@ -75,11 +75,21 @@ export function AddNodeDialog({
           <div>
             <h3 className="font-display text-lg font-semibold tracking-tight">{t("节点已创建")}</h3>
             <p className="mt-1 text-sm text-muted">
-              {t("在目标主机保存为")} <code className="font-mono text-ink">docker-compose.yml</code>
-              {t("，然后运行")} <code className="font-mono text-ink">docker compose up -d</code>
-              {t("。加入令牌仅可使用一次。")}
+              {t("在目标主机上运行这条命令。加入令牌仅可使用一次。")}
             </p>
-            <CopyBlock text={result.compose} />
+            <CopyBlock text={result.install} />
+
+            {/* Containers stay available, one fold down: it is a preference
+                now rather than a requirement. */}
+            <details className="mt-4">
+              <summary className="cursor-pointer text-xs text-muted hover:text-ink">
+                {t("改用 Docker")}
+              </summary>
+              <p className="mt-2 text-xs text-muted">
+                {t("保存为 docker-compose.yml 后运行 docker compose up -d。")}
+              </p>
+              <CopyBlock text={result.compose} />
+            </details>
             <div className="mt-5 flex justify-end">
               <Button variant="primary" onClick={onClose}>
                 {t("完成")}
