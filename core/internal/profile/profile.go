@@ -295,47 +295,6 @@ func (s *Service) Apply(ctx context.Context, nodeID string) (int64, error) {
 	return c.Version, nil
 }
 
-// ApplyRaw stores and pushes a config an operator wrote by hand.
-//
-// The escape hatch for something the templates cannot express. It goes through
-// the same gate as everything else, and that is the point: CLAUDE.md §7 says a
-// config is validated before it is delivered and that a failing one is neither
-// stored nor pushed. A hand-written path that skipped the check would make that
-// rule true of the convenient route and false of the dangerous one — and this
-// is the dangerous one, because a rendered config was at least produced by a
-// template that worked yesterday, while this one was typed just now.
-//
-// Validated against the node's OWN kernel, like Apply, and inexact for the same
-// reason it is inexact there: the agent's local `xray -test` is the real gate.
-//
-// The probe is rendered from the node's profiles even though the config was
-// not. It may not describe what was pasted — that is the operator's business —
-// but a node configured by hand still deserves an upgrade check that means
-// something, and rendering nothing would silently downgrade its canary to
-// inconclusive forever.
-func (s *Service) ApplyRaw(ctx context.Context, nodeID string, cfg []byte) (int64, error) {
-	if res := s.kernelFor(nodeID); res.Xray.Available() {
-		if err := res.Xray.TestConfig(ctx, cfg); err != nil {
-			return 0, fmt.Errorf("this config does not pass xray -test on %s: %w", res.Describe(), err)
-		}
-	} else {
-		s.logger.Warn("no panel-side Xray binary; storing a hand-written config without pre-validation", "node", nodeID)
-	}
-	probe, why := s.ProbeOutbound(nodeID)
-	if probe == "" {
-		s.logger.Warn("no data-path probe for this node", "node", nodeID, "reason", why)
-	}
-	c, err := s.st.InsertConfig(nodeID, string(cfg), probe)
-	if err != nil {
-		return 0, err
-	}
-	if err := s.push.PushConfig(nodeID, c.Version, []byte(c.Config), []byte(c.ProbeOutbound)); err != nil {
-		s.logger.Warn("config stored but not pushed", "node", nodeID, "version", c.Version, "err", err)
-		return c.Version, err
-	}
-	return c.Version, nil
-}
-
 // Rollback re-pushes an older version's content as a NEW version.
 //
 // Not a distinct agent instruction, by design (CLAUDE.md decision 7): the

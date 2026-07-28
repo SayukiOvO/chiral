@@ -121,7 +121,6 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("PUT /api/nodes/{id}", s.requireWrite(s.updateNode))
 	mux.Handle("DELETE /api/nodes/{id}", s.requireWrite(s.deleteNode))
 	mux.Handle("POST /api/nodes/{id}/join-token", s.requireWrite(s.resetJoinToken))
-	mux.Handle("PUT /api/nodes/{id}/config", s.requireWrite(s.putConfig))
 	mux.Handle("POST /api/nodes/{id}/restart-xray", s.requireWrite(s.restartXray))
 
 	// Runtime Xray-core upgrades. Reads are admin, the install is write, and
@@ -421,38 +420,6 @@ func (s *Server) resetJoinToken(w http.ResponseWriter, r *http.Request) {
 		"join_token": joinToken,
 		"compose":    s.composeSnippet(joinToken),
 	})
-}
-
-func (s *Server) putConfig(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("id")
-	if _, err := s.st.GetNode(id); err != nil {
-		if store.IsNotFound(err) {
-			writeErr(w, http.StatusNotFound, "no such node")
-			return
-		}
-		s.internalErr(w, "load node", err)
-		return
-	}
-	var cfg json.RawMessage
-	if err := json.NewDecoder(r.Body).Decode(&cfg); err != nil {
-		writeErr(w, http.StatusBadRequest, "body must be valid JSON (the node's config.json)")
-		return
-	}
-	version, pushErr := s.profiles.ApplyRaw(r.Context(), id, cfg)
-	if version == 0 {
-		// Nothing was stored, which means validation refused it. Report Xray's
-		// own complaint verbatim: it names the offending field, and that is
-		// what the operator has to fix.
-		writeErr(w, http.StatusUnprocessableEntity, pushErr.Error())
-		return
-	}
-	resp := map[string]any{"version": version, "pushed": pushErr == nil}
-	if pushErr != nil {
-		// Not an error state: heartbeat reconciliation re-pushes as soon as
-		// the node is reachable again.
-		resp["push_error"] = pushErr.Error() + " (config saved; heartbeat reconciliation will re-push it)"
-	}
-	writeJSON(w, http.StatusAccepted, resp)
 }
 
 func (s *Server) restartXray(w http.ResponseWriter, r *http.Request) {
