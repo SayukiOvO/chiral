@@ -35,6 +35,8 @@ type Server struct {
 	// grpcTLS mirrors whether the gRPC endpoint serves TLS; plaintext panels
 	// need CHIRAL_INSECURE in the generated agent compose.
 	grpcTLS bool
+	// agentImage is what the generated join snippet tells a node to run.
+	agentImage string
 	// profiles owns template rendering, config assembly and delivery.
 	profiles *profile.Service
 	// xrayAvailable reports whether the panel has a binary for `xray -test`
@@ -358,16 +360,30 @@ func (s *Server) updateNode(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, s.view(n))
 }
 
+// DefaultAgentImage is where the agent is published. Overridable because a
+// fork, a private registry or a pinned tag are all ordinary, and because the
+// snippet this produces is pasted straight into a shell — a wrong image here
+// fails on somebody else's machine, several minutes after the mistake.
+const DefaultAgentImage = "ghcr.io/sayukiovo/chiral-agent:latest"
+
+// SetAgentImage overrides the image the join snippet names. Empty keeps
+// DefaultAgentImage.
+func (s *Server) SetAgentImage(image string) { s.agentImage = image }
+
 // composeSnippet renders the docker-compose the operator pastes onto the node
 // machine. Kept in sync with deploy/agent/docker-compose.yml.tmpl.
 func (s *Server) composeSnippet(joinToken string) string {
+	image := s.agentImage
+	if image == "" {
+		image = DefaultAgentImage
+	}
 	insecure := ""
 	if !s.grpcTLS {
 		insecure = "\n      CHIRAL_INSECURE: \"1\" # panel gRPC has no TLS; do not use over untrusted networks"
 	}
 	return fmt.Sprintf(`services:
   chiral-agent:
-    image: ghcr.io/sayukiovo/chiral-agent:latest
+    image: %s
     restart: unless-stopped
     network_mode: host
     environment:
@@ -381,7 +397,7 @@ func (s *Server) composeSnippet(joinToken string) string {
       - chiral-agent-data:/var/lib/chiral-agent
 volumes:
   chiral-agent-data:
-`, s.grpcPublicAddr, joinToken, insecure)
+`, image, s.grpcPublicAddr, joinToken, insecure)
 }
 
 func (s *Server) listNodes(w http.ResponseWriter, r *http.Request) {

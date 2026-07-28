@@ -305,6 +305,10 @@ func run(logger *slog.Logger, dbPath, grpcListen, httpListen, grpcPublic, public
 	}
 	apiServer := api.NewServer(st, mgr, profiles, subs, alerts, passkeys, mailer,
 		adminToken, grpcPublic, publicURL, tlsEnabled, baked.Available(), logger)
+	// Where the join snippet tells a node to pull the agent from. Defaults to
+	// the published image; set it when running a fork or a private registry,
+	// or the snippet an operator pastes points at something that is not there.
+	apiServer.SetAgentImage(os.Getenv("CHIRAL_AGENT_IMAGE"))
 	if onlineReg != nil {
 		apiServer.EnableOnlineTracking(onlineReg)
 	}

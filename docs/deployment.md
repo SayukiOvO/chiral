@@ -17,6 +17,7 @@
 | `CHIRAL_ADMIN_USER` / `CHIRAL_ADMIN_PASSWORD` | **首个管理员账号**。仅在库里一个管理员都没有时生效。用户名默认 `admin`；**密码留空则随机生成并在启动日志里打印一次**，之后再也拿不到——生产部署应显式设置 |
 | `CHIRAL_SECRET_KEY` | 静态加密密钥；**不设则私钥类数据明文入库**（启动告警）。开启门户时它是**硬性要求**，见下。`openssl rand -base64 32` |
 | `CHIRAL_GRPC_PUBLIC_ADDR` | Agent 拨回的 `host:port`，写进「新增节点」生成的 compose |
+| `CHIRAL_AGENT_IMAGE` | 「新增节点」生成的 compose 片段里写哪个镜像。留空用内置默认值。发布到自己的 registry 时必须设，否则运维粘贴的命令指向一个不存在的镜像 |
 | `CHIRAL_XRAY_BIN` | 面板侧 Xray 二进制（镜像内已打包）。下发前 `xray -test` 校验、ML-DSA-65 生成都靠它 |
 | `CHIRAL_DB_PATH` / `CHIRAL_HTTP_LISTEN` / `CHIRAL_GRPC_LISTEN` | 路径与监听地址 |
 | `CHIRAL_TLS_CERT` / `CHIRAL_TLS_KEY` | gRPC 端 TLS（生产必需） |
@@ -77,3 +78,37 @@ Core:  推送首份 config → Agent 落盘 + xray -test + 拉起 Xray-core → 
 - [x] Dockerfile（core / agent；core 镜像含 node 构建阶段，前端两个入口一并打包）
 - [x] `.env` 示例（[`../deploy/panel/.env.example`](../deploy/panel/.env.example)）
 - [ ] Xray-core 二进制：现按随镜像打包（可 `--build-arg XRAY_VERSION` pin 版本），是否支持运行时拉取 / 在线升级待议
+
+## 发布镜像
+
+`.github/workflows/publish.yml` 把 `chiral-core` 与 `chiral-agent` 推到 Docker Hub，
+`linux/amd64` + `linux/arm64` 双架构。
+
+**触发方式**：推送 `v*` 标签（发正式版，会移动 `latest`），或在 Actions 页面手动
+运行（可选钉死 Xray 版本、可选附加一个标签，**不会**移动 `latest`）。
+
+刻意不在每次推 main 时发布：镜像里烘焙的是构建时抓取的 Xray 快照，「每次提交都发」
+等于为一堆碰都没碰过代理链路的改动，一天给订阅者换好几次内核。打标签是一个决定，
+提交不是。
+
+**仓库需要配置**（Settings → Secrets and variables → Actions）：
+
+| 类型 | 名字 | 值 |
+|---|---|---|
+| Variable | `DOCKERHUB_USERNAME` | Docker Hub 用户名 / 组织名，同时用作镜像命名空间 |
+| Secret | `DOCKERHUB_TOKEN` | Docker Hub **访问令牌**（Account Settings → Personal access tokens），权限 Read & Write。不要用账号密码 |
+
+推出来的就是 `<DOCKERHUB_USERNAME>/chiral-core` 和 `<DOCKERHUB_USERNAME>/chiral-agent`。
+
+发布到自己的命名空间之后，**面板要设 `CHIRAL_AGENT_IMAGE`**，否则控制台「新增节点」
+生成的 compose 片段仍然指向本项目的默认镜像。
+
+### 跨平台构建
+
+Dockerfile 里 Go / npm / 下载三个阶段都钉在 `$BUILDPLATFORM` 上交叉编译，只有最后
+的运行阶段是目标架构。arm64 因此不需要在模拟器里跑编译器——否则一次构建从一分钟
+变成十几分钟。
+
+Xray 版本发现会调 GitHub API，匿名限额是每 IP 每小时 60 次、而 CI runner 共享出口
+IP。workflow 把 `GITHUB_TOKEN` 作为 **build secret**（不是 ARG，ARG 会留在镜像历史里）
+传进去抬高限额。

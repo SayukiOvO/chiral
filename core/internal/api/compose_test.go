@@ -80,3 +80,23 @@ func TestTheCheckedInTemplateAgreesWithTheSnippet(t *testing.T) {
 		}
 	}
 }
+
+// Publishing under a different namespace than the built-in default is ordinary
+// — a fork, a private registry, a pinned tag. The snippet is pasted straight
+// into a shell on another machine, so a stale image reference fails minutes
+// later and one host away from the mistake.
+func TestComposeSnippetHonoursTheConfiguredImage(t *testing.T) {
+	s := &Server{grpcPublicAddr: "panel.example.com:8443", grpcTLS: true}
+	if !strings.Contains(s.composeSnippet("t"), DefaultAgentImage) {
+		t.Fatalf("an unconfigured panel did not fall back to %s", DefaultAgentImage)
+	}
+
+	s.SetAgentImage("registry.example.com/team/chiral-agent:v1.2.3")
+	out := s.composeSnippet("t")
+	if !strings.Contains(out, "image: registry.example.com/team/chiral-agent:v1.2.3") {
+		t.Fatalf("the configured image is not in the snippet:\n%s", out)
+	}
+	if strings.Contains(out, DefaultAgentImage) {
+		t.Fatalf("the default image survived alongside the override:\n%s", out)
+	}
+}

@@ -1,0 +1,117 @@
+name: publish
+
+# Builds and pushes both images to Docker Hub.
+#
+# Deliberately NOT triggered by every push to main. The images bundle an
+# Xray-core snapshot fetched at build time, so "publish on every commit" would
+# hand subscribers a different kernel several times a day for changes that never
+# touched the proxy path. A tag is a decision; a commit is not.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      xray_version:
+        description: "Pin the bundled Xray-core (e.g. v26.7.28). Empty = latest prerelease at build time."
+        required: false
+        default: ""
+      tag:
+        description: "Extra tag to publish alongside the computed ones (e.g. edge)."
+        required: false
+        default: ""
+
+concurrency:
+  # A second tag pushed while the first is still building would otherwise race
+  # for the `latest` pointer.
+  group: publish
+  cancel-in-progress: false
+
+jobs:
+  # The images are what people run. Refusing to publish one that does not pass
+  # the same checks main does costs six minutes and prevents the failure mode
+  # where a broken release is only discovered by whoever pulled it.
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - run: go vet ./...
+      - run: go test ./...
+
+  publish:
+    needs: verify
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: core
+            image: chiral-core
+            dockerfile: deploy/panel/Dockerfile.core
+          - name: agent
+            image: chiral-agent
+            dockerfile: deploy/agent/Dockerfile
+    steps:
+      - uses: actions/checkout@v4
+
+      # arm64 is emulated only for the final stage (adduser, mkdir); the Go,
+      # npm and download stages are pinned to the build platform in the
+      # Dockerfiles, so this stays cheap.
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ vars.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Compute tags
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ vars.DOCKERHUB_USERNAME }}/${{ matrix.image }}
+          # `latest` only from a semver tag, never from a manual run: a
+          # dispatch is usually a one-off, and having it move `latest` is how
+          # an experiment reaches everybody who pulls.
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/v') }}
+            type=raw,value=${{ inputs.tag }},enable=${{ inputs.tag != '' }}
+            type=sha,format=long
+          labels: |
+            org.opencontainers.image.title=chiral-${{ matrix.name }}
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.licenses=NOASSERTION
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ${{ matrix.dockerfile }}
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            XRAY_VERSION=${{ inputs.xray_version }}
+          # GITHUB_TOKEN lifts the anonymous GitHub API rate limit the Xray
+          # stage would otherwise hit — 60/hour is shared across every runner
+          # on this hosted IP, and exhausting it fails the build with a 404 on
+          # a nonsense URL rather than anything that names the cause.
+          secrets: |
+            GITHUB_TOKEN=${{ github.token }}
+          cache-from: type=gha,scope=${{ matrix.name }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.name }}
+
+      - name: Report what was published
+        run: |
+          echo "### chiral-${{ matrix.name }}" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          echo "${{ steps.meta.outputs.tags }}" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY

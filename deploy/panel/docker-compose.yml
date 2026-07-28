@@ -6,7 +6,7 @@ services:
     build:
       context: ../..
       dockerfile: deploy/panel/Dockerfile.core
-    image: ghcr.io/sayukiovo/chiral-core:latest
+    image: ${CHIRAL_CORE_IMAGE:-ghcr.io/sayukiovo/chiral-core:latest}
     restart: unless-stopped
     ports:
       - "8080:8080" # REST API / frontend
@@ -25,6 +25,9 @@ services:
       # Bundled in the image; the panel validates every rendered config with
       # `xray -test` before storing or pushing it. This one is the FLOOR — see
       # CHIRAL_KERNEL_DIR.
+      # Where the join snippet tells a node to pull the agent from. Set it to
+      # match wherever you publish; the default is this project's own image.
+      CHIRAL_AGENT_IMAGE: ${CHIRAL_AGENT_IMAGE:-}
       CHIRAL_XRAY_BIN: /usr/local/bin/xray
       # Where the panel keeps a binary per Xray version any node runs.
       #

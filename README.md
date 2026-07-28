@@ -137,6 +137,19 @@ cd web && npm ci && npm run dev      # 门户 / ，控制台 /admin/
 - 目录职责：各子目录下的 `README.md`
 - 迁移：`core/migrations/`（0001–0014），启动时自动应用
 
+## 发布
+
+打一个 `v*` 标签就会构建并推送 `chiral-core` 与 `chiral-agent` 到 Docker Hub
+（`linux/amd64` + `linux/arm64`），见 [`.github/workflows/publish.yml`](.github/workflows/publish.yml)。
+也可以在 Actions 页面手动触发，可选钉死打包的 Xray 版本。
+
+仓库需要两项配置（Settings → Secrets and variables → Actions）：
+`DOCKERHUB_USERNAME`（Variable，同时是镜像命名空间）与 `DOCKERHUB_TOKEN`（Secret，
+Docker Hub 访问令牌，不是账号密码）。发布到自己的命名空间后，面板要设
+`CHIRAL_AGENT_IMAGE`，否则「新增节点」生成的命令仍指向本项目的默认镜像。
+
+细节见 [`docs/deployment.md`](docs/deployment.md#发布镜像)。
+
 ## 文档
 
 | | |

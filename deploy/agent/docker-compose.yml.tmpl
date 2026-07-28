@@ -1,5 +1,8 @@
-# Template rendered by Core when a node is added; {{PANEL_URL}} and
+# Template rendered by Core when a node is added; the image, {{PANEL_URL}} and
 # {{JOIN_TOKEN}} are substituted before the snippet is shown to the operator.
+# The image defaults to api.DefaultAgentImage and is overridden with
+# CHIRAL_AGENT_IMAGE on the panel — set it when you publish under your own
+# namespace, or every operator pastes a reference to an image that is not there.
 # Keep in sync with composeSnippet in core/internal/api.
 services:
   chiral-agent:
