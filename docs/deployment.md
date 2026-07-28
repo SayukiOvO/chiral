@@ -22,12 +22,11 @@
 | `CHIRAL_ADMIN_TOKEN` | 破窗用的 bearer token（必需）。与账号密码并行，密码全丢了也还能进 |
 | `CHIRAL_ADMIN_USER` / `CHIRAL_ADMIN_PASSWORD` | **首个管理员账号**。仅在库里一个管理员都没有时生效。用户名默认 `admin`；**密码留空则随机生成并在启动日志里打印一次**，之后再也拿不到——生产部署应显式设置 |
 | `CHIRAL_SECRET_KEY` | 静态加密密钥；**不设则私钥类数据明文入库**（启动告警）。开启门户时它是**硬性要求**，见下。`openssl rand -base64 32` |
-| `CHIRAL_GRPC_PUBLIC_ADDR` | Agent 拨回的 `host:port`，写进「新增节点」生成的 compose |
+| `CHIRAL_GRPC_PUBLIC_ADDR` | Agent 拨回的 `host:port`。**可选**，默认取 `CHIRAL_PUBLIC_URL` 的主机名 + gRPC 监听端口；只在 agent 需要拨到别处时设置 |
 | `CHIRAL_AGENT_IMAGE` | 「新增节点」生成的 compose 片段里写哪个镜像。留空用内置默认值。发布到自己的 registry 时必须设，否则运维粘贴的命令指向一个不存在的镜像 |
 | `CHIRAL_XRAY_BIN` | 面板侧 Xray 二进制（镜像内已打包）。下发前 `xray -test` 校验、ML-DSA-65 生成都靠它 |
 | `CHIRAL_DB_PATH` / `CHIRAL_HTTP_LISTEN` / `CHIRAL_GRPC_LISTEN` | 路径与监听地址 |
-| `CHIRAL_TLS_CERT` / `CHIRAL_TLS_KEY` | gRPC 端 TLS（生产必需） |
-| `CHIRAL_GRPC_PUBLIC_TLS` | agent 是否应当用 TLS 连接，默认 `true`。与 Core 自己是否持证书**无关**——反代场景下 Core 明文监听，而 agent 面对的是反代的 TLS 端口。只有开发环境让 agent 明文直连时才设 `false`；设错会让节点凭证明文过网 |
+| `CHIRAL_TLS_CERT` / `CHIRAL_TLS_KEY` | 设置后，HTTP 与 gRPC **两个监听**都提供 TLS；留空则都是明文，由前面的反代终结。两者必须同时设置 |
 | `CHIRAL_TRUSTED_PROXY` | **有反代时必需**。逗号分隔的地址或 CIDR，只写 core 前面那一层。不设则限流按对端地址计（反代后就是所有人共用一个桶）；设错则任何调用方一个 `X-Forwarded-For` 就能自选桶，限流形同虚设 |
 | `CHIRAL_WEB_DIR` | 前端构建产物目录（镜像内已设）。留空则不伺服静态文件 |
 | `CHIRAL_PORTAL_MODE` | 端用户门户：`off`（默认）/ `closed`（仅登录，账号靠认领链接发放）/ `open`（开放注册） |
@@ -111,10 +110,52 @@ curl -fsSL .../install.sh | sudo sh -s -- --agent --panel-url panel.example.com:
 xray 二进制加 `CAP_NET_BIND_SERVICE` 是替代方案，但内核升级装了新二进制之后那个能力
 不会跟过去，静默失效比明摆着以 root 跑更糟。
 
-### 反向代理与 TLS
+### TLS
 
-**推荐形态：Core 两个监听都在 loopback 明文，证书交给前面的反代。** 这样 Core 不碰
-任何证书文件，续期也与它无关。
+两种形态，选一种。区别只在证书由谁持有。
+
+**A. 面板自己提供 HTTPS**
+
+```
+CHIRAL_TLS_CERT=/etc/chiral/tls/fullchain.pem
+CHIRAL_TLS_KEY=/etc/chiral/tls/privkey.pem
+CHIRAL_HTTP_LISTEN=:443
+CHIRAL_GRPC_LISTEN=:8443
+```
+
+一对证书同时用于 HTTP 与 gRPC 两个监听，两者必须同时设置。证书从哪来不限（Let's
+Encrypt、商业 CA、企业内部 CA 均可），本项目不内置 ACME；续期后重启服务即可。
+
+`DynamicUser` 下的动态 UID 既读不了 root 权限的私钥，也绑不了 443。安装脚本会写一个
+drop-in 解决这两点；手动配置时对应内容为：
+
+```ini
+# /etc/systemd/system/chiral-core.service.d/tls.conf
+[Service]
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+CapabilityBoundingSet=CAP_NET_BIND_SERVICE
+LoadCredential=tls-cert:/etc/chiral/tls/fullchain.pem
+LoadCredential=tls-key:/etc/chiral/tls/privkey.pem
+```
+
+随后 `core.env` 里指向 systemd 提供的凭据路径，私钥无需改成全局可读：
+
+```
+CHIRAL_TLS_CERT=%d/tls-cert
+CHIRAL_TLS_KEY=%d/tls-key
+```
+
+**B. 反向代理终结 TLS**
+
+`core.env` 里不写任何证书，两个监听留在 loopback 明文：
+
+```
+CHIRAL_HTTP_LISTEN=127.0.0.1:8080
+CHIRAL_GRPC_LISTEN=127.0.0.1:8443
+CHIRAL_TRUSTED_PROXY=127.0.0.1
+```
+
+Caddy：
 
 ```
 panel.example.com {
@@ -125,10 +166,10 @@ panel.example.com:8443 {
 }
 ```
 
-Caddy 会自己签证书。`h2c://` 是必须的：gRPC 走 HTTP/2，而后端是明文，不写它 Caddy
-会用 HTTP/1.1 连过去，agent 那边表现为连不上。
+`h2c://` 不可省略。gRPC 走 HTTP/2，而后端是明文；缺了它 Caddy 会以 HTTP/1.1 连接
+后端，症状是节点始终连不上，而两侧日志都没有明显错误。
 
-nginx 对应写法：
+nginx：
 
 ```nginx
 server {
@@ -147,26 +188,11 @@ server {
 }
 ```
 
-用反代时**必须**设 `CHIRAL_TRUSTED_PROXY` 为反代的地址，否则限流会把所有请求算到
-反代那一个 IP 上；设成过宽的范围则任何调用者都能用一个请求头自选桶位。
+用反代时必须设 `CHIRAL_TRUSTED_PROXY`，否则限流会把所有请求归到反代那一个地址上；
+设成过宽的范围则任何调用方都能用一个 `X-Forwarded-For` 自选桶位。
 
-**`CHIRAL_GRPC_PUBLIC_TLS` 默认为 `true`**，也就是「agent 应当用 TLS 连」。它跟
-Core 自己是否持有证书是两回事：反代场景下 Core 明文监听，但 agent 面对的是反代的
-TLS 端口。只有在开发环境里让 agent 明文直连时才设成 `false`。
-
-### 让 Core 自己终结 TLS
-
-不放反代的话，给 Core 证书：
-
-```
-CHIRAL_TLS_CERT=/etc/chiral/tls/fullchain.pem
-CHIRAL_TLS_KEY=/etc/chiral/tls/privkey.pem
-CHIRAL_GRPC_LISTEN=:8443
-```
-
-注意 `DynamicUser` 下的动态 UID 读不了 root 权限的私钥。用 systemd 的
-`LoadCredential=` 把文件交给它（`chiral-core.service` 里有注释好的现成写法），不要
-把私钥改成全局可读。
+**两种形态下 agent 都使用 TLS**，因为它由 `CHIRAL_PUBLIC_URL` 的 scheme 决定，与
+证书由谁持有无关。只有把该值写成 `http://` 时 agent 才明文连接，这仅适用于开发环境。
 
 ### 手动安装
 

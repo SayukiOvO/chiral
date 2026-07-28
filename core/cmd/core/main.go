@@ -75,10 +75,10 @@ func main() {
 		dbPath     = flag.String("db", envOr("CHIRAL_DB_PATH", "data/chiral.db"), "path to the SQLite database")
 		grpcListen = flag.String("grpc-listen", envOr("CHIRAL_GRPC_LISTEN", ":8443"), "listen address for agent gRPC")
 		httpListen = flag.String("http-listen", envOr("CHIRAL_HTTP_LISTEN", ":8080"), "listen address for the REST API")
-		grpcPublic = flag.String("grpc-public-addr", envOr("CHIRAL_GRPC_PUBLIC_ADDR", "localhost:8443"), "address agents dial, used in generated compose snippets")
+		grpcPublic = flag.String("grpc-public-addr", os.Getenv("CHIRAL_GRPC_PUBLIC_ADDR"), "address agents dial; defaults to the public URL's host on the gRPC port")
 		publicURL  = flag.String("public-url", envOr("CHIRAL_PUBLIC_URL", ""), "the panel's own base URL, used to build subscription links")
-		tlsCert    = flag.String("tls-cert", os.Getenv("CHIRAL_TLS_CERT"), "TLS certificate for the gRPC endpoint (plaintext if empty; dev only)")
-		tlsKey     = flag.String("tls-key", os.Getenv("CHIRAL_TLS_KEY"), "TLS key for the gRPC endpoint")
+		tlsCert    = flag.String("tls-cert", os.Getenv("CHIRAL_TLS_CERT"), "TLS certificate; serves HTTPS and gRPC-over-TLS when set")
+		tlsKey     = flag.String("tls-key", os.Getenv("CHIRAL_TLS_KEY"), "TLS key")
 		hbTimeout  = flag.Duration("heartbeat-timeout", 30*time.Second, "a node with no frames for this long counts as offline")
 		rotate     = flag.Bool("rotate-secret-key", false,
 			"re-seal every encrypted value from CHIRAL_SECRET_KEY to CHIRAL_SECRET_KEY_NEW, then exit")
@@ -280,20 +280,37 @@ func run(logger *slog.Logger, dbPath, grpcListen, httpListen, grpcPublic, public
 	// the person who pressed the button is still watching.
 	upgrades.EnableAlerts(alerts)
 
-	// Whether CORE terminates TLS, and whether AGENTS should expect it, are two
-	// different questions, and conflating them broke the most ordinary
-	// deployment there is.
-	//
-	// Behind a reverse proxy, the proxy holds the certificate and Core listens
-	// in plaintext on loopback — so `tlsCert` is empty while the endpoint
-	// agents dial is very much TLS. Deriving one from the other made the panel
-	// hand every operator a join command containing CHIRAL_INSECURE=1, which
-	// tells the agent to send its credential in the clear to a public address.
-	//
-	// So agents are told TLS unless somebody says otherwise. A plaintext public
-	// endpoint is a development choice and has to be stated.
-	terminatesTLS := tlsCert != "" || tlsKey != ""
-	publicTLS := envOr("CHIRAL_GRPC_PUBLIC_TLS", "true") != "false"
+	// One certificate, both listeners. Set it and the panel serves HTTPS and
+	// gRPC-over-TLS itself; leave it and both are plaintext for a reverse proxy
+	// to terminate. There is no third arrangement worth a setting.
+	terminatesTLS := tlsCert != "" && tlsKey != ""
+	if (tlsCert == "") != (tlsKey == "") {
+		return errors.New("CHIRAL_TLS_CERT and CHIRAL_TLS_KEY must be set together")
+	}
+
+	// Whether AGENTS use TLS is a different question, and deriving it from the
+	// certificate was wrong: behind a reverse proxy Core holds no certificate
+	// while the endpoint agents dial is very much TLS. It comes from the public
+	// URL's scheme instead — the one thing that always describes what is on the
+	// outside, whoever terminates it.
+	publicTLS := !strings.HasPrefix(publicURL, "http://")
+
+	// Agents dial the panel's own host unless explicitly pointed elsewhere.
+	// Repeating the hostname in a second setting is one more thing to get out
+	// of step with the first.
+	if grpcPublic == "" {
+		host := publicURL
+		host = strings.TrimPrefix(strings.TrimPrefix(host, "https://"), "http://")
+		host = strings.TrimSuffix(strings.SplitN(host, "/", 2)[0], ":443")
+		if host == "" {
+			return errors.New("set CHIRAL_PUBLIC_URL (e.g. https://panel.example.com) so agents know where to connect")
+		}
+		_, port, err := net.SplitHostPort(grpcListen)
+		if err != nil || port == "" {
+			port = "8443"
+		}
+		grpcPublic = net.JoinHostPort(host, port)
+	}
 	// Keepalive so both sides detect dead connections in ~40s instead of the
 	// OS TCP default (minutes). MinTime guards against ping abuse.
 	opts := []grpc.ServerOption{
@@ -307,11 +324,10 @@ func run(logger *slog.Logger, dbPath, grpcListen, httpListen, grpcPublic, public
 		}
 		opts = append(opts, grpc.Creds(creds))
 	} else if publicTLS {
-		logger.Info("gRPC endpoint is plaintext; agents are told to use TLS, " +
-			"so something in front of it must terminate TLS for " + grpcPublic)
+		logger.Info("listening in plaintext; a reverse proxy must terminate TLS", "public", publicURL)
 	} else {
-		logger.Warn("gRPC endpoint is PLAINTEXT and agents are told so " +
-			"(CHIRAL_GRPC_PUBLIC_TLS=false): node credentials cross the network in the clear")
+		logger.Warn("CHIRAL_PUBLIC_URL is http://, so agents are told to connect in plaintext: " +
+			"node credentials will cross the network in the clear")
 	}
 	grpcSrv := grpc.NewServer(opts...)
 	chiralv1.RegisterAgentServiceServer(grpcSrv, svc)
@@ -342,12 +358,18 @@ func run(logger *slog.Logger, dbPath, grpcListen, httpListen, grpcPublic, public
 
 	errCh := make(chan error, 2)
 	go func() {
-		logger.Info("gRPC listening", "addr", grpcListen, "tls", tlsCert != "")
+		logger.Info("gRPC listening", "addr", grpcListen, "tls", terminatesTLS)
 		errCh <- grpcSrv.Serve(grpcLis)
 	}()
 	go func() {
-		logger.Info("HTTP listening", "addr", httpListen, "version", version)
-		if err := httpSrv.ListenAndServe(); !errors.Is(err, http.ErrServerClosed) {
+		logger.Info("HTTP listening", "addr", httpListen, "tls", terminatesTLS, "version", version)
+		var err error
+		if terminatesTLS {
+			err = httpSrv.ListenAndServeTLS(tlsCert, tlsKey)
+		} else {
+			err = httpSrv.ListenAndServe()
+		}
+		if !errors.Is(err, http.ErrServerClosed) {
 			errCh <- err
 		}
 	}()

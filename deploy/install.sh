@@ -127,27 +127,54 @@ if [ "$ROLE" = panel ]; then
     warn "$ETC/core.env exists; leaving it alone"
   else
     say ""
-    say "${DIM}The address agents will dial, and the address subscribers open."
-    say "A domain you point at this machine — TLS needs a name, not an IP.${OFF}"
     ask DOMAIN "Panel domain" ""
     [ -n "$DOMAIN" ] || die "a domain is required"
+
+    say ""
+    say "  1) Behind a reverse proxy  ${DIM}(nginx, Caddy — it holds the certificate)${OFF}"
+    say "  2) Serve HTTPS directly    ${DIM}(you provide a certificate and key)${OFF}"
+    say ""
+    ask TLS_MODE "TLS" "1"
+
+    TLS_LINES=""
+    LISTEN_HTTP="127.0.0.1:8080"
+    LISTEN_GRPC="127.0.0.1:8443"
+    TRUSTED="CHIRAL_TRUSTED_PROXY=127.0.0.1"
+    if [ "$TLS_MODE" = 2 ]; then
+      ask TLS_CERT "  Certificate (fullchain.pem)" "/etc/chiral/tls/fullchain.pem"
+      ask TLS_KEY  "  Private key" "/etc/chiral/tls/privkey.pem"
+      [ -r "$TLS_CERT" ] || warn "$TLS_CERT is not readable yet — put it there before starting"
+      TLS_LINES="CHIRAL_TLS_CERT=$TLS_CERT
+CHIRAL_TLS_KEY=$TLS_KEY"
+      LISTEN_HTTP=":443"
+      LISTEN_GRPC=":8443"
+      TRUSTED="# CHIRAL_TRUSTED_PROXY="
+      # A dynamic UID cannot read a root-owned key, so hand it over via systemd.
+      mkdir -p /etc/systemd/system/chiral-core.service.d
+      cat > /etc/systemd/system/chiral-core.service.d/tls.conf <<UNIT
+[Service]
+# Serving TLS directly: bind 443, and read the key as root before dropping to
+# the dynamic UID.
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+CapabilityBoundingSet=CAP_NET_BIND_SERVICE
+LoadCredential=tls-cert:$TLS_CERT
+LoadCredential=tls-key:$TLS_KEY
+UNIT
+      TLS_LINES="CHIRAL_TLS_CERT=%d/tls-cert
+CHIRAL_TLS_KEY=%d/tls-key"
+    fi
 
     ADMIN_TOKEN=$(head -c32 /dev/urandom | base64 | tr -d '\n=' | tr '+/' '-_')
     SECRET_KEY=$(head -c32 /dev/urandom | base64 | tr -d '\n')
 
-    # Loopback by default: something in front terminates TLS. That is the
-    # normal shape, and it means this file names no certificates at all.
     cat > "$ETC/core.env" <<EOF
-# Written by the installer. See deploy/panel/.env.example for every setting
-# and what it costs to get wrong.
+# Written by the installer. Full reference: docs/deployment.md
 
-CHIRAL_GRPC_PUBLIC_ADDR=$DOMAIN:8443
 CHIRAL_PUBLIC_URL=https://$DOMAIN
-
-# Generated once. CHIRAL_SECRET_KEY decrypts every private key, subscription
-# token and recorded address in the database — back it up, and losing it loses
-# all of them.
 CHIRAL_ADMIN_TOKEN=$ADMIN_TOKEN
+
+# Decrypts every private key, subscription token and recorded address in the
+# database. Back it up; losing it loses all of them.
 CHIRAL_SECRET_KEY=$SECRET_KEY
 
 CHIRAL_DB_PATH=/var/lib/chiral/chiral.db
@@ -155,14 +182,12 @@ CHIRAL_KERNEL_DIR=/var/lib/chiral/kernels
 CHIRAL_XRAY_BIN=$BIN/xray
 XRAY_LOCATION_ASSET=$XRAY_ASSETS
 
-# Both listeners are plaintext on loopback; the reverse proxy in front holds
-# the certificate. Agents are still told to use TLS — see
-# CHIRAL_GRPC_PUBLIC_TLS — because what they dial is the proxy.
-CHIRAL_HTTP_LISTEN=127.0.0.1:8080
-CHIRAL_GRPC_LISTEN=127.0.0.1:8443
-CHIRAL_TRUSTED_PROXY=127.0.0.1
+CHIRAL_HTTP_LISTEN=$LISTEN_HTTP
+CHIRAL_GRPC_LISTEN=$LISTEN_GRPC
+$TRUSTED
+$TLS_LINES
 
-# Subscriber portal: off | closed | open.
+# Subscriber portal: off | closed | open
 CHIRAL_PORTAL_MODE=off
 EOF
     chmod 600 "$ETC/core.env"
@@ -183,18 +208,21 @@ EOF
   say "  Username: admin"
   [ -n "$PW" ] && say "  Password: ${GRN}${PW}${OFF}   ${DIM}(shown once; also in journalctl)${OFF}"
   say ""
-  warn "Nothing is listening on 443 yet. Put a reverse proxy in front:"
-  say ""
-  say "${DIM}    # /etc/caddy/Caddyfile — Caddy gets the certificate itself${OFF}"
-  say "    ${DOMAIN} {"
-  say "        reverse_proxy 127.0.0.1:8080"
-  say "    }"
-  say "    ${DOMAIN}:8443 {"
-  say "        reverse_proxy h2c://127.0.0.1:8443"
-  say "    }"
-  say ""
-  say "${DIM}  Agents dial ${DOMAIN}:8443 over TLS; the proxy terminates it."
-  say "  Serving TLS from Chiral itself instead: see $ETC/core.env.${OFF}"
+  if [ "${TLS_MODE:-1}" = 2 ]; then
+    say "  Serving HTTPS directly on 443. Agents dial ${DOMAIN}:8443."
+    say "${DIM}  Renew the certificate in place, then: systemctl restart chiral-core${OFF}"
+  else
+    warn "Nothing listens on 443 yet — put a reverse proxy in front:"
+    say ""
+    say "    ${DOMAIN} {"
+    say "        reverse_proxy 127.0.0.1:8080"
+    say "    }"
+    say "    ${DOMAIN}:8443 {"
+    say "        reverse_proxy h2c://127.0.0.1:8443"
+    say "    }"
+    say ""
+    say "${DIM}  Caddyfile syntax. nginx and the reasoning: docs/deployment.md${OFF}"
+  fi
 
 else
   [ -n "$PANEL_URL" ] || ask PANEL_URL "Panel address (host:port)" ""
