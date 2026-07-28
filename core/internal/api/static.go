@@ -6,13 +6,17 @@ import (
 	"os"
 	"path"
 	"strings"
+
+	"github.com/SayukiOvO/chiral/web"
 )
 
 // Serving the built frontend.
 //
-// Optional: with CHIRAL_WEB_DIR unset the panel serves no files at all, which
-// is the right thing during development (vite has its own server) and for
-// anyone terminating at nginx or Caddy.
+// Normally the assets are compiled into the binary (see package web), so a
+// single Core executable is the whole panel. CHIRAL_WEB_DIR overrides that with
+// a directory on disk, which is what development wants (vite serves its own,
+// with hot reload) and what anyone terminating static content at nginx or Caddy
+// wants. With neither, the panel serves no files at all.
 //
 // Both interfaces use hash routing, so there are only two real paths — / for
 // the portal and /admin/ for the console — and no SPA fallback is needed.
@@ -21,6 +25,10 @@ import (
 func WebDirFromEnv() string { return strings.TrimSpace(os.Getenv("CHIRAL_WEB_DIR")) }
 
 // routeStatic registers the file server, if there is one.
+//
+// Takes an fs.FS rather than a path so the same handler serves the embedded
+// assets and an on-disk directory; everything below cares about the shape of
+// the tree, not where it came from.
 //
 // Two details matter more than the serving itself:
 //
@@ -35,11 +43,10 @@ func WebDirFromEnv() string { return strings.TrimSpace(os.Getenv("CHIRAL_WEB_DIR
 //     render a listing, and dist/assets is a hundred-odd files including the
 //     4 MB Monaco chunk — a browsable index of the whole build for anyone who
 //     guesses the path.
-func (s *Server) routeStatic(mux *http.ServeMux, dir string) {
-	if dir == "" {
+func (s *Server) routeStatic(mux *http.ServeMux, root fs.FS, source string) {
+	if root == nil {
 		return
 	}
-	root := os.DirFS(dir)
 	files := http.FileServerFS(noListing{root})
 
 	mux.Handle("/", files)
@@ -48,7 +55,19 @@ func (s *Server) routeStatic(mux *http.ServeMux, dir string) {
 	mux.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusNotFound, "no such endpoint")
 	})
-	s.logger.Info("serving the web frontend", "dir", dir)
+	s.logger.Info("serving the web frontend", "from", source)
+}
+
+// WebAssets picks what to serve: CHIRAL_WEB_DIR if set, otherwise whatever was
+// compiled in. Returns nil when there is neither.
+func WebAssets() (fs.FS, string) {
+	if dir := WebDirFromEnv(); dir != "" {
+		return os.DirFS(dir), dir
+	}
+	if assets, ok := web.Assets(); ok {
+		return assets, "embedded"
+	}
+	return nil, ""
 }
 
 // noListing is an fs.FS that hides directories with no index.html, so

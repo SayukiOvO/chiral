@@ -180,3 +180,78 @@ jobs:
           echo '```' >> $GITHUB_STEP_SUMMARY
           echo "${{ steps.meta.outputs.tags }}" >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
+
+  # Prebuilt binaries, for deploying without Docker. The panel carries its own
+  # frontend, so a release is two executables and an Xray — no asset directory
+  # to unpack or keep in step with the binary that serves it.
+  binaries:
+    needs: verify
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+
+      # Before the Go build, always: package web compiles dist/ into the panel
+      # binary, and a checkout that skipped this produces one that serves no UI
+      # and says so only at runtime.
+      - name: Build the frontend
+        working-directory: web
+        run: npm ci && npm run build
+
+      - name: Build every target
+        env:
+          VERSION: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          mkdir -p out
+          for target in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64; do
+            os=${target%/*}; arch=${target#*/}
+            dir="chiral-${VERSION}-${os}-${arch}"
+            mkdir -p "build/$dir"
+            for cmd in core agent; do
+              CGO_ENABLED=0 GOOS=$os GOARCH=$arch go build \
+                -trimpath -ldflags="-s -w" \
+                -o "build/$dir/chiral-$cmd" "./$cmd/cmd/$cmd"
+            done
+            cp deploy/systemd/* "build/$dir/"
+            cp README.md "build/$dir/"
+            tar -czf "out/${dir}.tar.gz" -C build "$dir"
+          done
+          cd out && sha256sum *.tar.gz > SHA256SUMS
+          ls -lh
+
+      # A release with notes, rather than bare tags. The annotation on the tag
+      # is already written for this — reusing it beats a generated changelog
+      # nobody wrote.
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          {
+            git tag -l --format='%(contents)' "$VERSION"
+            echo
+            echo "## Container images"
+            echo
+            echo '```'
+            echo "docker pull ${{ vars.DOCKERHUB_USERNAME }}/chiral-core:${VERSION#v}"
+            echo "docker pull ${{ vars.DOCKERHUB_USERNAME }}/chiral-agent:${VERSION#v}"
+            echo '```'
+            echo
+            echo "Bundled Xray-core: \`${{ needs.verify.outputs.xray_version }}\`"
+          } > notes.md
+          gh release create "$VERSION" \
+            --title "$VERSION" \
+            --notes-file notes.md \
+            out/*.tar.gz out/SHA256SUMS

@@ -211,7 +211,8 @@ func (s *Server) Handler() http.Handler {
 	// Last, because it registers the catch-all. Go 1.22's mux is
 	// most-specific-wins rather than first-registered, so the order is for the
 	// reader's benefit rather than the router's.
-	s.routeStatic(mux, WebDirFromEnv())
+	assets, source := WebAssets()
+	s.routeStatic(mux, assets, source)
 	return mux
 }
 

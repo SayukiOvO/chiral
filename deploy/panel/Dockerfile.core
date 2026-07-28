@@ -1,3 +1,13 @@
+# Web stage: both frontends, built together. Vite emits two entry points —
+# the subscriber's portal at / and the operator's console at /admin/ — sharing
+# one set of chunks, so this is one build rather than two.
+FROM --platform=$BUILDPLATFORM node:22-alpine AS web
+WORKDIR /web
+COPY web/package.json web/package-lock.json ./
+RUN npm ci
+COPY web/ ./
+RUN npm run build
+
 # Build stage.
 #
 # Pinned to the BUILD platform and cross-compiled, rather than run under
@@ -10,6 +20,10 @@ WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
+# The frontend is compiled INTO the binary (package web), so it has to be in
+# the tree before `go build` runs. This overwrites the placeholder that keeps
+# `go build ./...` working in a checkout which never built the frontend.
+COPY --from=web /web/dist ./web/dist
 # modernc.org/sqlite is pure Go, so the binary can be fully static.
 RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH \
     go build -trimpath -ldflags="-s -w" -o /out/chiral-core ./core/cmd/core
@@ -54,16 +68,6 @@ RUN --mount=type=secret,id=GITHUB_TOKEN \
     && curl -fsSL -o /tmp/xray.zip "https://github.com/XTLS/Xray-core/releases/download/${VERSION}/Xray-linux-${XRAY_ARCH}.zip" \
     && unzip /tmp/xray.zip -d /opt/xray
 
-# Web stage: both frontends, built together. Vite emits two entry points —
-# the subscriber's portal at / and the operator's console at /admin/ — sharing
-# one set of chunks, so this is one build rather than two.
-FROM --platform=$BUILDPLATFORM node:22-alpine AS web
-WORKDIR /web
-COPY web/package.json web/package-lock.json ./
-RUN npm ci
-COPY web/ ./
-RUN npm run build
-
 # Runtime stage
 FROM alpine:3.20
 RUN adduser -D -H chiral
@@ -73,7 +77,6 @@ COPY --from=xray /opt/xray/xray /usr/local/bin/xray
 # load without them, so `xray -test` would reject configs that are perfectly
 # valid on the node.
 COPY --from=xray /opt/xray/geoip.dat /opt/xray/geosite.dat /usr/local/share/xray/
-COPY --from=web /web/dist /usr/share/chiral/web
 # Create and own the data directory BEFORE dropping privileges. A named volume
 # inherits the image's ownership of its mountpoint, so without this a fresh
 # volume is root-owned and the unprivileged process cannot open the database —
@@ -84,7 +87,6 @@ VOLUME /var/lib/chiral
 ENV CHIRAL_DB_PATH=/var/lib/chiral/chiral.db \
     CHIRAL_XRAY_BIN=/usr/local/bin/xray \
     CHIRAL_KERNEL_DIR=/var/lib/chiral/kernels \
-    XRAY_LOCATION_ASSET=/usr/local/share/xray \
-    CHIRAL_WEB_DIR=/usr/share/chiral/web
+    XRAY_LOCATION_ASSET=/usr/local/share/xray
 EXPOSE 8080 8443
 ENTRYPOINT ["chiral-core"]

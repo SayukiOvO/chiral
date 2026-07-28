@@ -19,6 +19,7 @@
 - **内核在线升级，追 prerelease**。先升一台金丝雀，**由 agent 用被测的二进制真的当一次客户端上网**，字节回来了才算 ACTIVE；起不来或本来通现在不通就自动回滚，人看过结果再放行到全队。
 - **两个界面两类人**。订阅者门户在 `/`，运维控制台在 `/admin/`，鉴权边界在服务端由构造保证。
 - **敏感数据静态加密**。REALITY 私钥、后量子种子、订阅令牌、来源地址均以 AES-GCM 封存，密钥来自独立环境变量。
+- **前端编译进二进制**。面板是一个静态链接的可执行文件，跑起来就有完整界面——不用部署静态目录，也就不会出现「二进制更新了、前端没更新」这种状态。
 - 中英双语、日 / 夜 / 跟随系统、移动端自适应。
 
 ## 功能一览
@@ -56,9 +57,16 @@
 
 详见 [`docs/architecture.md`](docs/architecture.md) 与 [`docs/communication.md`](docs/communication.md)。
 
-## 快速开始
+## 部署形态
 
-需要 Docker 与 Docker Compose。
+两种，选一种：
+
+- **二进制**：一个 `chiral-core` + 一个 `chiral-agent`，各自旁边放一个 Xray。**前端编译在 Core 二进制里**，没有静态目录要部署或跟着更新。发布页有各平台的压缩包，内含 systemd 单元与配置样例。
+- **Docker**：`deploy/panel/docker-compose.yml` 起面板，控制台「新增节点」生成节点侧的 compose。
+
+数据库是 SQLite，单文件；配置走环境变量（systemd 用 `EnvironmentFile`，Docker 用 `.env`），两边是同一套变量。
+
+## 快速开始（Docker）
 
 ### 1. 起面板
 
@@ -102,6 +110,27 @@ CHIRAL_PUBLIC_URL=https://panel.example.com
 ```
 
 门户开启时 `CHIRAL_SECRET_KEY` 与 `CHIRAL_PUBLIC_URL` **都必须非空，否则 Core 拒绝启动**——前者因为门户会可恢复地存订阅令牌，后者因为缺了它每个订阅者拿到的都是一条无法使用的相对链接。
+
+## 快速开始（二进制）
+
+从 [Releases](https://github.com/SayukiOvO/chiral/releases) 下载对应平台的压缩包。
+
+```bash
+tar xzf chiral-v0.2.0-linux-amd64.tar.gz && cd chiral-v0.2.0-linux-amd64
+
+# 面板
+sudo install -m755 chiral-core /usr/local/bin/
+sudo install -d -m750 -o chiral -g chiral /var/lib/chiral
+sudo install -D -m600 core.env.example /etc/chiral/core.env   # 改它
+sudo install -m644 chiral-core.service /etc/systemd/system/
+sudo systemctl daemon-reload && sudo systemctl enable --now chiral-core
+```
+
+节点侧同理，用 `chiral-agent` 与 `agent.env.example`。两边都还需要一个 Xray-core
+二进制（`CHIRAL_XRAY_BIN` 指过去），装法见 [`docs/deployment.md`](docs/deployment.md)。
+
+面板要先建 `chiral` 用户：`sudo useradd -r -s /usr/sbin/nologin chiral`。
+Agent 以 root 跑，因为它要监管绑 443 的 Xray。
 
 ## 生产注意
 

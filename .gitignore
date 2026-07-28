@@ -19,7 +19,8 @@ certs/
 
 # Frontend
 node_modules/
-web/dist/
+web/dist/*
+!web/dist/.gitkeep
 web/.vite/
 web/*.tsbuildinfo
 

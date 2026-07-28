@@ -1,0 +1,49 @@
+# Panel, deployed as a binary rather than a container.
+#
+# Install:
+#   install -m755 chiral-core /usr/local/bin/
+#   install -d -m750 -o chiral -g chiral /var/lib/chiral
+#   install -m600 core.env /etc/chiral/core.env      # edit it first
+#   install -m644 chiral-core.service /etc/systemd/system/
+#   systemctl daemon-reload && systemctl enable --now chiral-core
+#
+# The frontend is compiled into the binary, so there is no asset directory to
+# deploy or keep in step. What lives beside it is the database, the Xray binary
+# it validates configs with, and the kernels it has installed on the fleet.
+
+[Unit]
+Description=Chiral panel
+Documentation=https://github.com/SayukiOvO/chiral
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=chiral
+Group=chiral
+EnvironmentFile=/etc/chiral/core.env
+ExecStart=/usr/local/bin/chiral-core
+Restart=on-failure
+RestartSec=5s
+
+# Binding 443 is not this process's job — a reverse proxy or the agent's Xray
+# does that — so it needs no privileged ports and gets none.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/chiral
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+RestrictNamespaces=true
+LockPersonality=true
+# The panel runs `xray -test` and the key generators as subprocesses, so
+# execution cannot be blocked wholesale; MemoryDenyWriteExecute would break the
+# Go runtime anyway.
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+
+[Install]
+WantedBy=multi-user.target

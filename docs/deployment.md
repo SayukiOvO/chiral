@@ -1,12 +1,18 @@
 # 部署
 
-全程 Docker / docker-compose。分两侧：Panel（中心）与节点。
+两种形态，同一套配置变量：
+
+- **二进制**：`chiral-core` 与 `chiral-agent` 两个静态可执行文件，各自旁边一个
+  Xray-core。**前端编译在 Core 二进制里**，没有静态目录。见下面「二进制部署」。
+- **Docker / docker-compose**：见「Panel 侧」与「节点侧」。
+
+分两侧：Panel（中心）与节点。
 
 ## Panel 侧
 
 单个 `docker-compose.yml`（见 [`../deploy/panel/`](../deploy/panel/)），包含：
 - `core` 容器：Go 后端，挂载 SQLite 数据卷。
-- 前端静态资源：镜像里已打包构建产物，core 经 `CHIRAL_WEB_DIR` 一并伺服。**门户在 `/`，运维控制台在 `/admin/`**；留空该变量则 core 完全不伺服静态文件，交给反代。
+- 前端：**编译在 core 二进制内**，无需部署静态目录。**门户在 `/`，运维控制台在 `/admin/`**。设 `CHIRAL_WEB_DIR` 可改为从磁盘目录伺服（开发时指向 vite 产物，或让 nginx / Caddy 接管静态内容）。
 - 可选 `caddy` / `nginx`：TLS 终止（建议 ACME 自动签发证书）。用反代时**必须**设 `CHIRAL_TRUSTED_PROXY`，见下。
 
 关键环境变量：
@@ -77,7 +83,58 @@ Core:  推送首份 config → Agent 落盘 + xray -test + 拉起 Xray-core → 
 - [x] 起草 `deploy/agent/docker-compose.yml.tmpl`（Core 渲染用）
 - [x] Dockerfile（core / agent；core 镜像含 node 构建阶段，前端两个入口一并打包）
 - [x] `.env` 示例（[`../deploy/panel/.env.example`](../deploy/panel/.env.example)）
-- [ ] Xray-core 二进制：现按随镜像打包（可 `--build-arg XRAY_VERSION` pin 版本），是否支持运行时拉取 / 在线升级待议
+- [x] Xray-core 二进制：随镜像打包（`--build-arg XRAY_VERSION` 可 pin），运行时在线升级见 [`xray-upgrade.md`](xray-upgrade.md)
+- [x] 二进制部署：systemd 单元与配置样例在 [`../deploy/systemd/`](../deploy/systemd/)
+
+## 二进制部署
+
+从 [Releases](https://github.com/SayukiOvO/chiral/releases) 取对应平台的压缩包，内含两个二进制、systemd 单元与配置样例。
+
+### Panel
+
+```bash
+sudo useradd -r -s /usr/sbin/nologin chiral
+sudo install -m755 chiral-core /usr/local/bin/
+sudo install -d -m750 -o chiral -g chiral /var/lib/chiral
+sudo install -D -m600 core.env.example /etc/chiral/core.env
+sudo install -m644 chiral-core.service /etc/systemd/system/
+sudo systemctl daemon-reload && sudo systemctl enable --now chiral-core
+```
+
+编辑 `/etc/chiral/core.env` 前先看它的注释；至少要填 `CHIRAL_GRPC_PUBLIC_ADDR`、
+`CHIRAL_ADMIN_TOKEN`、`CHIRAL_SECRET_KEY`，生产还要填 TLS 证书路径。
+
+### 节点
+
+```bash
+sudo install -m755 chiral-agent /usr/local/bin/
+sudo install -d -m750 /var/lib/chiral-agent
+sudo install -D -m600 agent.env.example /etc/chiral/agent.env
+sudo install -m644 chiral-agent.service /etc/systemd/system/
+sudo systemctl daemon-reload && sudo systemctl enable --now chiral-agent
+```
+
+`JOIN_TOKEN` 从控制台「新增节点」取，一次性。Agent 以 root 运行，因为它监管的
+Xray 要绑 443——替代方案是给 xray 二进制加 `CAP_NET_BIND_SERVICE`，但内核升级
+装了新版本之后那个能力不会自动跟过去，静默失效比明摆着以 root 跑更糟。
+
+### Xray-core
+
+两侧都需要。面板用它做下发前校验与密钥派生，节点用它跑代理：
+
+```bash
+VER=$(curl -fsSL "https://api.github.com/repos/XTLS/Xray-core/releases?per_page=1" | jq -r '.[0].tag_name')
+curl -fsSL -o /tmp/xray.zip "https://github.com/XTLS/Xray-core/releases/download/${VER}/Xray-linux-64.zip"
+sudo unzip -o /tmp/xray.zip -d /tmp/xray
+sudo install -m755 /tmp/xray/xray /usr/local/bin/xray
+sudo install -D -m644 -t /usr/local/share/xray /tmp/xray/geoip.dat /tmp/xray/geosite.dat
+```
+
+geo 资源不能省：用到 `geosite:` / `geoip:` 的路由规则少了它们会加载失败，面板那边
+会把完全合法的 config 判成不合法。
+
+节点侧只需要这一份作为**起点**——内核在线升级会把新版本装到
+`CHIRAL_STATE_DIR/kernels/<版本>/` 并切过去，这一份是回滚的地板。
 
 ## 发布镜像
 

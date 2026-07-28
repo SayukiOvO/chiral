@@ -33,7 +33,7 @@ func staticFixture(t *testing.T) (http.Handler, string) {
 	}
 	mux := http.NewServeMux()
 	mux.Handle("GET /api/nodes", srv.requireAdmin(func(w http.ResponseWriter, r *http.Request) {}))
-	srv.routeStatic(mux, dir)
+	srv.routeStatic(mux, os.DirFS(dir), dir)
 	return mux, dir
 }
 
@@ -107,7 +107,7 @@ func TestStaticDoesNotShadowRealRoutes(t *testing.T) {
 func TestNoWebDirServesNothing(t *testing.T) {
 	srv := &Server{logger: slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))}
 	mux := http.NewServeMux()
-	srv.routeStatic(mux, "")
+	srv.routeStatic(mux, nil, "")
 
 	if w := get(t, mux, "/"); w.Code != http.StatusNotFound {
 		t.Errorf("status %d with no web dir, want 404", w.Code)
