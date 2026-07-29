@@ -34,8 +34,8 @@ StateDirectoryMode=0700
 #     LoadCredential=tls-key:/etc/chiral/tls/privkey.pem
 # with CHIRAL_TLS_CERT=%d/tls-cert and CHIRAL_TLS_KEY=%d/tls-key in core.env.
 # A port below 1024 additionally needs AmbientCapabilities=CAP_NET_BIND_SERVICE
-# — which is why the default ports are 8080 and 8443, not 443: on most hosts
-# 443 already belongs to Xray or a web server.
+# — which is why the defaults are 26080 and 26443: 443, 80, 8080 and 8443 are
+# all commonly taken on a host that also runs a web server or Xray.
 
 NoNewPrivileges=true
 PrivateTmp=true

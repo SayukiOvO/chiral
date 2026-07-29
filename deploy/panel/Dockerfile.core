@@ -88,5 +88,5 @@ ENV CHIRAL_DB_PATH=/var/lib/chiral/chiral.db \
     CHIRAL_XRAY_BIN=/usr/local/bin/xray \
     CHIRAL_KERNEL_DIR=/var/lib/chiral/kernels \
     XRAY_LOCATION_ASSET=/usr/local/share/xray
-EXPOSE 8080 8443
+EXPOSE 26080 26443
 ENTRYPOINT ["chiral-core"]

@@ -144,9 +144,9 @@ if [ "$ROLE" = panel ]; then
     ask TLS_MODE "TLS" "1"
 
     TLS_LINES=""
-    # Ports do not change with the TLS mode. 443 belongs to whatever is already
-    # answering on this host — Xray on a node, nginx on a web server — and a
-    # panel that claims it by default collides with them.
+    # Unusual on purpose: 443, 80, 8080 and 8443 are all commonly answered by
+    # something else on the same host, and a default that collides turns the
+    # first start into a bind error against somebody's running service.
     HTTP_PORT=26080
     GRPC_PORT=26443
     LISTEN_HTTP="127.0.0.1:$HTTP_PORT"
