@@ -6,6 +6,7 @@ package main
 import (
 	"context"
 	"flag"
+	"fmt"
 	"log/slog"
 	"os"
 	"os/signal"
@@ -19,7 +20,8 @@ import (
 	chiralv1 "github.com/SayukiOvO/chiral/proto/chiral/v1"
 )
 
-const version = "0.1.0-dev"
+// version is stamped at link time by the release build; see the panel's copy.
+var version = "0.1.0-dev"
 
 func main() {
 	var (
@@ -28,8 +30,13 @@ func main() {
 		xrayBin    = flag.String("xray-bin", envOr("CHIRAL_XRAY_BIN", "xray"), "path to the Xray-core binary")
 		insecureTr = flag.Bool("insecure", os.Getenv("CHIRAL_INSECURE") == "1", "use plaintext gRPC (dev only)")
 		hbInterval = flag.Duration("heartbeat-interval", 10*time.Second, "heartbeat period")
+		showVer    = flag.Bool("version", false, "print the version and exit")
 	)
 	flag.Parse()
+	if *showVer {
+		fmt.Println(version)
+		return
+	}
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
 
 	// Env only, never a flag: command lines leak via `ps` and shell history.

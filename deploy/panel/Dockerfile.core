@@ -16,6 +16,9 @@ RUN npm run build
 FROM --platform=$BUILDPLATFORM golang:1.25-alpine AS build
 ARG TARGETOS
 ARG TARGETARCH
+# Left empty for a plain `docker build`, which is not a release and should not
+# claim a version. CI passes the same string it stamps into the tarballs.
+ARG VERSION=
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
@@ -26,7 +29,9 @@ COPY . .
 COPY --from=web /web/dist ./web/dist
 # modernc.org/sqlite is pure Go, so the binary can be fully static.
 RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH \
-    go build -trimpath -ldflags="-s -w" -o /out/chiral-core ./core/cmd/core
+    go build -trimpath \
+      -ldflags="-s -w ${VERSION:+-X main.version=$VERSION}" \
+      -o /out/chiral-core ./core/cmd/core
 
 # Xray stage: the PANEL needs its own Xray binary too — it validates every
 # rendered config with `xray -test` before storing or pushing it, and derives

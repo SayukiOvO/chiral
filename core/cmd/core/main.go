@@ -44,7 +44,13 @@ import (
 	chiralv1 "github.com/SayukiOvO/chiral/proto/chiral/v1"
 )
 
-const version = "0.1.0-dev"
+// version is stamped at link time by the release build:
+//
+//	-ldflags "-X main.version=0.3.1"
+//
+// A var, not a const, for exactly that reason. The default is what a local
+// build reports, and it should not look like a release.
+var version = "0.1.0-dev"
 
 // onlineInterval is how often agents enumerate connected addresses.
 //
@@ -89,8 +95,13 @@ func main() {
 		hbTimeout  = flag.Duration("heartbeat-timeout", 30*time.Second, "a node with no frames for this long counts as offline")
 		rotate     = flag.Bool("rotate-secret-key", false,
 			"re-seal every encrypted value from CHIRAL_SECRET_KEY to CHIRAL_SECRET_KEY_NEW, then exit")
+		showVer = flag.Bool("version", false, "print the version and exit")
 	)
 	flag.Parse()
+	if *showVer {
+		fmt.Println(version)
+		return
+	}
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
 
 	// Env only, never a flag: command lines leak via `ps` and shell history.

@@ -34,6 +34,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       xray_version: ${{ steps.xray.outputs.version }}
+      version: ${{ steps.ver.outputs.version }}
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
@@ -41,6 +42,22 @@ jobs:
           go-version-file: go.mod
       - run: go vet ./...
       - run: go test ./...
+
+      # One version string for the binaries and both images, so a `docker
+      # images` and a `chiral-core --version` cannot disagree about what the
+      # same run produced. A dispatch is not a release and must not claim a
+      # version number that looks like one.
+      - name: Resolve the build version
+        id: ver
+        run: |
+          set -euo pipefail
+          if [ "${GITHUB_REF_TYPE}" = tag ]; then
+            v="${GITHUB_REF_NAME#v}"
+          else
+            v="0.0.0-${GITHUB_REF_NAME}.$(git rev-parse --short HEAD)"
+          fi
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+          echo "building $v"
 
       # Resolve the Xray version ONCE, here, and hand the same answer to both
       # images.
@@ -147,6 +164,7 @@ jobs:
           # different kernels.
           build-args: |
             XRAY_VERSION=${{ needs.verify.outputs.xray_version }}
+            VERSION=${{ needs.verify.outputs.version }}
           # GITHUB_TOKEN lifts the anonymous GitHub API rate limit the Xray
           # stage would otherwise hit — 60/hour is shared across every runner
           # on this hosted IP, and exhausting it fails the build with a 404 on
@@ -168,6 +186,7 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           build-args: |
             XRAY_VERSION=${{ needs.verify.outputs.xray_version }}
+            VERSION=${{ needs.verify.outputs.version }}
           secrets: |
             GITHUB_TOKEN=${{ github.token }}
           # No cache-to on the retry: if the cache export is what failed,
@@ -211,6 +230,7 @@ jobs:
       - name: Build every target
         env:
           VERSION: ${{ github.ref_name }}
+          STAMP: ${{ needs.verify.outputs.version }}
         run: |
           set -euo pipefail
           mkdir -p out
@@ -219,8 +239,10 @@ jobs:
             dir="chiral-${VERSION}-${os}-${arch}"
             mkdir -p "build/$dir"
             for cmd in core agent; do
+              # -X main.version, or the binary reports the placeholder a local
+              # build uses and every node in the console claims to run 0.1.0-dev.
               CGO_ENABLED=0 GOOS=$os GOARCH=$arch go build \
-                -trimpath -ldflags="-s -w" \
+                -trimpath -ldflags="-s -w -X main.version=${STAMP}" \
                 -o "build/$dir/chiral-$cmd" "./$cmd/cmd/$cmd"
             done
             cp deploy/systemd/* "build/$dir/"
@@ -229,6 +251,26 @@ jobs:
           done
           cd out && sha256sum *.tar.gz > SHA256SUMS
           ls -lh
+
+      # -X is silent when it misses: rename the variable, move it to another
+      # package, or make it a const again, and the build still succeeds while
+      # every binary reports the development placeholder. v0.3.1 shipped that
+      # way, which made the console's per-node version column say 0.1.0-dev for
+      # every node no matter what was installed on it. Ask a binary instead of
+      # trusting the flag.
+      - name: Check the version actually got stamped
+        env:
+          STAMP: ${{ needs.verify.outputs.version }}
+        run: |
+          set -euo pipefail
+          for cmd in core agent; do
+            got=$("./build/chiral-${{ github.ref_name }}-linux-amd64/chiral-$cmd" --version)
+            [ "$got" = "$STAMP" ] || {
+              echo "chiral-$cmd reports '$got', expected '$STAMP' — the -X ldflag no longer reaches main.version" >&2
+              exit 1
+            }
+            echo "chiral-$cmd: $got"
+          done
 
       # A release with notes, rather than bare tags. The annotation on the tag
       # is already written for this — reusing it beats a generated changelog

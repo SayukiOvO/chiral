@@ -3,12 +3,16 @@
 FROM --platform=$BUILDPLATFORM golang:1.25-alpine AS build
 ARG TARGETOS
 ARG TARGETARCH
+# See the panel image: empty for a local build, stamped by CI.
+ARG VERSION=
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
 RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH \
-    go build -trimpath -ldflags="-s -w" -o /out/chiral-agent ./agent/cmd/agent
+    go build -trimpath \
+      -ldflags="-s -w ${VERSION:+-X main.version=$VERSION}" \
+      -o /out/chiral-agent ./agent/cmd/agent
 
 # Xray-core stage: bundled into the image. Chiral tracks Xray-core's SNAPSHOT
 # (prerelease) channel — the latest features (xhttp up/down split, post-quantum
