@@ -67,7 +67,7 @@
 
 ## 真机验收（2026-07-28，香港节点）
 
-一台真 VPS（Debian 13 / amd64，公网 103.73.220.23）跑 Panel + Agent + Xray 26.7.11，
+一台真 VPS（Debian 13 / amd64，香港）跑 Panel + Agent + Xray 26.7.11，
 本机做客户端，VLESS + REALITY + Vision 打到 :443。
 
 **主链路通了**：本机 SOCKS → 节点 :443 → 出网，`api.ip.sb` 返回节点公网 IP；
