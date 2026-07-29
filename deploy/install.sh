@@ -3,8 +3,18 @@
 #
 #   curl -fsSL https://raw.githubusercontent.com/SayukiOvO/chiral/main/deploy/install.sh | sh
 #
-# Non-interactive (what the console's "add node" command uses):
+# Node, non-interactive — the form the console's "add node" hands over:
 #   ... | sh -s -- --agent --panel-url HOST:PORT --token TOKEN
+#
+# Panel, non-interactive. The prompts read from /dev/tty, because `curl | sh`
+# occupies stdin with the script itself; these flags are how to answer them
+# from a script:
+#   --domain HOST          the panel's own hostname
+#   --reverse-proxy        plaintext on loopback, a proxy terminates TLS
+#   --tls-cert PATH        serve HTTPS directly (implies the above is not used)
+#   --tls-key PATH
+#   --https-port N         defaults to 26080
+#   -y                     accept defaults instead of prompting
 #
 # POSIX sh on purpose: this runs on whatever a fresh VPS came with.
 set -eu
@@ -23,6 +33,7 @@ warn() { printf '%s !%s %s\n' "$YEL" "$OFF" "$*"; }
 die()  { printf '%s !!%s %s\n' "$RED" "$OFF" "$*" >&2; exit 1; }
 
 ROLE=""; PANEL_URL=""; JOIN_TOKEN=""; DOMAIN=""; ASSUME_YES=0
+TLS_MODE=""; TLS_CERT=""; TLS_KEY=""; HTTPS_PORT=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --panel)     ROLE=panel ;;
@@ -30,9 +41,16 @@ while [ $# -gt 0 ]; do
     --panel-url) PANEL_URL="$2"; shift ;;
     --token)     JOIN_TOKEN="$2"; shift ;;
     --domain)    DOMAIN="$2"; shift ;;
+    # Answers to the TLS question, for anyone scripting this. The prompts read
+    # from /dev/tty because `curl | sh` hands the script itself on stdin, so
+    # piping answers in cannot work — flags are the way to preselect.
+    --tls-cert)  TLS_CERT="$2"; TLS_MODE=2; shift ;;
+    --tls-key)   TLS_KEY="$2";  TLS_MODE=2; shift ;;
+    --https-port) HTTPS_PORT="$2"; TLS_MODE=2; shift ;;
+    --reverse-proxy) TLS_MODE=1 ;;
     -y|--yes)    ASSUME_YES=1 ;;
     -h|--help)
-      sed -n '2,9p' "$0" | sed 's/^# \{0,1\}//'
+      sed -n '2,19p' "$0" | sed 's/^# \{0,1\}//'
       exit 0 ;;
     *) die "unknown option: $1" ;;
   esac
@@ -137,11 +155,13 @@ if [ "$ROLE" = panel ]; then
     ask DOMAIN "Panel domain" ""
     [ -n "$DOMAIN" ] || die "a domain is required"
 
-    say ""
-    say "  1) Behind a reverse proxy  ${DIM}(nginx, Caddy — it holds the certificate)${OFF}"
-    say "  2) Serve HTTPS directly    ${DIM}(you provide a certificate and key)${OFF}"
-    say ""
-    ask TLS_MODE "TLS" "1"
+    if [ -z "$TLS_MODE" ]; then
+      say ""
+      say "  1) Behind a reverse proxy  ${DIM}(nginx, Caddy — it holds the certificate)${OFF}"
+      say "  2) Serve HTTPS directly    ${DIM}(you provide a certificate and key)${OFF}"
+      say ""
+      ask TLS_MODE "TLS" "1"
+    fi
 
     TLS_LINES=""
     # Unusual on purpose: 443, 80, 8080 and 8443 are all commonly answered by

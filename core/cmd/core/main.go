@@ -290,6 +290,7 @@ func run(logger *slog.Logger, dbPath, grpcListen, httpListen, grpcPublic, public
 	// One certificate, both listeners. Set it and the panel serves HTTPS and
 	// gRPC-over-TLS itself; leave it and both are plaintext for a reverse proxy
 	// to terminate. There is no third arrangement worth a setting.
+	tlsCert, tlsKey = credentialPath(tlsCert), credentialPath(tlsKey)
 	terminatesTLS := tlsCert != "" && tlsKey != ""
 	if (tlsCert == "") != (tlsKey == "") {
 		return errors.New("CHIRAL_TLS_CERT and CHIRAL_TLS_KEY must be set together")
@@ -547,6 +548,30 @@ func publicHost(raw string) string {
 		return ""
 	}
 	return u.Hostname()
+}
+
+// credentialPath resolves systemd's "%d" credentials specifier.
+//
+// LoadCredential= is how a service running as a DynamicUser reads a root-owned
+// private key: systemd copies it somewhere the dynamic UID can read and points
+// $CREDENTIALS_DIRECTORY at it. Unit files write that location as %d, and
+// systemd expands the specifier — but only inside unit directives. An
+// EnvironmentFile is passed through verbatim, so CHIRAL_TLS_CERT=%d/tls-cert
+// arrives here as those literal characters and open() fails on a path that
+// does not exist.
+//
+// Expanding it here means the documented configuration is the one that works.
+func credentialPath(p string) string {
+	if !strings.HasPrefix(p, "%d/") {
+		return p
+	}
+	dir := os.Getenv("CREDENTIALS_DIRECTORY")
+	if dir == "" {
+		// Not started with LoadCredential. Leaving the literal in place makes
+		// the resulting error name the path that was actually tried.
+		return p
+	}
+	return filepath.Join(dir, strings.TrimPrefix(p, "%d/"))
 }
 
 func envOr(key, fallback string) string {
