@@ -129,34 +129,34 @@ HTTP 监听默认绑在 loopback 上，因为常规部署由反向代理对外�
 
 **A. 面板自己提供 HTTPS**
 
-```
-CHIRAL_TLS_CERT=/etc/chiral/tls/fullchain.pem
-CHIRAL_TLS_KEY=/etc/chiral/tls/privkey.pem
-CHIRAL_HTTP_LISTEN=:26080
-CHIRAL_GRPC_LISTEN=:26443
-```
-
 一对证书同时用于 HTTP 与 gRPC 两个监听，两者必须同时设置。证书从哪来不限（Let's
 Encrypt、商业 CA、企业内部 CA 均可），本项目不内置 ACME；续期后重启服务即可。
 
-`DynamicUser` 下的动态 UID 既读不了 root 权限的私钥，也绑不了 443。安装脚本会写一个
-drop-in 解决这两点；手动配置时对应内容为：
+`DynamicUser` 下的动态 UID 读不了 root 权限的私钥。私钥不必因此放宽权限——由 systemd
+把它作为凭据递进来即可。安装脚本会写好这个 drop-in，手动配置时对应内容为：
 
 ```ini
 # /etc/systemd/system/chiral-core.service.d/tls.conf
 [Service]
-AmbientCapabilities=CAP_NET_BIND_SERVICE
-CapabilityBoundingSet=CAP_NET_BIND_SERVICE
 LoadCredential=tls-cert:/etc/chiral/tls/fullchain.pem
 LoadCredential=tls-key:/etc/chiral/tls/privkey.pem
 ```
 
-随后 `core.env` 里指向 systemd 提供的凭据路径，私钥无需改成全局可读：
+`core.env` 随之指向 systemd 提供的凭据路径，而不是证书的原始位置：
 
 ```
 CHIRAL_TLS_CERT=%d/tls-cert
 CHIRAL_TLS_KEY=%d/tls-key
+CHIRAL_HTTP_LISTEN=:26080
+CHIRAL_GRPC_LISTEN=:26443
 ```
+
+`%d` 是 systemd 的凭据目录说明符。systemd 只在单元指令里展开说明符，`EnvironmentFile`
+的内容原样传递，因此这里的展开由面板自己完成（依据 `$CREDENTIALS_DIRECTORY`）——写
+绝对路径同样可用，只是私钥得让动态 UID 读得到。
+
+监听端口低于 1024 时另需一行 `AmbientCapabilities=CAP_NET_BIND_SERVICE`。默认的
+26080 / 26443 不需要，安装脚本也只在你指定了低端口时才写这行。
 
 **B. 反向代理终结 TLS**
 
