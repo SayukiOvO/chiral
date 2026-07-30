@@ -8,7 +8,9 @@
 #
 # Panel, non-interactive. The prompts read from /dev/tty, because `curl | sh`
 # occupies stdin with the script itself; these flags are how to answer them
-# from a script:
+# from a script. Without a controlling terminal --panel or --agent is required:
+# every other question has a defensible default, and installing the wrong
+# component is not a mistake a second run undoes.
 #   --domain HOST          the panel's own hostname
 #   --reverse-proxy        plaintext on loopback, a proxy terminates TLS
 #   --tls-cert PATH        serve HTTPS directly (implies the above is not used)
@@ -33,7 +35,7 @@ warn() { printf '%s !%s %s\n' "$YEL" "$OFF" "$*"; }
 die()  { printf '%s !!%s %s\n' "$RED" "$OFF" "$*" >&2; exit 1; }
 
 ROLE=""; PANEL_URL=""; JOIN_TOKEN=""; DOMAIN=""; ASSUME_YES=0
-TLS_MODE=""; TLS_CERT=""; TLS_KEY=""; HTTPS_PORT=""
+TLS_MODE=""; TLS_CERT=""; TLS_KEY=""; HTTPS_PORT=""; PUBLIC=""; NEED_ENV=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --panel)     ROLE=panel ;;
@@ -78,10 +80,24 @@ port_taken() {
   fi
 }
 
+# Whether there is a human to ask. Testing stdin is the obvious thing and it is
+# wrong here: `curl | sh` hands the script itself on stdin, so stdin is a pipe
+# in exactly the invocation the README documents, and every prompt got skipped
+# for its default — silently choosing panel, then dying on the domain question.
+# Reading from /dev/tty is why that redirect exists; /dev/tty is therefore also
+# what decides whether reading is possible. Opening it fails when the process
+# has no controlling terminal (cron, a CI runner, ssh without -t, systemd),
+# which is the case that must not prompt.
+INTERACTIVE=0
+# stderr is redirected first on purpose: redirections apply left to right, and
+# with the order reversed the shell's own "cannot open /dev/tty" reaches the
+# terminal before the suppression takes effect.
+if [ -t 0 ] 2>/dev/null </dev/tty; then INTERACTIVE=1; fi
+
 ask() { # ask VAR "prompt" "default"
   eval "_cur=\${$1:-}"
   [ -n "$_cur" ] && return 0
-  if [ "$ASSUME_YES" = 1 ] || [ ! -t 0 ]; then
+  if [ "$ASSUME_YES" = 1 ] || [ "$INTERACTIVE" != 1 ]; then
     [ -n "$3" ] || die "$2 is required (pass it as a flag when running non-interactively)"
     eval "$1=\$3"; return 0
   fi
@@ -91,6 +107,23 @@ ask() { # ask VAR "prompt" "default"
   [ -z "$_v" ] && _v="$3"
   eval "$1=\$_v"
 }
+
+# ---------------------------------------------------------------- role
+
+# Asked before the download, so picking wrong costs nothing. Not defaulted:
+# every other question has a sane default, but a panel installed on a machine
+# meant to be a node is not a typo that re-running undoes.
+if [ -z "$ROLE" ]; then
+  if [ "$INTERACTIVE" != 1 ] || [ "$ASSUME_YES" = 1 ]; then
+    die "which component? pass --panel or --agent"
+  fi
+  say ""
+  say "  1) Panel  — the control plane. One per deployment."
+  say "  2) Node   — runs Xray and serves your users."
+  say ""
+  ask ROLE_N "Install which" "1"
+  case "$ROLE_N" in 1|panel) ROLE=panel ;; 2|agent|node) ROLE=agent ;; *) die "pick 1 or 2" ;; esac
+fi
 
 # ---------------------------------------------------------------- release
 
@@ -129,28 +162,14 @@ install_xray() {
   say "    $XV"
 }
 
-# ---------------------------------------------------------------- role
-
-if [ -z "$ROLE" ]; then
-  say ""
-  say "  1) Panel  — the control plane. One per deployment."
-  say "  2) Node   — runs Xray and serves your users."
-  say ""
-  ask ROLE_N "Install which" "1"
-  case "$ROLE_N" in 1|panel) ROLE=panel ;; 2|agent|node) ROLE=agent ;; *) die "pick 1 or 2" ;; esac
-fi
-
-install -d -m755 "$ETC"
-
 if [ "$ROLE" = panel ]; then
-  install_xray
-  step "Installing the panel"
-  install -m755 "$SRC/chiral-core" "$BIN/chiral-core"
-  install -m644 "$SRC/chiral-core.service" /etc/systemd/system/
+  NEED_ENV=1
+  [ -f "$ETC/core.env" ] && NEED_ENV=0
 
-  if [ -f "$ETC/core.env" ]; then
-    warn "$ETC/core.env exists; leaving it alone"
-  else
+  # Every question first, then every write. Interleaved, an unanswered question
+  # aborts a run that has already installed Xray, the binary and the unit,
+  # leaving a host that is half a panel and a user who cannot tell what stuck.
+  if [ "$NEED_ENV" = 1 ]; then
     say ""
     ask DOMAIN "Panel domain" ""
     [ -n "$DOMAIN" ] || die "a domain is required"
@@ -199,6 +218,27 @@ CHIRAL_TLS_KEY=%d/tls-key"
         CAPS="AmbientCapabilities=CAP_NET_BIND_SERVICE
 CapabilityBoundingSet=CAP_NET_BIND_SERVICE"
       fi
+    fi
+
+    for _p in "$HTTP_PORT" "$GRPC_PORT"; do
+      port_taken "$_p" && die "port $_p is already in use — set CHIRAL_HTTP_LISTEN / CHIRAL_GRPC_LISTEN in $ETC/core.env and re-run"
+    done
+  else
+    warn "$ETC/core.env exists; leaving it alone"
+    # For the closing summary, so it names this panel's address rather than one
+    # reconstructed from defaults it never used.
+    PUBLIC=$(sed -n 's/^CHIRAL_PUBLIC_URL=//p' "$ETC/core.env" | tail -1)
+  fi
+
+  # Past this point, and not before it, the host changes.
+  install -d -m755 "$ETC"
+  install_xray
+  step "Installing the panel"
+  install -m755 "$SRC/chiral-core" "$BIN/chiral-core"
+  install -m644 "$SRC/chiral-core.service" /etc/systemd/system/
+
+  if [ "$NEED_ENV" = 1 ]; then
+    if [ "$TLS_MODE" = 2 ]; then
       mkdir -p /etc/systemd/system/chiral-core.service.d
       cat > /etc/systemd/system/chiral-core.service.d/tls.conf <<UNIT
 [Service]
@@ -208,10 +248,6 @@ LoadCredential=tls-cert:$TLS_CERT
 LoadCredential=tls-key:$TLS_KEY
 UNIT
     fi
-
-    for _p in "$HTTP_PORT" "$GRPC_PORT"; do
-      port_taken "$_p" && die "port $_p is already in use — set CHIRAL_HTTP_LISTEN / CHIRAL_GRPC_LISTEN in $ETC/core.env and re-run"
-    done
 
     ADMIN_TOKEN=$(head -c32 /dev/urandom | base64 | tr -d '\n=' | tr '+/' '-_')
     SECRET_KEY=$(head -c32 /dev/urandom | base64 | tr -d '\n')
@@ -253,24 +289,36 @@ EOF
   say ""
   step "Panel installed"
   say ""
-  say "  Sign in at ${GRN}${PUBLIC:-https://$DOMAIN}/admin/${OFF}"
-  say "  Username: admin"
-  [ -n "$PW" ] && say "  Password: ${GRN}${PW}${OFF}   ${DIM}(shown once; also in journalctl)${OFF}"
-  say ""
-  if [ "${TLS_MODE:-1}" = 2 ]; then
-    say "  Serving HTTPS on ${HTTPS_PORT}; agents dial ${DOMAIN}:${GRPC_PORT}."
-    say "${DIM}  Renew the certificate in place, then: systemctl restart chiral-core${OFF}"
+  if [ -n "$PUBLIC" ]; then say "  Sign in at ${GRN}${PUBLIC}/admin/${OFF}"
+  elif [ -n "$DOMAIN" ]; then say "  Sign in at ${GRN}https://${DOMAIN}/admin/${OFF}"
+  else say "  Sign in at CHIRAL_PUBLIC_URL from $ETC/core.env, path /admin/"; fi
+
+  # Only on the run that created the account. A re-install prints neither the
+  # credentials nor the proxy layout: the journal still holds the first-run
+  # password, which is wrong the moment it was changed, and the ports here are
+  # this script's defaults rather than whatever the existing core.env says.
+  if [ "$NEED_ENV" != 1 ]; then
+    say ""
+    say "${DIM}  Binaries updated. $ETC/core.env left as it was.${OFF}"
   else
-    warn "Core listens on loopback only — put a reverse proxy in front:"
+    say "  Username: admin"
+    [ -n "$PW" ] && say "  Password: ${GRN}${PW}${OFF}   ${DIM}(shown once; also in journalctl)${OFF}"
     say ""
-    say "    ${DOMAIN} {"
-    say "        reverse_proxy 127.0.0.1:${HTTP_PORT}"
-    say "    }"
-    say "    ${DOMAIN}:${GRPC_PORT} {"
-    say "        reverse_proxy h2c://127.0.0.1:${GRPC_PORT}"
-    say "    }"
-    say ""
-    say "${DIM}  Caddyfile syntax. nginx and the reasoning: docs/deployment.md${OFF}"
+    if [ "$TLS_MODE" = 2 ]; then
+      say "  Serving HTTPS on ${HTTPS_PORT}; agents dial ${DOMAIN}:${GRPC_PORT}."
+      say "${DIM}  Renew the certificate in place, then: systemctl restart chiral-core${OFF}"
+    else
+      warn "Core listens on loopback only — put a reverse proxy in front:"
+      say ""
+      say "    ${DOMAIN} {"
+      say "        reverse_proxy 127.0.0.1:${HTTP_PORT}"
+      say "    }"
+      say "    ${DOMAIN}:${GRPC_PORT} {"
+      say "        reverse_proxy h2c://127.0.0.1:${GRPC_PORT}"
+      say "    }"
+      say ""
+      say "${DIM}  Caddyfile syntax. nginx and the reasoning: docs/deployment.md${OFF}"
+    fi
   fi
 
 else
@@ -279,6 +327,7 @@ else
   [ -n "$JOIN_TOKEN" ] || ask JOIN_TOKEN "Join token from the console" ""
   [ -n "$JOIN_TOKEN" ] || die "a join token is required"
 
+  install -d -m755 "$ETC"
   install_xray
   step "Installing the agent"
   install -m755 "$SRC/chiral-agent" "$BIN/chiral-agent"
