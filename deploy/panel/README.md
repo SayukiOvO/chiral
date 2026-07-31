@@ -2,6 +2,21 @@
 
 `core` + 前端 + 可选 `caddy`/`nginx`(TLS) 的 docker-compose。
 
+部署只要这个目录里的两个文件，不需要克隆仓库：
+
+```bash
+mkdir -p /srv/chiral && cd /srv/chiral
+curl -fsSLO https://raw.githubusercontent.com/SayukiOvO/chiral/main/deploy/panel/docker-compose.yml
+curl -fsSL  https://raw.githubusercontent.com/SayukiOvO/chiral/main/deploy/panel/.env.example -o .env
+docker compose up -d
+```
+
+从本 checkout 构建而不是拉镜像（开发用）：
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build
+```
+
 镜像里**同时打包 Xray 二进制**：面板在存储 / 下发前要用 `xray -test` 校验渲染出的 config，并用它派生 Go 标准库没有的 ML-DSA-65 密钥。与 Agent 镜像同走快照通道。
 
 镜像里这一份是**地板**。M6 之后面板会为机队里在跑的**每一个版本**各存一份二进制（`CHIRAL_KERNEL_DIR`，必须在数据卷上），按节点挑选——因为 `xray -test` 只对跑它的那个 build 有效。详见 [`../../docs/xray-upgrade.md`](../../docs/xray-upgrade.md)。
@@ -20,7 +35,7 @@
 | `CHIRAL_ONLINE_RECORD` | 默认 off | 记录每个用户的来源地址。打开会给每个节点注入 `statsUserOnline`，即一次配置版本变更 + 一次 Xray 重启（该节点上的活连接会断一次） |
 | `CHIRAL_PORTAL_MODE` | 默认 off | 用户门户：`off` / `closed`（仅登录，账号靠认领链接发放）/ `open`（开放注册）。**非 off 时必须设 `CHIRAL_SECRET_KEY`**，否则 Core 拒绝启动——门户要可恢复地存订阅 token |
 | `CHIRAL_PORTAL_INVITE_CODE` | 可选 | 开放注册时的共享注册码；留空则任何人都能注册 |
-| `CHIRAL_WEB_DIR` | 镜像内已设 | 前端构建产物目录。门户在 `/`，管理台在 `/admin/`。留空则 Core 完全不伺服静态文件（交给反代） |
+| `CHIRAL_WEB_DIR` | **留空** | 前端已编译进二进制（门户 `/`，管理台 `/admin/`）。此变量会**覆盖**内嵌副本，只在自挂目录时才设——指向镜像里没有的路径会让两个入口全部 404，Core 只发一条告警 |
 
 ## 待办
 

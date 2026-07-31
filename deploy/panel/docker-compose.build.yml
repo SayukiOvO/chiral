@@ -1,0 +1,15 @@
+# Build the panel image from this checkout instead of pulling it.
+#
+# For working on Chiral. Deploying it needs neither this file nor the
+# repository — docker-compose.yml alone references the published image.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build
+#
+# The context is the repository root because the image compiles both the Go
+# binary and the frontend; see Dockerfile.core.
+services:
+  core:
+    build:
+      context: ../..
+      dockerfile: deploy/panel/Dockerfile.core
+    pull_policy: never

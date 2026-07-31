@@ -41,12 +41,16 @@ curl -fsSL .../install.sh | sudo sh -s -- --agent --panel-url ... --token ...
 ### Docker
 
 ```bash
-git clone https://github.com/SayukiOvO/chiral && cd chiral/deploy/panel
-cp .env.example .env
+mkdir -p /srv/chiral && cd /srv/chiral
+curl -fsSLO https://raw.githubusercontent.com/SayukiOvO/chiral/main/deploy/panel/docker-compose.yml
+curl -fsSL  https://raw.githubusercontent.com/SayukiOvO/chiral/main/deploy/panel/.env.example -o .env
+$EDITOR .env
 docker compose up -d
 ```
 
-镜像 [`moonwx/chiral-core`](https://hub.docker.com/r/moonwx/chiral-core) 与 [`moonwx/chiral-agent`](https://hub.docker.com/r/moonwx/chiral-agent)，提供 amd64 与 arm64。
+镜像 [`moonwx/chiral-core`](https://hub.docker.com/r/moonwx/chiral-core) 与 [`moonwx/chiral-agent`](https://hub.docker.com/r/moonwx/chiral-agent)，提供 amd64 与 arm64。无需克隆仓库。
+
+节点侧同样不必手写：控制台的「新增节点」会生成一段填好镜像与 join token 的 compose。
 
 ## 设计
 

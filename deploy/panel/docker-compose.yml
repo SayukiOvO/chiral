@@ -1,12 +1,16 @@
 # Panel-side deployment: Core (+ frontend, served by Core once web/ is built).
 # TLS termination for the HTTP API can sit behind caddy/nginx; the gRPC
 # endpoint's TLS is configured directly on Core (CHIRAL_TLS_CERT/KEY).
+#
+# This file and .env.example are the whole deployment — fetch the two, fill in
+# .env, and `docker compose up -d`. There is deliberately no build: section:
+# with one, compose needs the repository as build context, which is why the
+# instructions used to say `git clone` for a project that publishes images.
+# Building from source is docker-compose.build.yml, for people working on it.
 services:
   core:
-    build:
-      context: ../..
-      dockerfile: deploy/panel/Dockerfile.core
     image: ${CHIRAL_CORE_IMAGE:-moonwx/chiral-core:latest}
+    pull_policy: ${CHIRAL_PULL_POLICY:-always}
     restart: unless-stopped
     ports:
       # Unusual on purpose: 443/80/8080/8443 are taken on a typical host.
