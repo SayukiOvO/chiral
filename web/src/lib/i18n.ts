@@ -216,6 +216,7 @@ const EN: Record<string, string> = {
   "面板产出物的一些选项。": "Choices about what the panel produces.",
   订阅: "Subscription",
   订阅名称: "Subscription name",
+  客户端里显示为: "Shown in the client as",
   "订阅者在客户端里看到的配置名。留空则为 chiral。":
     "The profile name subscribers see in their client. Defaults to chiral.",
   已保存: "Saved",

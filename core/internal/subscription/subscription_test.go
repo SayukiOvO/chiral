@@ -405,16 +405,19 @@ func TestAllProfilesBrokenReportsZeroFragmentsAndWhy(t *testing.T) {
 // own name it puts "chiral" on all of their screens.
 func TestSubscriptionFilenameFollowsTheSetting(t *testing.T) {
 	st, svc, u := twoProfileFixture(t)
-	if got := svc.assemble(u, "", ClientClash, []string{"name: a"}).Filename; got != "chiral.yaml" {
+	if got := svc.assemble(u, "", ClientClash, []string{"name: a"}).Filename; got != "chiral" {
 		t.Fatalf("default filename = %q", got)
 	}
 	if err := st.SetSetting(store.SettingSubscriptionName, "Mai 的机场"); err != nil {
 		t.Fatal(err)
 	}
+	// No extension: the client shows this string verbatim in its profile
+	// list, and ".yaml" in every subscriber's list is not a thing the operator
+	// asked for.
 	for _, tc := range []struct{ client, want string }{
-		{ClientClash, "Mai 的机场.yaml"},
-		{ClientXrayJSON, "Mai 的机场.json"},
-		{ClientVlessURI, "Mai 的机场.txt"},
+		{ClientClash, "Mai 的机场"},
+		{ClientXrayJSON, "Mai 的机场"},
+		{ClientVlessURI, "Mai 的机场"},
 	} {
 		got := svc.assemble(u, "", tc.client, []string{"name: a"}).Filename
 		if got != tc.want {
@@ -430,12 +433,12 @@ func TestSubscriptionFilenameFollowsTheSetting(t *testing.T) {
 func TestSubscriptionFilenameIsSafe(t *testing.T) {
 	st, svc, u := twoProfileFixture(t)
 	for _, tc := range []struct{ set, want string }{
-		{`a"b`, "ab.yaml"},
-		{`../../etc/passwd`, "....etcpasswd.yaml"},
-		{"back\\slash", "backslash.yaml"},
-		{"  spaced  ", "spaced.yaml"},
-		{"🇭🇰 香港机场", "🇭🇰 香港机场.yaml"},
-		{"", "chiral.yaml"},
+		{`a"b`, "ab"},
+		{`../../etc/passwd`, "....etcpasswd"},
+		{"back\\slash", "backslash"},
+		{"  spaced  ", "spaced"},
+		{"🇭🇰 香港机场", "🇭🇰 香港机场"},
+		{"", "chiral"},
 	} {
 		if err := st.SetSetting(store.SettingSubscriptionName, tc.set); err != nil {
 			t.Fatal(err)

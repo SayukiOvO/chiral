@@ -79,8 +79,13 @@ export function SettingsPage() {
           </span>
         </Field>
 
-        <div className="mt-2 font-mono text-xs text-faint">
-          {(name.trim() || "chiral").replace(/["\\/\n\r]/g, "")}.yaml
+        {/* What the subscriber will actually see, after the characters that
+            would break a header or escape a directory are removed. */}
+        <div className="mt-2 text-xs text-faint">
+          {t("客户端里显示为")}{" "}
+          <span className="font-mono text-muted">
+            {(name.trim() || "chiral").replace(/["\\/\n\r]/g, "") || "chiral"}
+          </span>
         </div>
 
         <div className="mt-5 flex items-center justify-end gap-3">

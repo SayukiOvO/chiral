@@ -190,7 +190,7 @@ func (s *Service) assemble(u store.User, token, client string, fragments []strin
 		// the raw list is what modern v2rayN and friends accept.
 		r.Body = strings.Join(fragments, "\n")
 		r.ContentType = "text/plain; charset=utf-8"
-		r.Filename = s.subscriptionFilename("txt")
+		r.Filename = s.subscriptionName()
 	case ClientClash, ClientStash:
 		// The templates carry YAML proxy entries; the surrounding document is
 		// the panel's job so a client gets a usable file rather than a
@@ -220,7 +220,7 @@ func (s *Service) assemble(u store.User, token, client string, fragments []strin
 		}
 		r.Body = b.String()
 		r.ContentType = "text/yaml; charset=utf-8"
-		r.Filename = s.subscriptionFilename("yaml")
+		r.Filename = s.subscriptionName()
 	default: // xray-json
 		// A full Xray client config: the fragments are outbounds.
 		var b strings.Builder
@@ -235,7 +235,7 @@ func (s *Service) assemble(u store.User, token, client string, fragments []strin
 		b.WriteString("  ]\n}\n")
 		r.Body = b.String()
 		r.ContentType = "application/json; charset=utf-8"
-		r.Filename = s.subscriptionFilename("json")
+		r.Filename = s.subscriptionName()
 	}
 	return r
 }
@@ -497,14 +497,13 @@ func (s *Service) nodeProxyName(nodeID string, present map[string]string) string
 // defaultSubscriptionName is used until an operator picks one.
 const defaultSubscriptionName = "chiral"
 
-// subscriptionFilename is the name a client shows the subscription under.
+// subscriptionName is what a client shows the subscription under.
 //
-// Clash-family clients take the profile's name from this download filename, so
-// what goes here is what every subscriber reads in their client's profile
-// list. Leaving it as the software's own name puts "chiral" on all of their
-// screens, which says something about the operator that the operator did not
-// choose to say.
-func (s *Service) subscriptionFilename(ext string) string {
+// Clash-family clients take the profile's name from the Content-Disposition
+// filename and show it verbatim, extension and all. So there is no extension:
+// the operator picks a name and that is the name, rather than a name with
+// ".yaml" stuck on the end of it in every subscriber's profile list.
+func (s *Service) subscriptionName() string {
 	// A Service with no store has no settings to read, and therefore the
 	// default. Assembly used to be a free function and several tests still
 	// construct a bare Service to exercise it.
@@ -515,7 +514,7 @@ func (s *Service) subscriptionFilename(ext string) string {
 	if name == "" {
 		name = defaultSubscriptionName
 	}
-	return name + "." + ext
+	return name
 }
 
 // sanitiseFilename keeps a name usable in a Content-Disposition header and as

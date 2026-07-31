@@ -78,7 +78,7 @@ func (s *Server) serveSubscription(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", res.ContentType)
-	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, res.Filename))
+	w.Header().Set("Content-Disposition", contentDisposition(res.Filename))
 	// The conventional header clients read to show quota and expiry.
 	w.Header().Set("Subscription-Userinfo", userinfoHeader(u))
 	// Suspension has no representation in Subscription-Userinfo: expiry shows
@@ -149,4 +149,54 @@ func (s *Server) serveRuleList(w http.ResponseWriter, r *http.Request) {
 	// re-downloading the same megabyte on every restart.
 	w.Header().Set("Cache-Control", "public, max-age=3600")
 	w.Write([]byte(body))
+}
+
+// contentDisposition names the download without leaving quotes in the name.
+//
+// Clash-family clients use this filename as the profile's name and several
+// take it raw, quotes included — an operator who set "MoonWX" saw
+// `"MoonWX"` in their subscribers' clients. So a name that is a valid HTTP
+// token goes out bare, and anything else — spaces, Chinese, emoji — goes out
+// as RFC 5987's filename*, which is percent-encoded and needs no quotes
+// either. Neither form can put a quote in front of somebody's name.
+func contentDisposition(name string) string {
+	if isHTTPToken(name) {
+		return "attachment; filename=" + name
+	}
+	return "attachment; filename*=UTF-8''" + percentEncode(name)
+}
+
+// isHTTPToken reports whether the name can be a bare token per RFC 7230,
+// restricted to what is also sane as a filename.
+func isHTTPToken(s string) bool {
+	if s == "" {
+		return false
+	}
+	for _, r := range s {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9':
+		case r == '.' || r == '-' || r == '_' || r == '~':
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+// percentEncode escapes for RFC 5987's ext-value: attr-char stays, everything
+// else becomes %XX of its UTF-8 bytes.
+func percentEncode(s string) string {
+	var b strings.Builder
+	for _, c := range []byte(s) {
+		switch {
+		case c >= 'a' && c <= 'z', c >= 'A' && c <= 'Z', c >= '0' && c <= '9':
+			b.WriteByte(c)
+		case c == '!' || c == '#' || c == '$' || c == '&' || c == '+' || c == '-' ||
+			c == '.' || c == '^' || c == '_' || c == '`' || c == '|' || c == '~':
+			b.WriteByte(c)
+		default:
+			fmt.Fprintf(&b, "%%%02X", c)
+		}
+	}
+	return b.String()
 }
