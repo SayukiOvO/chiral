@@ -61,7 +61,7 @@ func TestStashBeatsClashWhenBothMatch(t *testing.T) {
 // --- assembly ---
 
 func TestVlessURIsAreOnePerLine(t *testing.T) {
-	r := assemble(ClientVlessURI, []string{"vless://a@h:443#one", "vless://b@h:443#two"})
+	r := (&Service{}).assemble(store.User{}, "", ClientVlessURI, []string{"vless://a@h:443#one", "vless://b@h:443#two"})
 	if r.Body != "vless://a@h:443#one\nvless://b@h:443#two" {
 		t.Errorf("got %q", r.Body)
 	}
@@ -71,7 +71,7 @@ func TestVlessURIsAreOnePerLine(t *testing.T) {
 }
 
 func TestXrayJSONIsAValidDocument(t *testing.T) {
-	r := assemble(ClientXrayJSON, []string{`{"tag":"a","protocol":"vless"}`, `{"tag":"b","protocol":"vless"}`})
+	r := (&Service{}).assemble(store.User{}, "", ClientXrayJSON, []string{`{"tag":"a","protocol":"vless"}`, `{"tag":"b","protocol":"vless"}`})
 	var parsed struct {
 		Outbounds []struct {
 			Tag string `json:"tag"`
@@ -86,7 +86,7 @@ func TestXrayJSONIsAValidDocument(t *testing.T) {
 }
 
 func TestXrayJSONWithOneFragmentHasNoTrailingComma(t *testing.T) {
-	r := assemble(ClientXrayJSON, []string{`{"tag":"only"}`})
+	r := (&Service{}).assemble(store.User{}, "", ClientXrayJSON, []string{`{"tag":"only"}`})
 	var parsed map[string]any
 	if err := jsonUnmarshal(r.Body, &parsed); err != nil {
 		t.Fatalf("not valid JSON: %v\n%s", err, r.Body)
@@ -95,7 +95,7 @@ func TestXrayJSONWithOneFragmentHasNoTrailingComma(t *testing.T) {
 
 func TestEmptySubscriptionIsStillValid(t *testing.T) {
 	// A user entitled to nothing must not receive a broken file.
-	r := assemble(ClientXrayJSON, nil)
+	r := (&Service{}).assemble(store.User{}, "", ClientXrayJSON, nil)
 	var parsed map[string]any
 	if err := jsonUnmarshal(r.Body, &parsed); err != nil {
 		t.Errorf("empty xray subscription is not valid JSON: %v\n%s", err, r.Body)
@@ -106,7 +106,7 @@ func TestEmptySubscriptionIsStillValid(t *testing.T) {
 }
 
 func TestClashDocumentHasProxiesAndAGroup(t *testing.T) {
-	r := assemble(ClientClash, []string{
+	r := (&Service{}).assemble(store.User{}, "", ClientClash, []string{
 		"name: tokyo-1\ntype: vless\nserver: 203.0.113.9\nport: 443",
 		"name: frankfurt-1\ntype: vless\nserver: 198.51.100.7\nport: 443",
 	})
@@ -127,7 +127,7 @@ func TestClashDocumentHasProxiesAndAGroup(t *testing.T) {
 }
 
 func TestClashGroupIsOmittedWhenThereAreNoProxies(t *testing.T) {
-	r := assemble(ClientClash, nil)
+	r := (&Service{}).assemble(store.User{}, "", ClientClash, nil)
 	if strings.Contains(r.Body, "proxy-groups:") {
 		t.Errorf("an empty subscription should not declare an empty group:\n%s", r.Body)
 	}
@@ -188,7 +188,7 @@ func TestNestedProxyOptionsKeepTheirStructure(t *testing.T) {
 		"  short-id: a1fcb027",
 		"client-fingerprint: chrome",
 	}, "\n")
-	body := assemble(ClientClash, []string{fragment}).Body
+	body := (&Service{}).assemble(store.User{}, "", ClientClash, []string{fragment}).Body
 
 	// The nested keys must stay deeper than the key that introduces them.
 	depth := func(needle string) int {
@@ -217,7 +217,7 @@ func TestNestedProxyOptionsKeepTheirStructure(t *testing.T) {
 // should still be anchored correctly under the list item.
 func TestIndentedFragmentIsReanchored(t *testing.T) {
 	fragment := "    name: tokyo-1\n    type: vless\n    reality-opts:\n      public-key: K"
-	body := assemble(ClientClash, []string{fragment}).Body
+	body := (&Service{}).assemble(store.User{}, "", ClientClash, []string{fragment}).Body
 	if !strings.Contains(body, "  - name: tokyo-1\n") {
 		t.Errorf("entry not anchored as a list item:\n%s", body)
 	}
@@ -230,7 +230,7 @@ func TestIndentedFragmentIsReanchored(t *testing.T) {
 }
 
 func TestBlankLinesInFragmentsAreDropped(t *testing.T) {
-	body := assemble(ClientClash, []string{"name: a\n\ntype: vless\n"}).Body
+	body := (&Service{}).assemble(store.User{}, "", ClientClash, []string{"name: a\n\ntype: vless\n"}).Body
 	if strings.Contains(body, "\n\n") {
 		t.Errorf("blank line survived into the document:\n%s", body)
 	}
@@ -242,7 +242,7 @@ func TestBlankLinesInFragmentsAreDropped(t *testing.T) {
 // good for them — often for reasons a latency probe cannot see, like which one
 // their bank tolerates — must not have that quietly replaced.
 func TestClashOffersBothManualAndAutomaticGroups(t *testing.T) {
-	r := assemble(ClientClash, []string{
+	r := (&Service{}).assemble(store.User{}, "", ClientClash, []string{
 		"name: tokyo-1\ntype: vless\nserver: 203.0.113.9\nport: 443",
 		"name: frankfurt-1\ntype: vless\nserver: 198.51.100.7\nport: 443",
 	})
@@ -357,7 +357,7 @@ func TestOneUnrenderableProfileDoesNotTakeTheOthersDown(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	res, err := svc.Render(u, ClientXrayJSON)
+	res, err := svc.Render(u, ClientXrayJSON, "")
 	if err != nil {
 		t.Fatalf("a broken template failed the whole subscription: %v", err)
 	}
@@ -388,7 +388,7 @@ func TestAllProfilesBrokenReportsZeroFragmentsAndWhy(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	res, err := svc.Render(u, ClientXrayJSON)
+	res, err := svc.Render(u, ClientXrayJSON, "")
 	if err != nil {
 		t.Fatalf("Render returned an error instead of an empty result: %v", err)
 	}

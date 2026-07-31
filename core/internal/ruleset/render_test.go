@@ -201,3 +201,40 @@ func section(doc, name string) string {
 	}
 	return strings.Join(out, "\n")
 }
+
+// A .list is one rule per line with comments; a classical rule-provider wants
+// a YAML list. One malformed entry rejects the whole provider file, so the
+// conversion has to be total rather than mostly right.
+func TestProviderYAMLConversion(t *testing.T) {
+	got := ProviderYAML(strings.Join([]string{
+		"# 直连列表",
+		"",
+		"; another comment style",
+		"// and another",
+		"DOMAIN-SUFFIX,example.com",
+		"  IP-CIDR,10.0.0.0/8,no-resolve  ",
+		"DOMAIN-KEYWORD,it's",
+	}, "\n"))
+	want := "payload:\n" +
+		"  - 'DOMAIN-SUFFIX,example.com'\n" +
+		"  - 'IP-CIDR,10.0.0.0/8,no-resolve'\n" +
+		"  - 'DOMAIN-KEYWORD,it''s'\n"
+	if got != want {
+		t.Fatalf("got:\n%s\nwant:\n%s", got, want)
+	}
+}
+
+// no-resolve is part of the rule, not a policy: dropping it makes the client
+// resolve every domain before matching an IP rule, which is both slower and
+// leaks the lookup.
+func TestProviderYAMLKeepsNoResolve(t *testing.T) {
+	if !strings.Contains(ProviderYAML("IP-CIDR,1.1.1.1/32,no-resolve"), "no-resolve") {
+		t.Fatal("dropped no-resolve")
+	}
+}
+
+func TestProviderYAMLOnCommentsOnlyIsStillValid(t *testing.T) {
+	if got := ProviderYAML("# nothing but a comment\n"); got != "payload:\n" {
+		t.Fatalf("got %q", got)
+	}
+}

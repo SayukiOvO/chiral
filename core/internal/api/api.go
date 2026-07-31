@@ -4,6 +4,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -68,8 +69,29 @@ type Server struct {
 	// portal configures the end-user tree. With Mode off, none of its routes
 	// are registered at all.
 	portal PortalConfig
-	logger *slog.Logger
+	// routing serves the rule lists a clash subscription refers to. Nil when
+	// no ruleset service is wired, in which case those routes 404.
+	routing RuleLists
+	// rulesets fetches and refreshes routing configurations. Nil leaves the
+	// management endpoints answering 503 with a reason rather than 404.
+	rulesets Rulesets
+	logger   *slog.Logger
 }
+
+// RuleLists resolves a subscriber's provider name to its contents.
+// Implemented by the ruleset service.
+type RuleLists interface {
+	ListFor(u store.User, name string) (string, bool, error)
+}
+
+// Rulesets fetches routing configurations. Implemented by the ruleset service.
+type Rulesets interface {
+	Refresh(ctx context.Context, id string) error
+}
+
+// EnableRuleLists wires rule-provider serving and ruleset management. Called
+// at startup.
+func (s *Server) EnableRuleLists(r RuleLists, m Rulesets) { s.routing, s.rulesets = r, m }
 
 // EnablePortal switches on the end-user tree. Called at startup.
 func (s *Server) EnablePortal(cfg PortalConfig) { s.portal = cfg }
@@ -136,6 +158,7 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("POST /api/xray/upgrade/retry", s.requireWrite(s.retryXray))
 	mux.Handle("DELETE /api/xray/upgrade", s.requireWrite(s.abandonXray))
 	s.routeTemplates(mux)
+	s.routeRulesets(mux)
 
 	mux.Handle("POST /api/users", s.requireWrite(s.createUser))
 	mux.Handle("GET /api/users", s.requireAdmin(s.listUsers))
@@ -205,6 +228,9 @@ func (s *Server) Handler() http.Handler {
 
 	// The one route end users reach, authenticated by the token in the path.
 	mux.HandleFunc("GET /sub/{token}", s.throttle("sub", limitSubscription, s.serveSubscription))
+	// The rule lists a clash-family subscription refers to, served from the
+	// panel so the client does not have to reach GitHub to route anything.
+	mux.HandleFunc("GET /sub/{token}/rules/{name}", s.throttle("sub", limitSubscription, s.serveRuleList))
 
 	// The end user's tree, registered as a unit and only when the portal is
 	// switched on. Every route in it is guarded by requireUser, whose handler

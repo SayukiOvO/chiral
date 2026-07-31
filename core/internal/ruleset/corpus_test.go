@@ -126,3 +126,40 @@ func TestEveryUpstreamPresetRenders(t *testing.T) {
 	}
 	t.Logf("rendered %d presets against a %d-node fleet", len(files), len(fleet))
 }
+
+// The built-in list is a copy of upstream's directory, and a copy drifts. Five
+// of these keys were wrong when written from memory: three named files that do
+// not exist — a preset an operator selects and which then 404s — and two real
+// ones were missing entirely.
+func TestBuiltInPresetsMatchUpstream(t *testing.T) {
+	dir := os.Getenv("CHIRAL_ACL4SSR_CORPUS")
+	if dir == "" {
+		t.Skip("set CHIRAL_ACL4SSR_CORPUS to a directory of ACL4SSR .ini files")
+	}
+	files, err := filepath.Glob(filepath.Join(dir, "*.ini"))
+	if err != nil || len(files) == 0 {
+		t.Skipf("no .ini files in %s", dir)
+	}
+	upstream := make(map[string]bool, len(files))
+	for _, f := range files {
+		upstream[strings.TrimSuffix(filepath.Base(f), ".ini")] = true
+	}
+	ours := make(map[string]bool)
+	for _, p := range Presets() {
+		ours[p.Key] = true
+		if !upstream[p.Key] {
+			t.Errorf("built-in %q does not exist upstream", p.Key)
+		}
+		if p.Name == "" || p.Name == p.Key {
+			t.Errorf("built-in %q has no readable name", p.Key)
+		}
+		if p.Lists == 0 || p.Groups == 0 {
+			t.Errorf("built-in %q claims %d groups and %d lists", p.Key, p.Groups, p.Lists)
+		}
+	}
+	for key := range upstream {
+		if !ours[key] {
+			t.Errorf("upstream preset %q is missing from the built-ins", key)
+		}
+	}
+}

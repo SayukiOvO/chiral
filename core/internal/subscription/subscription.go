@@ -38,13 +38,35 @@ type Contexts interface {
 	ClientContext(profileID, nodeID string) (*template.Context, error)
 }
 
+// Routing renders a subscriber's routing rules. Implemented by the ruleset
+// service; an interface so this package neither fetches nor parses anything.
+type Routing interface {
+	// For returns the proxy-groups, rule-providers and rules sections for a
+	// subscriber, given the proxy names their subscription contains and the
+	// base URL their client should fetch rule lists from. An empty first
+	// return means the subscriber has no ruleset.
+	For(u store.User, proxyNames []string, providerBase string) (groups, providers, rules string, err error)
+}
+
 type Service struct {
 	st  *store.Store
 	ctx Contexts
+	// routing is nil until a ruleset service is wired in, in which case
+	// subscriptions carry the two groups this package builds itself.
+	routing Routing
+	// publicURL is where a client reaches this panel, for the rule-provider
+	// URLs. Empty leaves rules out entirely rather than emitting providers
+	// pointing at a relative path no client can resolve.
+	publicURL string
 }
 
 func NewService(st *store.Store, ctx Contexts) *Service {
 	return &Service{st: st, ctx: ctx}
+}
+
+// EnableRouting wires per-subscriber routing rules. Called at startup.
+func (s *Service) EnableRouting(r Routing, publicURL string) {
+	s.routing, s.publicURL = r, publicURL
 }
 
 // Result is a rendered subscription, ready to serve.
@@ -69,7 +91,7 @@ type Result struct {
 // profile, rendering one fragment per pair. A profile with no template for the
 // requested client is skipped rather than failing the whole subscription: a
 // client that cannot express one access point should still receive the others.
-func (s *Service) Render(u store.User, client string) (Result, error) {
+func (s *Service) Render(u store.User, client, token string) (Result, error) {
 	profileIDs, err := s.st.UserProfileIDs(u.ID)
 	if err != nil {
 		return Result{}, err
@@ -131,7 +153,7 @@ func (s *Service) Render(u store.User, client string) (Result, error) {
 		}
 	}
 
-	r := assemble(client, fragments)
+	r := s.assemble(u, token, client, fragments)
 	r.Skipped = skipped
 	return r, nil
 }
@@ -145,7 +167,7 @@ func (s *Service) templateFor(profileID, client string) (string, error) {
 }
 
 // assemble joins the fragments the way each client expects to receive them.
-func assemble(client string, fragments []string) Result {
+func (s *Service) assemble(u store.User, token, client string, fragments []string) Result {
 	r := Result{Client: client, Fragments: len(fragments)}
 	switch client {
 	case ClientVlessURI:
@@ -164,7 +186,17 @@ func assemble(client string, fragments []string) Result {
 		for _, f := range fragments {
 			b.WriteString(indentAsListItem(f))
 		}
-		b.WriteString(proxyGroupSection(fragments))
+		// A ruleset replaces the two groups this package builds: it brings its
+		// own, and emitting both would give the client two competing sets of
+		// policies for the same proxies.
+		groups, providers, rules := s.routingFor(u, token, fragments)
+		if groups != "" {
+			b.WriteString(groups)
+			b.WriteString(providers)
+			b.WriteString(rules)
+		} else {
+			b.WriteString(proxyGroupSection(fragments))
+		}
 		r.Body = b.String()
 		r.ContentType = "text/yaml; charset=utf-8"
 		r.Filename = "chiral.yaml"
@@ -354,4 +386,28 @@ func ClientForUserAgent(ua string) string {
 	default:
 		return ClientXrayJSON
 	}
+}
+
+// routingFor renders the subscriber's ruleset, or nothing when they have none.
+//
+// Failures here degrade rather than propagate: a subscription without rules is
+// usable and a subscription that 500s is not, and the cause — an unfetched
+// ruleset, a panel with no public URL — is something only the operator can
+// fix, so it is reported to them rather than to the subscriber's client.
+func (s *Service) routingFor(u store.User, token string, fragments []string) (groups, providers, rules string) {
+	if s.routing == nil || s.publicURL == "" || u.RulesetID == "" || token == "" {
+		return "", "", ""
+	}
+	names := make([]string, 0, len(fragments))
+	for _, f := range fragments {
+		if n := yamlName(f); n != "" {
+			names = append(names, n)
+		}
+	}
+	base := strings.TrimSuffix(s.publicURL, "/") + "/sub/" + token + "/rules"
+	g, p, rl, err := s.routing.For(u, names, base)
+	if err != nil {
+		return "", "", ""
+	}
+	return g, p, rl
 }

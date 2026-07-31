@@ -28,8 +28,13 @@ type User struct {
 	// none. Displayed, never enforced: no Xray API can end an established
 	// session, so there is nothing for it to drive. See migration 0008.
 	DeviceLimit int
-	CreatedAt   int64
-	UpdatedAt   int64
+	// RulesetID is the routing configuration this subscriber's clash-family
+	// subscription is rendered against. Empty means none, which yields the
+	// proxies and groups with no rules — every client then routes everything
+	// through the proxy.
+	RulesetID string
+	CreatedAt int64
+	UpdatedAt int64
 }
 
 // Credential is one user's access to one profile on one node — the unit of
@@ -48,12 +53,12 @@ type Credential struct {
 
 func credentialAAD(id string) string { return "credential:" + id }
 
-const userCols = `id, name, quota_bytes, used_bytes, expires_at, renew_period, enabled, active, device_limit, created_at, updated_at`
+const userCols = `id, name, quota_bytes, used_bytes, expires_at, renew_period, enabled, active, device_limit, COALESCE(ruleset_id, ''), created_at, updated_at`
 
 func scanUser(row interface{ Scan(...any) error }) (User, error) {
 	var u User
 	err := row.Scan(&u.ID, &u.Name, &u.QuotaBytes, &u.UsedBytes, &u.ExpiresAt,
-		&u.RenewPeriod, &u.Enabled, &u.Active, &u.DeviceLimit, &u.CreatedAt, &u.UpdatedAt)
+		&u.RenewPeriod, &u.Enabled, &u.Active, &u.DeviceLimit, &u.RulesetID, &u.CreatedAt, &u.UpdatedAt)
 	return u, err
 }
 

@@ -35,6 +35,7 @@ import (
 	"github.com/SayukiOvO/chiral/core/internal/passkey"
 	"github.com/SayukiOvO/chiral/core/internal/profile"
 	"github.com/SayukiOvO/chiral/core/internal/release"
+	"github.com/SayukiOvO/chiral/core/internal/ruleset"
 	"github.com/SayukiOvO/chiral/core/internal/secret"
 	"github.com/SayukiOvO/chiral/core/internal/store"
 	"github.com/SayukiOvO/chiral/core/internal/subscription"
@@ -76,6 +77,12 @@ func onlineEnabled() bool {
 // enforceInterval is how often quota, expiry and renewal are reconciled onto
 // the nodes. It bounds how far a user can run past their quota.
 const enforceInterval = 60 * time.Second
+
+// rulesetRefreshInterval is how often the rule sources are re-fetched. Daily:
+// ACL4SSR moves on the order of weeks, and a subscriber's client caches each
+// provider for a day anyway, so anything shorter spends requests to learn
+// nothing.
+const rulesetRefreshInterval = 24 * time.Hour
 
 func main() {
 	var (
@@ -281,6 +288,12 @@ func run(logger *slog.Logger, dbPath, grpcListen, httpListen, grpcPublic, public
 	profiles := profile.NewService(st, kernels, mgr, mgr, users, logger)
 	subs := subscription.NewService(st, profiles)
 
+	// Routing rules for clash-family clients. Wired unconditionally: with no
+	// ruleset configured it renders nothing, which is the behaviour every
+	// existing subscription already has.
+	rulesets := ruleset.NewService(st, os.Getenv("CHIRAL_GITHUB_TOKEN"), logger)
+	subs.EnableRouting(rulesets, publicURL)
+
 	// Passkeys need a secure context; without a usable public URL they are
 	// simply not offered rather than offered and failing at the last step.
 	passkeys, err := passkey.New(publicURL, "Chiral")
@@ -363,6 +376,7 @@ func run(logger *slog.Logger, dbPath, grpcListen, httpListen, grpcPublic, public
 		apiServer.EnableOnlineTracking(onlineReg)
 	}
 	apiServer.EnableUpgrades(upgrades)
+	apiServer.EnableRuleLists(rulesets, rulesets)
 	if portalCfg.Enabled() {
 		apiServer.EnablePortal(portalCfg)
 		logger.Info("end-user portal enabled", "mode", portalCfg.Mode,
@@ -397,6 +411,31 @@ func run(logger *slog.Logger, dbPath, grpcListen, httpListen, grpcPublic, public
 	// Best effort: a panel with no egress to GitHub is supported.
 	go upgrades.RunPrewarm(ctx, 6*time.Hour)
 	defer stop()
+
+	// Rule sources are refreshed on their own schedule, never on the
+	// subscription path: a subscriber pulling their config must not wait on
+	// GitHub, and must not fail when GitHub is unreachable — which is the
+	// ordinary state of the network this software exists to get around.
+	go func() {
+		// Once shortly after start, so a panel that was down while upstream
+		// changed catches up without waiting a whole day.
+		select {
+		case <-time.After(2 * time.Minute):
+			rulesets.RefreshAll(ctx)
+		case <-ctx.Done():
+			return
+		}
+		t := time.NewTicker(rulesetRefreshInterval)
+		defer t.Stop()
+		for {
+			select {
+			case <-t.C:
+				rulesets.RefreshAll(ctx)
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
 
 	// Quota and expiry are enforced by sweep rather than on the traffic path:
 	// usage arrives between passes, so a user goes over quietly and is cut off

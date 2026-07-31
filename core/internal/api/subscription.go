@@ -43,7 +43,7 @@ func (s *Server) serveSubscription(w http.ResponseWriter, r *http.Request) {
 	// from erroring in confusing ways when a quota is topped up again.
 	// The headers below tell the client where they stand.
 	client := subscription.DetectClient(r)
-	res, err := s.subs.Render(u, client)
+	res, err := s.subs.Render(u, client, token)
 	if err != nil {
 		s.internalErr(w, "rendering subscription", err)
 		return
@@ -108,4 +108,45 @@ func (s *Server) serveSubscription(w http.ResponseWriter, r *http.Request) {
 func userinfoHeader(u store.User) string {
 	return fmt.Sprintf("upload=0; download=%d; total=%d; expire=%d",
 		u.UsedBytes, u.QuotaBytes, u.ExpiresAt)
+}
+
+// serveRuleList hands a clash-family client one of its rule provider files.
+//
+// Behind the subscription token and nothing else, exactly like the
+// subscription itself: the client fetching these is the same client that
+// fetched the config, and it has no other credential. The contents are public
+// data — ACL4SSR's lists are on GitHub — but which lists a token maps to says
+// what ruleset that subscriber runs, so an unknown token gets the same flat
+// 404 the subscription gives.
+func (s *Server) serveRuleList(w http.ResponseWriter, r *http.Request) {
+	token, name := r.PathValue("token"), r.PathValue("name")
+	if token == "" || name == "" || s.routing == nil {
+		http.NotFound(w, r)
+		return
+	}
+	name = strings.TrimSuffix(name, ".yaml")
+	u, err := s.st.FindUserBySubTokenHash(auth.HashSecret(token))
+	if err != nil {
+		if store.IsNotFound(err) {
+			http.NotFound(w, r)
+			return
+		}
+		s.internalErr(w, "rule list lookup", err)
+		return
+	}
+	body, ok, err := s.routing.ListFor(u, name)
+	if err != nil {
+		s.internalErr(w, "rendering rule list", err)
+		return
+	}
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+	w.Header().Set("Content-Type", "text/yaml; charset=utf-8")
+	// The lists change on the order of weeks and the provider declares its own
+	// refresh interval, so a short cache here saves a fleet of clients from
+	// re-downloading the same megabyte on every restart.
+	w.Header().Set("Cache-Control", "public, max-age=3600")
+	w.Write([]byte(body))
 }

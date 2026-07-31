@@ -159,7 +159,33 @@ func parseRuleset(value string) (Rule, error) {
 		}
 		return Rule{Group: group, Inline: inline}, nil
 	}
-	return Rule{Group: group, URL: rest}, nil
+	return Rule{Group: group, URL: resolveListPath(rest)}, nil
+}
+
+// subconverterRulesPrefix is where a subconverter installation keeps its
+// bundled copy of the rule repositories.
+const subconverterRulesPrefix = "rules/ACL4SSR/"
+
+// aclRawBase is that copy's origin.
+const aclRawBase = "https://raw.githubusercontent.com/ACL4SSR/ACL4SSR/master/"
+
+// resolveListPath turns a rule-list reference into something fetchable.
+//
+// Roughly half the presets — every one that is not an "Online" variant — point
+// at paths like `rules/ACL4SSR/Clash/BanAD.list`. Those are files inside a
+// subconverter installation, which is a mirror of the ACL4SSR repository, so
+// the same path under the repository's raw URL is the same file. Without this
+// those presets parse cleanly and then resolve to nothing: a subscription with
+// rule providers that 404, which the client reports as an empty rule set
+// rather than as a broken configuration.
+func resolveListPath(ref string) string {
+	if strings.HasPrefix(ref, "http://") || strings.HasPrefix(ref, "https://") {
+		return ref
+	}
+	if rest, found := strings.CutPrefix(ref, subconverterRulesPrefix); found {
+		return aclRawBase + rest
+	}
+	return ref
 }
 
 // parseGroup reads `<name>`<type>`<member>`...[`<url>`<interval>,<timeout>,<tolerance>]`.

@@ -186,3 +186,35 @@ func TestUnknownDirectivesAreIgnored(t *testing.T) {
 		t.Fatalf("groups = %d", len(cfg.Groups))
 	}
 }
+
+// The presets that are not "Online" variants reference a subconverter
+// installation's bundled copy of the rule repository. Left as written they are
+// not fetchable at all: the subscription gets rule providers pointing at a
+// relative path, and the client reports an empty rule set rather than an
+// error. The bundled copy is a mirror of the repository, so the same path
+// under its raw URL is the same file.
+func TestSubconverterLocalPathsResolveToTheRepository(t *testing.T) {
+	cfg := parse(t, "custom_proxy_group=A`select`.*\n"+
+		"ruleset=A,rules/ACL4SSR/Clash/BanAD.list\n"+
+		"ruleset=A,rules/ACL4SSR/Clash/Ruleset/GoogleFCM.list\n")
+	want := []string{
+		"https://raw.githubusercontent.com/ACL4SSR/ACL4SSR/master/Clash/BanAD.list",
+		"https://raw.githubusercontent.com/ACL4SSR/ACL4SSR/master/Clash/Ruleset/GoogleFCM.list",
+	}
+	got := cfg.ListURLs()
+	if len(got) != len(want) {
+		t.Fatalf("urls = %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("urls[%d] = %q, want %q", i, got[i], want[i])
+		}
+	}
+}
+
+func TestAbsoluteURLsAreLeftAlone(t *testing.T) {
+	cfg := parse(t, "custom_proxy_group=A`select`.*\nruleset=A,https://example.com/x.list\n")
+	if got := cfg.ListURLs()[0]; got != "https://example.com/x.list" {
+		t.Fatalf("rewrote an absolute URL to %q", got)
+	}
+}
