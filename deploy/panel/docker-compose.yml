@@ -18,7 +18,15 @@ services:
       CHIRAL_GRPC_LISTEN: ":26443"
       # Address agents dial; set to your panel's public host:port.
       CHIRAL_GRPC_PUBLIC_ADDR: ${CHIRAL_GRPC_PUBLIC_ADDR:?set to public host:port for agents}
+      # The panel's own address, for subscription and claim links, and for
+      # passkeys. Required when the portal is on — Core refuses to start
+      # without it rather than hand subscribers a relative URL.
+      CHIRAL_PUBLIC_URL: ${CHIRAL_PUBLIC_URL:-}
       CHIRAL_ADMIN_TOKEN: ${CHIRAL_ADMIN_TOKEN:?set a strong admin token}
+      # First administrator, applied only when no administrator exists yet. An
+      # empty password is generated and printed once to the log.
+      CHIRAL_ADMIN_USER: ${CHIRAL_ADMIN_USER:-admin}
+      CHIRAL_ADMIN_PASSWORD: ${CHIRAL_ADMIN_PASSWORD:-}
       # Encrypts private key material (REALITY keys, post-quantum seeds) at
       # rest. Without it they are stored in the clear.
       # Generate with: openssl rand -base64 32
@@ -38,6 +46,11 @@ services:
       # restart forgets every version, leaving the panel validating an upgraded
       # fleet's configs against the one binary baked into the image.
       CHIRAL_KERNEL_DIR: /var/lib/chiral/kernels
+      # What a canary upgrade fetches through the node it just upgraded. Change
+      # it only when the default cannot be reached from your hosts; every
+      # canary is INCONCLUSIVE otherwise — never a false rollback, but never a
+      # confirmation either.
+      CHIRAL_PROBE_URL: ${CHIRAL_PROBE_URL:-}
       # Optional. Unauthenticated GitHub API calls are limited to 60/hour per
       # IP, which one panel never approaches — but a shared egress IP might,
       # and then upgrades quietly stop being offered.
