@@ -1,4 +1,5 @@
 import { useEffect } from "react";
+import { createPortal } from "react-dom";
 import { cn } from "../lib/cn";
 
 /**
@@ -41,7 +42,18 @@ export function Modal({
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
-  return (
+
+  // Through a portal, because `fixed` is only viewport-relative until an
+  // ancestor has a transform, filter or perspective — then that ancestor
+  // becomes the containing block and inset-0 means its box instead.
+  //
+  // Every page here opens its content inside .animate-rise, whose animation
+  // ends with translateY(0) under fill-mode: both, so the identity transform
+  // stays applied forever. The overlay was sized to whichever card the dialog
+  // was opened from: on a node card that put the buttons below the fold with
+  // no way to scroll to them, since the scrollable element was the overlay
+  // itself. Mounting on document.body means no ancestor can do this again.
+  return createPortal(
     <div
       className="fixed inset-0 z-50 grid place-items-center overflow-y-auto bg-black/40 px-4 py-8 backdrop-blur-sm"
       onClick={onClose}
@@ -57,7 +69,8 @@ export function Modal({
       >
         {children}
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 
