@@ -43,6 +43,7 @@ SQLite（WAL），迁移在 `core/migrations/`，启动时自动应用，只增�
 | [架构总览](architecture.md) | 组件、职责、数据流 |
 | [Core ↔ Agent 通信](communication.md) | gRPC 帧、重连、协议决策 |
 | [模板与变量系统](template-system.md) | 渲染、作用域、生成器、`xray -test` 的能力边界 |
+| [分流规则](routing-rules.md) | ACL4SSR 预设、解析、空组丢弃、provider 下发 |
 | [用户 / 流量 / 订阅](user-management.md) | 凭证隔离、配额、订阅渲染 |
 | [端用户门户](user-portal.md) | 第二个信任域、在线地址记录 |
 | [内核在线升级](xray-upgrade.md) | 金丝雀、三值判定、回滚、中继 |
