@@ -364,6 +364,30 @@ func (s *Service) GenerateVariable(name, scope string, profileID, nodeID sql.Nul
 	if err != nil {
 		return store.Variable{}, err
 	}
+	return s.putGroup(name, scope, profileID, nodeID, gen, group)
+}
+
+// ImportVariable stores a group built around a key the operator already runs,
+// so pointing this panel at an existing deployment keeps every client
+// configuration that was handed out before it.
+//
+// Only the private half is accepted; the rest is derived. See
+// template.SecretComponent.
+func (s *Service) ImportVariable(name, scope string, profileID, nodeID sql.NullString, gen template.Generator, secret string) (store.Variable, error) {
+	var group template.Group
+	var err error
+	if template.NeedsXray(gen) {
+		group, err = s.kernels.Baked().MLDSA65FromSeed(secret)
+	} else {
+		group, err = template.Import(gen, secret)
+	}
+	if err != nil {
+		return store.Variable{}, err
+	}
+	return s.putGroup(name, scope, profileID, nodeID, gen, group)
+}
+
+func (s *Service) putGroup(name, scope string, profileID, nodeID sql.NullString, gen template.Generator, group template.Group) (store.Variable, error) {
 	secretSet := group.SecretSet()
 	components := make([]store.Component, 0, len(group.Components))
 	for _, cname := range group.ComponentNames() {

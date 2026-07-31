@@ -1,6 +1,7 @@
 package template
 
 import (
+	"crypto/rand"
 	"os"
 	"os/exec"
 	"regexp"
@@ -283,4 +284,90 @@ func firstOf(kv map[string]string, keys ...string) string {
 		}
 	}
 	return ""
+}
+
+// Importing is how an existing deployment adopts the panel without re-issuing
+// every client configuration, so an imported group has to be as trustworthy as
+// a generated one. The dangerous version accepts a private key and a public
+// key from the caller and stores both: `xray -test` passes, and REALITY then
+// rejects every client with no error anywhere. This asks the binary the same
+// question the generator test does — for keys that did not come from us, and
+// including the unclamped form a hand-rolled server may well hold.
+func TestImportedX25519MatchesTheXrayBinary(t *testing.T) {
+	bin := os.Getenv("CHIRAL_XRAY_BIN")
+	if bin == "" {
+		var err error
+		if bin, err = exec.LookPath("xray"); err != nil {
+			t.Skip("no xray binary; cannot cross-validate key derivation")
+		}
+	}
+	for i := 0; i < 8; i++ {
+		raw := make([]byte, 32)
+		if _, err := rand.Read(raw); err != nil {
+			t.Fatal(err)
+		}
+		// Deliberately NOT clamped: this is what an operator's existing
+		// config may contain, and the bug this project already shipped.
+		g, err := Import(GenX25519, b64.EncodeToString(raw))
+		if err != nil {
+			t.Fatal(err)
+		}
+		priv, pub := g.Components["private"], g.Components["public"]
+
+		out, err := exec.Command(bin, "x25519", "-i", priv).Output()
+		if err != nil {
+			t.Fatalf("xray x25519 -i: %v", err)
+		}
+		kv := map[string]string{}
+		for _, line := range strings.Split(string(out), "\n") {
+			k, v, ok := strings.Cut(line, ":")
+			if !ok {
+				continue
+			}
+			kv[strings.TrimSpace(k)] = strings.TrimSpace(v)
+		}
+		if got := firstOf(kv, "PrivateKey", "Private key"); got != priv {
+			t.Fatalf("stored private key is not the scalar xray uses: stored %q, xray %q", priv, got)
+		}
+		if got := firstOf(kv, "Password (PublicKey)", "PublicKey", "Public key", "Password"); got != pub {
+			t.Fatalf("derived public key disagrees with xray: derived %q, xray %q", pub, got)
+		}
+	}
+}
+
+// The private half is the only thing a caller may supply. Deriving the rest is
+// what makes a mismatched pair unrepresentable rather than merely discouraged.
+func TestImportDerivesRatherThanTrusts(t *testing.T) {
+	a, err := Generate(GenX25519)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := Import(GenX25519, a.Components["private"])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Components["public"] != a.Components["public"] {
+		t.Fatalf("import of a generated private key produced a different public key")
+	}
+	if len(got.Secret) != 1 || got.Secret[0] != "private" {
+		t.Fatalf("imported group lost its secret marking: %v", got.Secret)
+	}
+}
+
+func TestImportRejectsMalformedValues(t *testing.T) {
+	for _, tc := range []struct{ gen, val string }{
+		{string(GenX25519), "not-base64!!"},
+		{string(GenX25519), b64.EncodeToString(make([]byte, 31))},
+		{string(GenShortID), "zz"},
+		{string(GenShortID), "abc"},
+		{string(GenUUID), "not-a-uuid"},
+		{string(GenMLKEM768), "short"},
+	} {
+		if _, err := Import(Generator(tc.gen), tc.val); err == nil {
+			t.Errorf("%s accepted %q", tc.gen, tc.val)
+		}
+	}
+	if _, err := Import(GenX25519, ""); err == nil {
+		t.Error("empty import was accepted")
+	}
 }

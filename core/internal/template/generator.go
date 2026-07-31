@@ -98,6 +98,117 @@ func Generators() []Generator {
 	return []Generator{GenUUID, GenX25519, GenShortID, GenPassword, GenMLKEM768, GenMLDSA65}
 }
 
+// SecretComponent names the component Import takes for each generator: the
+// private half, or the whole value for single-component generators. "" means
+// the unnamed component.
+//
+// Only this one is ever accepted from the caller. Everything else in the group
+// is derived from it here, which is what makes an imported group as
+// trustworthy as a generated one — a caller cannot hand us a private key and
+// an unrelated public key, and `xray -test` would not have caught it if they
+// did. The keypair that shipped without clamping is the same failure with a
+// different cause: both halves well-formed, neither belonging to the other,
+// and nothing visible until a client fails to handshake.
+func SecretComponent(g Generator) (string, bool) {
+	switch g {
+	case GenUUID, GenShortID, GenPassword:
+		return "", true
+	case GenX25519:
+		return "private", true
+	case GenMLKEM768, GenMLDSA65:
+		return "seed", true
+	}
+	return "", false
+}
+
+// Import rebuilds a group around a value the operator already has, so adopting
+// this panel does not mean re-issuing every client configuration already
+// handed out. Adoption is exactly when the existing keys must be kept.
+//
+// GenMLDSA65 is not here: its derivation needs the Xray binary, so it lives on
+// Xray.MLDSA65FromSeed, which already takes a seed.
+func Import(g Generator, secret string) (Group, error) {
+	if secret == "" {
+		return Group{}, fmt.Errorf("generator %q needs a value to import", g)
+	}
+	switch g {
+	case GenUUID:
+		if !isUUID(secret) {
+			return Group{}, fmt.Errorf("not a UUID: %q", secret)
+		}
+		return Group{Components: map[string]string{"": secret}}, nil
+
+	case GenShortID:
+		if _, err := hex.DecodeString(secret); err != nil {
+			return Group{}, fmt.Errorf("shortId must be hex: %w", err)
+		}
+		if len(secret) == 0 || len(secret) > 16 || len(secret)%2 != 0 {
+			return Group{}, fmt.Errorf("shortId must be 2-16 hex digits, got %d", len(secret))
+		}
+		return Group{Components: map[string]string{"": secret}}, nil
+
+	case GenPassword:
+		return Group{Components: map[string]string{"": secret}}, nil
+
+	case GenX25519:
+		public, err := X25519Public(secret)
+		if err != nil {
+			return Group{}, err
+		}
+		// Store the clamped form, not what was handed in. An unclamped key
+		// works in Xray (it clamps on use) but does not match the public half
+		// we just derived, and storing the two out of step is the bug this
+		// panel already shipped once.
+		seed, err := b64.DecodeString(secret)
+		if err != nil {
+			return Group{}, err
+		}
+		clampX25519(seed)
+		return Group{
+			Components: map[string]string{"private": b64.EncodeToString(seed), "public": public},
+			Secret:     []string{"private"},
+		}, nil
+
+	case GenMLKEM768:
+		seed, err := b64.DecodeString(secret)
+		if err != nil {
+			return Group{}, fmt.Errorf("seed must be base64.RawURLEncoding: %w", err)
+		}
+		dk, err := mlkem.NewDecapsulationKey768(seed)
+		if err != nil {
+			return Group{}, fmt.Errorf("not an ML-KEM-768 seed: %w", err)
+		}
+		return Group{
+			Components: map[string]string{
+				"seed":   b64.EncodeToString(dk.Bytes()),
+				"client": b64.EncodeToString(dk.EncapsulationKey().Bytes()),
+			},
+			Secret: []string{"seed"},
+		}, nil
+	}
+	return Group{}, fmt.Errorf("generator %q cannot be imported", g)
+}
+
+// isUUID reports the canonical 8-4-4-4-12 hex form.
+func isUUID(s string) bool {
+	if len(s) != 36 {
+		return false
+	}
+	for i, r := range s {
+		switch i {
+		case 8, 13, 18, 23:
+			if r != '-' {
+				return false
+			}
+		default:
+			if !((r >= '0' && r <= '9') || (r >= 'a' && r <= 'f') || (r >= 'A' && r <= 'F')) {
+				return false
+			}
+		}
+	}
+	return true
+}
+
 func genUUID() (Group, error) {
 	b := make([]byte, 16)
 	if _, err := rand.Read(b); err != nil {

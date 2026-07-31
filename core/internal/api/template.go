@@ -121,6 +121,12 @@ func (s *Server) createVariable(w http.ResponseWriter, r *http.Request) {
 		// plain static variable.
 		Generator string `json:"generator"`
 		Value     string `json:"value"`
+		// Import carries an existing private half for Generator instead of
+		// making a new one — adopting this panel should not invalidate the
+		// client configurations a server already handed out. Only the private
+		// component is taken; the public half is derived here, so an imported
+		// group cannot be internally inconsistent.
+		Import string `json:"import"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeErr(w, http.StatusBadRequest, "body must be JSON")
@@ -141,9 +147,16 @@ func (s *Server) createVariable(w http.ResponseWriter, r *http.Request) {
 		v   store.Variable
 		err error
 	)
-	if req.Generator != "" {
+	switch {
+	case req.Generator != "" && req.Import != "":
+		v, err = s.profiles.ImportVariable(req.Name, req.Scope, profileID, nodeID,
+			template.Generator(req.Generator), req.Import)
+	case req.Generator != "":
 		v, err = s.profiles.GenerateVariable(req.Name, req.Scope, profileID, nodeID, template.Generator(req.Generator))
-	} else {
+	case req.Import != "":
+		writeErr(w, http.StatusBadRequest, `"import" needs a "generator" saying what kind of key it is`)
+		return
+	default:
 		// Reuse the existing row when this name is already taken in this
 		// scope, so setting a value is one call whether or not it is the
 		// first.
