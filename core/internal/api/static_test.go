@@ -129,3 +129,54 @@ func TestStaticRefusesTraversal(t *testing.T) {
 		}
 	}
 }
+
+// A CHIRAL_WEB_DIR that does not exist must not be chosen. os.DirFS accepts
+// any path and fails per-request, so the old code reported the missing
+// directory as its source and then answered 404 for the console, the portal
+// and every asset — with the frontend compiled into the same binary. The
+// panel's own compose file shipped exactly that, pointing at a path the image
+// does not have.
+func TestAMissingWebDirIsNotServedFrom(t *testing.T) {
+	missing := filepath.Join(t.TempDir(), "not-created")
+	t.Setenv("CHIRAL_WEB_DIR", missing)
+
+	_, source, complaint := WebAssets()
+	if source == missing {
+		t.Fatalf("chose a directory that does not exist: source=%q", source)
+	}
+	if complaint == "" {
+		t.Fatal("ignored CHIRAL_WEB_DIR without saying so")
+	}
+	if !strings.Contains(complaint, missing) {
+		t.Fatalf("complaint does not name the rejected path: %q", complaint)
+	}
+}
+
+// A file is not a directory, and the same reasoning applies.
+func TestAWebDirThatIsAFileIsNotServedFrom(t *testing.T) {
+	f := filepath.Join(t.TempDir(), "dist")
+	if err := os.WriteFile(f, []byte("not a directory"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("CHIRAL_WEB_DIR", f)
+
+	_, source, complaint := WebAssets()
+	if source == f || complaint == "" {
+		t.Fatalf("accepted a regular file as the asset root: source=%q complaint=%q", source, complaint)
+	}
+}
+
+// The directory that does exist is still preferred over the compiled-in copy —
+// the check must not have turned the override off.
+func TestAnExistingWebDirStillWins(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("CHIRAL_WEB_DIR", dir)
+
+	_, source, complaint := WebAssets()
+	if source != dir {
+		t.Fatalf("source = %q, want %q", source, dir)
+	}
+	if complaint != "" {
+		t.Fatalf("complained about a usable directory: %q", complaint)
+	}
+}

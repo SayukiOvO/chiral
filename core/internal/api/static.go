@@ -58,16 +58,33 @@ func (s *Server) routeStatic(mux *http.ServeMux, root fs.FS, source string) {
 	s.logger.Info("serving the web frontend", "from", source)
 }
 
-// WebAssets picks what to serve: CHIRAL_WEB_DIR if set, otherwise whatever was
-// compiled in. Returns nil when there is neither.
-func WebAssets() (fs.FS, string) {
-	if dir := WebDirFromEnv(); dir != "" {
-		return os.DirFS(dir), dir
+// WebAssets picks what to serve: CHIRAL_WEB_DIR if set and present, otherwise
+// whatever was compiled in. Returns nil for the assets when there is neither,
+// and a non-empty third value when CHIRAL_WEB_DIR was set and ignored.
+//
+// The directory is checked because os.DirFS does not check: it accepts any
+// path and fails per-request, so a CHIRAL_WEB_DIR that does not exist produced
+// a panel that logged the directory as its source and then answered 404 for
+// the console, the portal and every asset — with the frontend sitting compiled
+// into the very binary that was refusing to serve it. That configuration
+// shipped in the panel's own compose file, where it pointed at a path the
+// image does not have.
+func WebAssets() (fs.FS, string, string) {
+	dir := WebDirFromEnv()
+	if dir != "" {
+		if st, err := os.Stat(dir); err == nil && st.IsDir() {
+			return os.DirFS(dir), dir, ""
+		}
+		if assets, ok := web.Assets(); ok {
+			return assets, "embedded",
+				"CHIRAL_WEB_DIR=" + dir + " is not a directory; serving the compiled-in frontend instead"
+		}
+		return nil, "", "CHIRAL_WEB_DIR=" + dir + " is not a directory and nothing is compiled in; no frontend will be served"
 	}
 	if assets, ok := web.Assets(); ok {
-		return assets, "embedded"
+		return assets, "embedded", ""
 	}
-	return nil, ""
+	return nil, "", ""
 }
 
 // noListing is an fs.FS that hides directories with no index.html, so
