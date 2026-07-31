@@ -49,7 +49,7 @@ services:
       # build to judge its configs. Put this on a container-local path and every
       # restart forgets every version, leaving the panel validating an upgraded
       # fleet's configs against the one binary baked into the image.
-      CHIRAL_KERNEL_DIR: /var/lib/chiral/kernels
+      CHIRAL_KERNEL_DIR: ${CHIRAL_KERNEL_DIR:-/var/lib/chiral/kernels}
       # What a canary upgrade fetches through the node it just upgraded. Change
       # it only when the default cannot be reached from your hosts; every
       # canary is INCONCLUSIVE otherwise — never a false rollback, but never a
@@ -101,10 +101,16 @@ services:
       # while reporting success — it has assets, they are just not there.
       # Set it only to serve a directory you mount yourself.
       CHIRAL_WEB_DIR: ${CHIRAL_WEB_DIR:-}
-      # CHIRAL_TLS_CERT: /certs/fullchain.pem
-      # CHIRAL_TLS_KEY: /certs/privkey.pem
+      # Serving TLS directly instead of behind a proxy. Set both in .env to a
+      # path inside the container and mount the certificates at that path —
+      # these are forwarded rather than commented out, because a value set in
+      # .env that compose never passes on is indistinguishable from one that
+      # did not work.
+      CHIRAL_TLS_CERT: ${CHIRAL_TLS_CERT:-}
+      CHIRAL_TLS_KEY: ${CHIRAL_TLS_KEY:-}
     volumes:
       - chiral-data:/var/lib/chiral
+      # Uncomment together with the two variables above.
       # - ./certs:/certs:ro
 
 volumes:

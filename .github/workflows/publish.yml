@@ -43,6 +43,31 @@ jobs:
       - run: go vet ./...
       - run: go test ./...
 
+      # The compose file and its example .env drift in both directions and each
+      # direction fails silently. A variable the example documents but compose
+      # never forwards is set by the operator and ignored; a variable compose
+      # substitutes but the example never mentions is one nobody knows exists.
+      # Both have shipped.
+      - name: Compose and .env.example agree
+        run: |
+          set -euo pipefail
+          cd deploy/panel
+          # Only ${...} substitutions: the rest are fixed container paths and
+          # listen addresses, deliberately not operator-tunable.
+          grep -oE '\$\{CHIRAL_[A-Z_]+' docker-compose.yml | cut -c3- | sort -u > /tmp/sub
+          grep -oE '^#? *CHIRAL_[A-Z_]+' .env.example | tr -d '# ' | sort -u > /tmp/doc
+          fail=0
+          if undocumented=$(comm -23 /tmp/sub /tmp/doc) && [ -n "$undocumented" ]; then
+            echo "::error::compose substitutes these, .env.example never mentions them:"
+            echo "$undocumented"; fail=1
+          fi
+          if dropped=$(comm -13 /tmp/sub /tmp/doc) && [ -n "$dropped" ]; then
+            echo "::error::.env.example documents these, compose never forwards them:"
+            echo "$dropped"; fail=1
+          fi
+          [ "$fail" = 0 ] && echo "all $(wc -l < /tmp/sub) variables line up"
+          exit "$fail"
+
       # One version string for the binaries and both images, so a `docker
       # images` and a `chiral-core --version` cannot disagree about what the
       # same run produced. A dispatch is not a release and must not claim a
