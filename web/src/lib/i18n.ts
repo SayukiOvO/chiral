@@ -211,6 +211,33 @@ const EN: Record<string, string> = {
   全部走代理: "Everything via proxy",
   "决定哪些网站走代理、哪些直连。仅对 Clash 类客户端生效，改动后请在客户端更新订阅。":
     "Decides which sites go through the proxy and which go direct. Clash-family clients only; update your subscription in the client after changing it.",
+  // external nodes
+  外部节点: "External nodes",
+  "别人提供的订阅或单条链接。可为每个节点指定一台本机队节点作为前置，链式出站。":
+    "Subscriptions and links from other providers. Each node can be dialled through one of your own, as a chain.",
+  "还没有外部节点。添加后它们会出现在所有订阅者的 Clash 订阅里。":
+    "No external nodes yet. Once added they appear in every subscriber's Clash subscription.",
+  新增外部节点: "Add external nodes",
+  "外部节点由对方运营：所有订阅者共用同一份凭证，没有按用户隔离、没有流量统计，停用某个用户也不会让他连不上。":
+    "External nodes are run by someone else: every subscriber shares one credential, there is no per-user isolation, no traffic accounting, and disabling a user does not stop them using it.",
+  直接粘贴: "Paste directly",
+  "例如 机场 A": "e.g. Provider A",
+  订阅地址: "Subscription address",
+  "Clash YAML 或分享链接列表均可，自动识别。每天自动更新一次。":
+    "Clash YAML or a list of share links, detected automatically. Refreshed once a day.",
+  内容: "Content",
+  "粘贴 Clash 配置片段或若干条分享链接。不会自动更新。":
+    "Paste a Clash fragment or some share links. Not refreshed automatically.",
+  "解析中…": "Parsing…",
+  添加: "Add",
+  展开节点: "Show nodes",
+  收起: "Collapse",
+  直连: "Direct",
+  经由: "via",
+  "（手动粘贴，不自动更新）": "(pasted; not refreshed)",
+  "这个来源里没有解析出节点。": "No nodes were parsed from this source.",
+  "删除「{name}」？其节点将从所有订阅中移除。":
+    "Delete “{name}”? Its nodes leave every subscription.",
   // routing rules
   分流规则: "Routing rules",
   "决定 Clash 类客户端把哪些流量走代理、哪些直连或拦截。在用户页指派给订阅者。":

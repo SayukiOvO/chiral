@@ -271,6 +271,27 @@ export interface Preset {
   Lists: number;
 }
 
+export interface ExternalProxy {
+  id: string;
+  name: string;
+  type: string;
+  server: string;
+  port: number;
+  /** Fleet node this one is dialled through; empty for a direct dial. */
+  chain_node_id: string;
+  enabled: boolean;
+}
+
+export interface ExternalSub {
+  id: string;
+  name: string;
+  url: string;
+  enabled: boolean;
+  fetched_at: number;
+  last_error: string;
+  proxies: ExternalProxy[];
+}
+
 export interface Variable {
   id: string;
   name: string;
@@ -378,6 +399,19 @@ export const api = {
     req<void>("POST", `/api/nodes/${id}/restart-xray`),
 
   // --- variables ---
+  listExternals: () => req<{ externals: ExternalSub[] }>("GET", "/api/externals"),
+  createExternal: (e: { name: string; url?: string; body?: string }) =>
+    req<ExternalSub>("POST", "/api/externals", e),
+  updateExternal: (id: string, patch: { name?: string; url?: string; enabled?: boolean }) =>
+    req<ExternalSub>("PUT", `/api/externals/${id}`, patch),
+  deleteExternal: (id: string) => req<void>("DELETE", `/api/externals/${id}`),
+  refreshExternal: (id: string) => req<ExternalSub>("POST", `/api/externals/${id}/refresh`),
+  setExternalProxy: (
+    subId: string,
+    proxyId: string,
+    patch: { chain_node_id?: string; enabled?: boolean },
+  ) => req<void>("PUT", `/api/externals/${subId}/proxies/${proxyId}`, patch),
+
   listRulesets: () => req<{ rulesets: Ruleset[] }>("GET", "/api/rulesets"),
   listPresets: () => req<{ presets: Preset[] }>("GET", "/api/rulesets/presets"),
   createRuleset: (r: { name?: string; preset?: string; url?: string }) =>

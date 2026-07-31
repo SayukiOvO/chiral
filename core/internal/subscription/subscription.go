@@ -54,6 +54,9 @@ type Service struct {
 	// routing is nil until a ruleset service is wired in, in which case
 	// subscriptions carry the two groups this package builds itself.
 	routing Routing
+	// externals contributes proxies from other people's subscriptions. Nil
+	// leaves subscriptions carrying only this fleet's own nodes.
+	externals Externals
 	// publicURL is where a client reaches this panel, for the rule-provider
 	// URLs. Empty leaves rules out entirely rather than emitting providers
 	// pointing at a relative path no client can resolve.
@@ -64,10 +67,22 @@ func NewService(st *store.Store, ctx Contexts) *Service {
 	return &Service{st: st, ctx: ctx}
 }
 
+// Externals contributes proxies this panel does not run. Implemented by the
+// external service.
+type Externals interface {
+	// Fragments returns clash proxy entries. chainName maps a fleet node id to
+	// the name that node carries in this subscription, because a chained proxy
+	// has to reference a name the same document defines.
+	Fragments(chainName func(nodeID string) string) ([]string, error)
+}
+
 // EnableRouting wires per-subscriber routing rules. Called at startup.
 func (s *Service) EnableRouting(r Routing, publicURL string) {
 	s.routing, s.publicURL = r, publicURL
 }
+
+// EnableExternals wires in other people's nodes. Called at startup.
+func (s *Service) EnableExternals(e Externals) { s.externals = e }
 
 // Result is a rendered subscription, ready to serve.
 type Result struct {
@@ -181,6 +196,12 @@ func (s *Service) assemble(u store.User, token, client string, fragments []strin
 		// the panel's job so a client gets a usable file rather than a
 		// fragment. Indentation matters, so each entry is emitted as a list
 		// item with its lines shifted.
+		// Nodes this panel does not run, added before the groups are built so
+		// they are selectable like any other. A chained one names a node of
+		// this fleet, which has to be one this subscription actually carries —
+		// hence the lookup over the fragments already rendered.
+		fragments = append(fragments, s.externalFragments(fragments)...)
+
 		var b strings.Builder
 		b.WriteString("proxies:\n")
 		for _, f := range fragments {
@@ -300,18 +321,35 @@ func proxyGroupSection(fragments []string) string {
 	b.WriteString("proxy-groups:\n")
 
 	b.WriteString("  - name: Chiral\n    type: select\n    proxies:\n")
-	b.WriteString("      - " + autoName + "\n")
+	b.WriteString("      - " + quoteName(autoName) + "\n")
 	for _, n := range names {
-		b.WriteString("      - " + n + "\n")
+		b.WriteString("      - " + quoteName(n) + "\n")
 	}
 
-	b.WriteString("  - name: " + autoName + "\n    type: url-test\n")
+	b.WriteString("  - name: " + quoteName(autoName) + "\n    type: url-test\n")
 	fmt.Fprintf(&b, "    url: %s\n    interval: %d\n    tolerance: 50\n", autoTestURL, autoTestInterval)
 	b.WriteString("    proxies:\n")
 	for _, n := range names {
-		b.WriteString("      - " + n + "\n")
+		b.WriteString("      - " + quoteName(n) + "\n")
 	}
 	return b.String()
+}
+
+// quoteName wraps a proxy name so YAML reads it as the name it is.
+//
+// A group member is written as a bare scalar, which is fine for the emoji and
+// spaces these names are full of and wrong the moment one contains a colon:
+// "Tokyo: 01" as a list item is a mapping, not a string, and the client then
+// cannot find a proxy by that name. Single quotes because YAML processes no
+// escapes inside them.
+func quoteName(s string) string {
+	if s == "" {
+		return `''`
+	}
+	if !strings.ContainsAny(s, ":#{}[],&*?|<>=!%@`\"'\\\n") && strings.TrimSpace(s) == s {
+		return s
+	}
+	return "'" + strings.ReplaceAll(s, "'", "''") + "'"
 }
 
 // yamlName pulls the `name:` out of a rendered proxy entry, in either the
@@ -410,4 +448,48 @@ func (s *Service) routingFor(u store.User, token string, fragments []string) (gr
 		return "", "", ""
 	}
 	return g, p, rl
+}
+
+// externalFragments renders the external proxies for this subscription.
+//
+// The chain resolver looks the node up among the fragments this subscription
+// already carries: a dialer-proxy naming something the document does not
+// define makes the whole configuration unloadable, so a chain through a node
+// the subscriber is not entitled to has to drop the proxy rather than emit a
+// dangling reference. That is the external service's decision; this supplies
+// the lookup it needs to make it.
+func (s *Service) externalFragments(own []string) []string {
+	if s.externals == nil {
+		return nil
+	}
+	names := make(map[string]string, len(own))
+	for _, f := range own {
+		if n := yamlName(f); n != "" {
+			names[n] = n
+		}
+	}
+	out, err := s.externals.Fragments(func(nodeID string) string {
+		return s.nodeProxyName(nodeID, names)
+	})
+	if err != nil {
+		return nil
+	}
+	return out
+}
+
+// nodeProxyName resolves a fleet node id to the name it appears under here.
+func (s *Service) nodeProxyName(nodeID string, present map[string]string) string {
+	n, err := s.st.GetNode(nodeID)
+	if err != nil {
+		return ""
+	}
+	for _, candidate := range []string{n.DisplayName, n.Name} {
+		if candidate == "" {
+			continue
+		}
+		if got, ok := present[candidate]; ok {
+			return got
+		}
+	}
+	return ""
 }

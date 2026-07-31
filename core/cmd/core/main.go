@@ -28,6 +28,7 @@ import (
 	"github.com/SayukiOvO/chiral/core/internal/alert"
 	"github.com/SayukiOvO/chiral/core/internal/api"
 	"github.com/SayukiOvO/chiral/core/internal/auth"
+	"github.com/SayukiOvO/chiral/core/internal/external"
 	"github.com/SayukiOvO/chiral/core/internal/kernel"
 	"github.com/SayukiOvO/chiral/core/internal/mail"
 	"github.com/SayukiOvO/chiral/core/internal/node"
@@ -294,6 +295,10 @@ func run(logger *slog.Logger, dbPath, grpcListen, httpListen, grpcPublic, public
 	rulesets := ruleset.NewService(st, os.Getenv("CHIRAL_GITHUB_TOKEN"), logger)
 	subs.EnableRouting(rulesets, publicURL)
 
+	// Nodes this panel does not run, carried alongside its own.
+	externals := external.NewService(st, logger)
+	subs.EnableExternals(externals)
+
 	// Passkeys need a secure context; without a usable public URL they are
 	// simply not offered rather than offered and failing at the last step.
 	passkeys, err := passkey.New(publicURL, "Chiral")
@@ -377,6 +382,7 @@ func run(logger *slog.Logger, dbPath, grpcListen, httpListen, grpcPublic, public
 	}
 	apiServer.EnableUpgrades(upgrades)
 	apiServer.EnableRuleLists(rulesets, rulesets)
+	apiServer.EnableExternals(externals)
 	if portalCfg.Enabled() {
 		apiServer.EnablePortal(portalCfg)
 		logger.Info("end-user portal enabled", "mode", portalCfg.Mode,
@@ -422,6 +428,7 @@ func run(logger *slog.Logger, dbPath, grpcListen, httpListen, grpcPublic, public
 		select {
 		case <-time.After(2 * time.Minute):
 			rulesets.RefreshAll(ctx)
+			externals.RefreshAll(ctx)
 		case <-ctx.Done():
 			return
 		}
@@ -431,6 +438,7 @@ func run(logger *slog.Logger, dbPath, grpcListen, httpListen, grpcPublic, public
 			select {
 			case <-t.C:
 				rulesets.RefreshAll(ctx)
+				externals.RefreshAll(ctx)
 			case <-ctx.Done():
 				return
 			}

@@ -75,7 +75,9 @@ type Server struct {
 	// rulesets fetches and refreshes routing configurations. Nil leaves the
 	// management endpoints answering 503 with a reason rather than 404.
 	rulesets Rulesets
-	logger   *slog.Logger
+	// externals fetches other people's subscriptions.
+	externals Externals
+	logger    *slog.Logger
 }
 
 // RuleLists resolves a subscriber's provider name to its contents.
@@ -88,6 +90,16 @@ type RuleLists interface {
 type Rulesets interface {
 	Refresh(ctx context.Context, id string) error
 }
+
+// Externals fetches subscriptions belonging to other people. Implemented by
+// the external service.
+type Externals interface {
+	Refresh(ctx context.Context, id string) error
+}
+
+// EnableExternals wires management of other people's subscriptions. Called at
+// startup.
+func (s *Server) EnableExternals(e Externals) { s.externals = e }
 
 // EnableRuleLists wires rule-provider serving and ruleset management. Called
 // at startup.
@@ -159,6 +171,7 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("DELETE /api/xray/upgrade", s.requireWrite(s.abandonXray))
 	s.routeTemplates(mux)
 	s.routeRulesets(mux)
+	s.routeExternals(mux)
 
 	mux.Handle("POST /api/users", s.requireWrite(s.createUser))
 	mux.Handle("GET /api/users", s.requireAdmin(s.listUsers))
