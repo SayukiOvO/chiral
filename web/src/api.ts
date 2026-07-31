@@ -31,6 +31,10 @@ export interface Node {
   display_name: string;
   hostname: string;
   public_ip: string;
+  /** Operator override; empty means the detected public_ip is in use. */
+  address: string;
+  /** What clients are actually told to dial. */
+  dialable: string;
   agent_version: string;
   xray_version: string;
   xray_installed_version: string;
@@ -332,7 +336,7 @@ export const api = {
   listNodes: () => req<{ nodes: Node[] }>("GET", "/api/nodes"),
   createNode: (name: string) =>
     req<CreateNodeResult>("POST", "/api/nodes", { name }),
-  updateNode: (id: string, patch: { name?: string; display_name?: string }) =>
+  updateNode: (id: string, patch: { name?: string; display_name?: string; address?: string }) =>
     req<Node>("PUT", `/api/nodes/${id}`, patch),
   deleteNode: (id: string) => req<void>("DELETE", `/api/nodes/${id}`),
   resetJoinToken: (id: string) =>

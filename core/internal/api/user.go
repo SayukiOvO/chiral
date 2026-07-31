@@ -419,3 +419,53 @@ func (s *Server) subscriptionURL(token string) string {
 func isConflict(err error) bool {
 	return err != nil && strings.Contains(strings.ToLower(err.Error()), "unique")
 }
+
+// adoptCredential points an existing user × profile × node credential at a
+// secret the operator already has in the field.
+//
+// The reason this endpoint exists: without it, migrating a server that already
+// has users means either re-issuing every client configuration, or leaving the
+// old credential hand-written in the profile's inbound template. The second is
+// what it looks like when someone takes the shortcut — a live UUID sitting in
+// a template every admin can read, entitled to nothing, counted against
+// nobody, and unaffected by disabling the user it belongs to.
+func (s *Server) adoptCredential(w http.ResponseWriter, r *http.Request) {
+	userID, profileID, nodeID := r.PathValue("id"), r.PathValue("profileID"), r.PathValue("nodeId")
+	var req struct {
+		Secret string `json:"secret"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeErr(w, http.StatusBadRequest, "body must be JSON")
+		return
+	}
+	req.Secret = strings.TrimSpace(req.Secret)
+	if req.Secret == "" {
+		writeErr(w, http.StatusBadRequest, `"secret" is required`)
+		return
+	}
+	u, err := s.st.GetUser(userID)
+	if err != nil {
+		s.notFoundOr(w, "load user", err, "no such user")
+		return
+	}
+	if _, err := s.st.GetProfile(profileID); err != nil {
+		s.notFoundOr(w, "load profile", err, "no such profile")
+		return
+	}
+	if _, err := s.st.GetNode(nodeID); err != nil {
+		s.notFoundOr(w, "load node", err, "no such node")
+		return
+	}
+	if _, err := s.st.SetCredentialSecret(userID, profileID, nodeID,
+		user.StatsEmail(u.Name, u.ID, profileID, nodeID), req.Secret); err != nil {
+		s.internalErr(w, "adopt credential", err)
+		return
+	}
+	// The node is carrying the old secret in its clients array until assembly
+	// runs again.
+	if _, err := s.profiles.Apply(r.Context(), nodeID); err != nil {
+		s.logger.Warn("credential adopted but the node was not updated", "node", nodeID, "err", err)
+	}
+	s.audit(r, "user.credential_adopt", "user", userID, u.Name, "profile="+profileID+" node="+nodeID)
+	w.WriteHeader(http.StatusNoContent)
+}

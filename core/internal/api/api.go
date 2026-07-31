@@ -145,6 +145,9 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("POST /api/users/{id}/sub-token", s.requireWrite(s.resetSubToken))
 	mux.Handle("POST /api/users/{id}/profiles/{profileID}", s.requireWrite(s.bindUserProfile))
 	mux.Handle("DELETE /api/users/{id}/profiles/{profileID}", s.requireWrite(s.unbindUserProfile))
+	// Adopt a credential a server already issued, so migrating one does not
+	// invalidate what subscribers already have configured.
+	mux.Handle("PUT /api/users/{id}/credentials/{profileID}/{nodeId}", s.requireWrite(s.adoptCredential))
 	// Hands the operator a one-time link a subscriber uses to set their own
 	// password, so nobody has to send a password by hand.
 	mux.Handle("POST /api/users/{id}/portal-link", s.requireWrite(s.issuePortalLink))
@@ -225,10 +228,15 @@ type nodeView struct {
 	// subscribers see in the portal. Blank means unset — the portal numbers
 	// the line instead, and never falls back to Name, which usually encodes
 	// the provider and datacentre.
-	Name         string `json:"name"`
-	DisplayName  string `json:"display_name"`
-	Hostname     string `json:"hostname"`
-	PublicIP     string `json:"public_ip"`
+	Name        string `json:"name"`
+	DisplayName string `json:"display_name"`
+	Hostname    string `json:"hostname"`
+	PublicIP    string `json:"public_ip"`
+	// Address is the operator's override, empty when unset; Dialable is what
+	// is actually handed to clients. Both, so the console can show that a
+	// detected address is in use rather than leaving it to be inferred.
+	Address      string `json:"address"`
+	Dialable     string `json:"dialable"`
 	AgentVersion string `json:"agent_version"`
 	// XrayVersion is what the live kernel process was started from;
 	// XrayInstalledVersion is what the next start would use. They differ only
@@ -266,6 +274,8 @@ func (s *Server) view(n store.Node) nodeView {
 		DisplayName:          n.DisplayName,
 		Hostname:             n.Hostname,
 		PublicIP:             n.PublicIP,
+		Address:              n.Address,
+		Dialable:             n.Dialable(),
 		AgentVersion:         n.AgentVersion,
 		XrayVersion:          n.XrayVersion,
 		XrayInstalledVersion: n.XrayInstalledVersion,
@@ -334,6 +344,10 @@ func (s *Server) updateNode(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Name        *string `json:"name"`
 		DisplayName *string `json:"display_name"`
+		// Address overrides what clients are told to dial. Empty means fall
+		// back to the address the agent's connection came from, which is only
+		// right when nothing translates addresses in between.
+		Address *string `json:"address"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeErr(w, http.StatusBadRequest, "body must be JSON")
@@ -347,8 +361,11 @@ func (s *Server) updateNode(w http.ResponseWriter, r *http.Request) {
 	if req.DisplayName != nil {
 		n.DisplayName = strings.TrimSpace(*req.DisplayName)
 	}
+	if req.Address != nil {
+		n.Address = strings.TrimSpace(*req.Address)
+	}
 
-	if err := s.st.UpdateNode(n.ID, n.Name, n.DisplayName); err != nil {
+	if err := s.st.UpdateNode(n.ID, n.Name, n.DisplayName, n.Address); err != nil {
 		if isConflict(err) {
 			writeErr(w, http.StatusConflict, "a node with that name already exists")
 			return

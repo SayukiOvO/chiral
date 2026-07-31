@@ -104,7 +104,7 @@ function NodeCard({
             </button>
             <div className="font-mono text-xs text-faint truncate">
               {node.hostname || "—"}
-              {node.public_ip ? ` · ${node.public_ip}` : ""}
+              {node.dialable ? ` · ${node.dialable}` : ""}
             </div>
             {/* The portal shows this instead of the internal name. Flagged when
                 unset, because an unnamed line reads as "线路 03" to every

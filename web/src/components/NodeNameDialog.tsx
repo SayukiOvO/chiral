@@ -23,9 +23,10 @@ export function NodeNameDialog({
   onClose: () => void;
   onSaved: () => void;
 }) {
-  const { t } = useT();
+  const { t, tf } = useT();
   const [name, setName] = useState(node.name);
   const [displayName, setDisplayName] = useState(node.display_name ?? "");
+  const [address, setAddress] = useState(node.address ?? "");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
@@ -37,6 +38,7 @@ export function NodeNameDialog({
       await api.updateNode(node.id, {
         name: name.trim(),
         display_name: displayName.trim(),
+        address: address.trim(),
       });
       onSaved();
       onClose();
@@ -50,9 +52,9 @@ export function NodeNameDialog({
   return (
     <Modal onClose={onClose}>
       <form onSubmit={save}>
-        <h3 className="font-display text-lg font-semibold tracking-tight">{t("重命名节点")}</h3>
+        <h3 className="font-display text-lg font-semibold tracking-tight">{t("节点设置")}</h3>
         <p className="mt-1 text-sm text-muted">
-          {t("内部名用于运维，对客名称展示给订阅者。")}
+          {t("内部名用于运维，对客名称展示给订阅者，连接地址写进订阅。")}
         </p>
 
         <Field label={t("内部名")}>
@@ -77,6 +79,26 @@ export function NodeNameDialog({
           />
           <span className="mt-1 block text-xs text-faint">
             {t("留空时门户按序号显示为「线路 01」，不会回落到内部名。")}
+          </span>
+        </Field>
+
+        {/* The detected value comes from the peer address of the agent's
+            connection, which is whatever the last hop saw — a NAT between
+            agent and panel makes it a private address, and a subscription
+            built from it points somewhere nobody can reach. */}
+        <Field label={t("客户端连接地址")}>
+          <input
+            value={address}
+            onChange={(e) => setAddress(e.target.value)}
+            placeholder={node.public_ip || "203.0.113.9"}
+            className={inputCls}
+          />
+          <span className="mt-1 block text-xs text-faint">
+            {address.trim()
+              ? t("订阅与模板中的 {{node.address}} 用这个值。")
+              : tf("留空则用探测到的 {ip}，它取自 Agent 连接的对端地址；中间有 NAT 时并不可靠。", {
+                  ip: node.public_ip || t("（尚未探测到）"),
+                })}
           </span>
         </Field>
 

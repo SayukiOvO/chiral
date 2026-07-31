@@ -22,7 +22,7 @@ func TestNodeNamesAreUnique(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := s.UpdateNode(other.ID, "tokyo-1", ""); err == nil {
+	if err := s.UpdateNode(other.ID, "tokyo-1", "", ""); err == nil {
 		t.Fatal("a node was renamed onto a name already in use")
 	} else if !IsConstraint(err) {
 		t.Errorf("rename error is not recognisable as a conflict: %v", err)

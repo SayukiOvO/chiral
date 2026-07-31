@@ -370,3 +370,35 @@ func (s *Store) AddCredentialTraffic(email string, up, down int64) error {
 	}
 	return tx.Commit()
 }
+
+// SetCredentialSecret replaces the secret a credential presents, minting the
+// row if assembly has not reached this user × profile × node yet.
+//
+// Deliberately separate from PutCredential, which is idempotent precisely so
+// that assembly never churns a secret. This is the opposite act and it is
+// destructive in the same way: whatever the subscriber has configured stops
+// working until they refetch. It exists for adoption — a server already
+// carrying users has credentials in the field, and the alternative to keeping
+// them is a hand-written client sitting in a shared template, outside the user
+// system, with no quota, no accounting and no way to switch it off.
+func (s *Store) SetCredentialSecret(userID, profileID, nodeID, email, secret string) (Credential, error) {
+	c, err := s.FindCredential(userID, profileID, nodeID)
+	if err != nil {
+		if !IsNotFound(err) {
+			return Credential{}, err
+		}
+		return s.PutCredential(Credential{
+			UserID: userID, ProfileID: profileID, NodeID: nodeID,
+			Email: email, Secret: secret,
+		})
+	}
+	sealed, err := s.box.Seal(credentialAAD(c.ID), secret)
+	if err != nil {
+		return Credential{}, err
+	}
+	if _, err := s.db.Exec(`UPDATE credentials SET secret = ? WHERE id = ?`, sealed, c.ID); err != nil {
+		return Credential{}, err
+	}
+	c.Secret = secret
+	return c, nil
+}

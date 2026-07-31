@@ -1,0 +1,16 @@
+-- Let the operator say what address clients should dial.
+--
+-- node.address has until now been public_ip, which the panel fills in from the
+-- peer address of the agent's gRPC connection. That is a guess, and it is
+-- wrong whenever anything translates addresses in between: an agent sharing a
+-- host with the panel reaches it through Docker's NAT, so the panel recorded
+-- the bridge gateway — 192.168.129.1 — and handed that to every subscriber as
+-- the address of the node. The subscription parsed, validated and could not
+-- possibly connect.
+--
+-- The detected value is kept: it is right for an ordinary remote node and
+-- saves the operator a step. It just stops being the only answer. address
+-- wins when set, public_ip fills in when it is not, and the console shows
+-- which one is in use so a wrong guess is visible rather than inferred from a
+-- client that will not connect.
+ALTER TABLE nodes ADD COLUMN address TEXT NOT NULL DEFAULT '';

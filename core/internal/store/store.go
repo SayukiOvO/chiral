@@ -125,9 +125,23 @@ type Node struct {
 	// provider and datacentre, which is not something to hand to subscribers
 	// by accident. See migration 0009.
 	DisplayName string
+	// Address is what clients are told to dial, when the operator has said.
+	// Empty falls back to PublicIP; see Dialable and migration 0015.
+	Address string
 }
 
-const nodeCols = `id, name, hostname, public_ip, agent_version, xray_version, xray_installed_version, platform, created_at, registered_at, last_seen_at, config_skeleton, display_name`
+// Dialable is the address subscriptions and templates use for this node: what
+// the operator set, or the address the agent's connection appeared to come
+// from. The detected one is a guess that any NAT between agent and panel
+// invalidates.
+func (n Node) Dialable() string {
+	if n.Address != "" {
+		return n.Address
+	}
+	return n.PublicIP
+}
+
+const nodeCols = `id, name, hostname, public_ip, agent_version, xray_version, xray_installed_version, platform, created_at, registered_at, last_seen_at, config_skeleton, display_name, address`
 
 // skeletonAAD / configAAD bind a ciphertext to the exact row that holds it.
 func skeletonAAD(nodeID string) string { return "node-skeleton:" + nodeID }
@@ -145,7 +159,7 @@ func probeAAD(nodeID string, version int64) string {
 // carry credentials of its own (an outbound to an upstream proxy, say).
 func (s *Store) scanNode(row interface{ Scan(...any) error }) (Node, error) {
 	var n Node
-	err := row.Scan(&n.ID, &n.Name, &n.Hostname, &n.PublicIP, &n.AgentVersion, &n.XrayVersion, &n.XrayInstalledVersion, &n.Platform, &n.CreatedAt, &n.RegisteredAt, &n.LastSeenAt, &n.ConfigSkeleton, &n.DisplayName)
+	err := row.Scan(&n.ID, &n.Name, &n.Hostname, &n.PublicIP, &n.AgentVersion, &n.XrayVersion, &n.XrayInstalledVersion, &n.Platform, &n.CreatedAt, &n.RegisteredAt, &n.LastSeenAt, &n.ConfigSkeleton, &n.DisplayName, &n.Address)
 	if err != nil {
 		return n, err
 	}
@@ -159,15 +173,19 @@ func (s *Store) scanNode(row interface{ Scan(...any) error }) (Node, error) {
 	return n, nil
 }
 
-// UpdateNode changes the operator-facing name and the customer-facing one.
+// UpdateNode changes the operator-facing name, the customer-facing one, and
+// the address clients dial.
 //
 // Two names because they have two audiences: `name` is what the operator uses
 // to find a box and usually encodes the provider and datacentre, while
 // display_name is what subscribers see. Blank display_name means "unset" and
 // never falls back to name — see migration 0009.
-func (s *Store) UpdateNode(id, name, displayName string) error {
-	res, err := s.db.Exec(`UPDATE nodes SET name = ?, display_name = ? WHERE id = ?`,
-		name, displayName, id)
+//
+// Blank address means "use the detected one" rather than "no address"; see
+// Node.Dialable and migration 0015.
+func (s *Store) UpdateNode(id, name, displayName, address string) error {
+	res, err := s.db.Exec(`UPDATE nodes SET name = ?, display_name = ?, address = ? WHERE id = ?`,
+		name, displayName, address, id)
 	if err != nil {
 		return err
 	}

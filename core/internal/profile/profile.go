@@ -114,7 +114,10 @@ func (s *Service) contextFor(profileID, nodeID string) (*template.Context, error
 		return nil, err
 	}
 	merged["node.name"] = n.Name
-	merged["node.address"] = n.PublicIP
+	// Dialable rather than PublicIP: the detected peer address is wrong
+	// whenever a NAT sits between agent and panel, and a client config built
+	// from it points at an address nobody can reach.
+	merged["node.address"] = n.Dialable()
 	merged["node.hostname"] = n.Hostname
 
 	return template.NewContext(merged, secrets), nil
