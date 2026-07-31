@@ -448,3 +448,63 @@ func TestSubscriptionFilenameIsSafe(t *testing.T) {
 		}
 	}
 }
+
+// Entitlement is per profile, so granting one gives every node bound to it.
+// That is the right default and it left no way to say "this person, not that
+// box" — an operator who wanted one had to split the profile and keep the
+// copies in step by hand.
+func TestDeniedNodesLeaveTheSubscription(t *testing.T) {
+	st, svc, u := twoProfileFixture(t)
+
+	before, err := svc.Render(u, ClientXrayJSON, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if before.Fragments == 0 {
+		t.Fatal("fixture produced nothing to deny")
+	}
+
+	nodes, err := st.ListNodes()
+	if err != nil || len(nodes) == 0 {
+		t.Fatalf("no nodes: %v", err)
+	}
+	if err := st.SetUserNodeAccess(u.ID, []string{nodes[0].ID}, nil); err != nil {
+		t.Fatal(err)
+	}
+	after, err := svc.Render(u, ClientXrayJSON, "")
+	if err == nil && after.Fragments != 0 {
+		t.Fatalf("denied node still present: %d fragments", after.Fragments)
+	}
+}
+
+// Denials are stored, not defaults: a fleet that does not use the feature has
+// empty tables and every subscriber keeps exactly what they had.
+func TestNobodyIsDeniedByDefault(t *testing.T) {
+	st, _, u := twoProfileFixture(t)
+	denied, err := st.UserNodeDenies(u.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(denied) != 0 {
+		t.Fatalf("a fresh user starts denied: %v", denied)
+	}
+}
+
+// The console shows the whole list and the operator ticks boxes, so a write
+// describes an end state. Setting it twice must not accumulate.
+func TestSettingAccessReplacesRatherThanAdds(t *testing.T) {
+	st, _, u := twoProfileFixture(t)
+	nodes, _ := st.ListNodes()
+	id := nodes[0].ID
+
+	if err := st.SetUserNodeAccess(u.ID, []string{id}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetUserNodeAccess(u.ID, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	denied, _ := st.UserNodeDenies(u.ID)
+	if len(denied) != 0 {
+		t.Fatalf("clearing left %v", denied)
+	}
+}

@@ -10,6 +10,7 @@ import { KeyIcon } from "../components/icons";
 import { UserDialog } from "../components/UserDialog";
 import { SubscriptionDialog } from "../components/SubscriptionDialog";
 import { Button, IconButton } from "../components/ui";
+import { NodeAccess } from "../components/NodeAccess";
 import { CheckIcon, LinkIcon, PencilIcon, PlusIcon, TrashIcon } from "../components/icons";
 import { useT } from "../lib/i18n";
 
@@ -318,6 +319,15 @@ function UserCard({
           <p className="mt-2 text-xs text-faint">
             {t("授权后，在该配置绑定的每个节点上生成独立凭证。")}
           </p>
+
+          {/* Per node, under the profiles that grant them: the profile says
+              which way in, this says which boxes. */}
+          <div className="mt-5">
+            <div className="mb-2 text-[11px] font-medium uppercase tracking-[0.07em] text-faint">
+              {t("可用节点")}
+            </div>
+            {expanded && <NodeAccess userId={user.id} />}
+          </div>
 
           {/* Per subscriber, not per profile: which traffic goes through the
               proxy is a property of the person, and one subscriber may want

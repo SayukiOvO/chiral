@@ -127,16 +127,20 @@ func (s *Service) fetch(ctx context.Context, url string) (string, error) {
 
 // Fragments renders the enabled external proxies as clash proxies-list items.
 //
-// chainName resolves a fleet node id to the name that node appears under in
-// this subscriber's own proxies — the chain has to reference a proxy the same
+// denied names the proxies this subscriber may not use. chainName resolves a
+// fleet node id to the name that node appears under in this subscriber's own
+// proxies — the chain has to reference a proxy the same
 // document defines, and that name is the customer-facing one, not the node id.
-func (s *Service) Fragments(chainName func(nodeID string) string) ([]string, error) {
+func (s *Service) Fragments(denied map[string]struct{}, chainName func(nodeID string) string) ([]string, error) {
 	proxies, err := s.st.EnabledExternalProxies()
 	if err != nil {
 		return nil, err
 	}
 	out := make([]string, 0, len(proxies))
 	for _, p := range proxies {
+		if _, no := denied[p.ID]; no {
+			continue
+		}
 		body := p.Config
 		if p.ChainNodeID != "" {
 			via := chainName(p.ChainNodeID)

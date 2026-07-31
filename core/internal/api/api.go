@@ -185,6 +185,9 @@ func (s *Server) Handler() http.Handler {
 	// Adopt a credential a server already issued, so migrating one does not
 	// invalidate what subscribers already have configured.
 	mux.Handle("PUT /api/users/{id}/credentials/{profileID}/{nodeId}", s.requireWrite(s.adoptCredential))
+	// Which nodes this subscriber's subscription carries, fleet and external.
+	mux.Handle("GET /api/users/{id}/nodes", s.requireAdmin(s.userNodeAccess))
+	mux.Handle("PUT /api/users/{id}/nodes", s.requireWrite(s.setUserNodeAccess))
 	// Hands the operator a one-time link a subscriber uses to set their own
 	// password, so nobody has to send a password by hand.
 	mux.Handle("POST /api/users/{id}/portal-link", s.requireWrite(s.issuePortalLink))

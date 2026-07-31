@@ -164,13 +164,18 @@ func (s *Store) EnabledExternalProxies() ([]ExternalProxy, error) {
 }
 
 // ReplaceExternalProxies swaps in a freshly parsed set, carrying the
-// operator's per-proxy settings across.
+// operator's per-proxy settings across and keeping each row's identity.
 //
 // A refreshed proxy is matched to its previous row by name, and failing that
 // by endpoint. Providers rename constantly — remaining traffic and expiry
-// dates go in the label — so matching on name alone would detach the chain
-// setting every time the provider edited a string, which is the one thing an
-// operator would never think to check.
+// dates go in the label — so matching on name alone would detach every setting
+// each time they edited a string, which is the one thing an operator would
+// never think to check.
+//
+// Matched rows are UPDATED rather than replaced, so the id survives. Anything
+// referencing a proxy — a per-user denial, and whatever comes later — hangs off
+// that id with a cascading foreign key, and delete-then-insert would take those
+// rows with it on every refresh.
 func (s *Store) ReplaceExternalProxies(subID string, fresh []ExternalProxy) error {
 	old, err := s.ExternalProxies(subID)
 	if err != nil {
@@ -188,27 +193,45 @@ func (s *Store) ReplaceExternalProxies(subID string, fresh []ExternalProxy) erro
 		return err
 	}
 	defer tx.Rollback()
-	if _, err := tx.Exec(`DELETE FROM external_proxies WHERE sub_id = ?`, subID); err != nil {
-		return err
-	}
+
+	kept := make(map[string]struct{}, len(fresh))
 	for i, p := range fresh {
 		prev, ok := byName[p.Name]
 		if !ok {
 			prev, ok = byEndpoint[endpointKey(p.Server, p.Port, p.Type)]
 		}
-		chain := ""
-		enabled := true
 		if ok {
-			chain, enabled = prev.ChainNodeID, prev.Enabled
+			if _, dup := kept[prev.ID]; dup {
+				// Two fresh proxies matched the same previous row — possible
+				// when a provider duplicates an endpoint under two names. The
+				// second one is new rather than a second claim on that row.
+				ok = false
+			}
 		}
-		var chainVal any
-		if chain != "" {
-			chainVal = chain
+		if ok {
+			if _, err := tx.Exec(`UPDATE external_proxies
+				SET name = ?, type = ?, server = ?, port = ?, config = ?, ord = ?
+				WHERE id = ?`, p.Name, p.Type, p.Server, p.Port, p.Config, i, prev.ID); err != nil {
+				return err
+			}
+			kept[prev.ID] = struct{}{}
+			continue
 		}
+		id := NewID()
 		if _, err := tx.Exec(`INSERT INTO external_proxies
 			(id, sub_id, name, type, server, port, config, chain_node_id, enabled, ord)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-			NewID(), subID, p.Name, p.Type, p.Server, p.Port, p.Config, chainVal, enabled, i); err != nil {
+			VALUES (?, ?, ?, ?, ?, ?, ?, NULL, 1, ?)`,
+			id, subID, p.Name, p.Type, p.Server, p.Port, p.Config, i); err != nil {
+			return err
+		}
+		kept[id] = struct{}{}
+	}
+
+	for _, p := range old {
+		if _, ok := kept[p.ID]; ok {
+			continue
+		}
+		if _, err := tx.Exec(`DELETE FROM external_proxies WHERE id = ?`, p.ID); err != nil {
 			return err
 		}
 	}
@@ -234,4 +257,68 @@ func (s *Store) SetExternalProxy(id, chainNodeID string, enabled bool) error {
 		return sql.ErrNoRows
 	}
 	return nil
+}
+
+// UserNodeDenies lists the fleet nodes this subscriber may not use.
+//
+// Denials rather than grants: a node nobody has been asked about is usable,
+// which is what an operator expects when they bind a new one, and it keeps
+// these tables empty for a fleet that does not need per-user control.
+func (s *Store) UserNodeDenies(userID string) (map[string]struct{}, error) {
+	return s.denySet(`SELECT node_id FROM user_node_denies WHERE user_id = ?`, userID)
+}
+
+// UserExternalDenies lists the external proxies this subscriber may not use.
+func (s *Store) UserExternalDenies(userID string) (map[string]struct{}, error) {
+	return s.denySet(`SELECT proxy_id FROM user_external_denies WHERE user_id = ?`, userID)
+}
+
+func (s *Store) denySet(query, userID string) (map[string]struct{}, error) {
+	rows, err := s.db.Query(query, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[string]struct{}{}
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		out[id] = struct{}{}
+	}
+	return out, rows.Err()
+}
+
+// SetUserNodeAccess replaces this subscriber's denials in one go.
+//
+// Whole-set rather than per-node toggles, because the console shows the whole
+// list and an operator ticking boxes is describing an end state. Two calls that
+// each toggled one node could interleave into a state neither of them asked
+// for.
+func (s *Store) SetUserNodeAccess(userID string, deniedNodes, deniedProxies []string) error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err := tx.Exec(`DELETE FROM user_node_denies WHERE user_id = ?`, userID); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`DELETE FROM user_external_denies WHERE user_id = ?`, userID); err != nil {
+		return err
+	}
+	for _, id := range deniedNodes {
+		if _, err := tx.Exec(`INSERT OR IGNORE INTO user_node_denies (user_id, node_id) VALUES (?, ?)`,
+			userID, id); err != nil {
+			return err
+		}
+	}
+	for _, id := range deniedProxies {
+		if _, err := tx.Exec(`INSERT OR IGNORE INTO user_external_denies (user_id, proxy_id) VALUES (?, ?)`,
+			userID, id); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
 }

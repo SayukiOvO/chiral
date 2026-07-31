@@ -73,7 +73,7 @@ type Externals interface {
 	// Fragments returns clash proxy entries. chainName maps a fleet node id to
 	// the name that node carries in this subscription, because a chained proxy
 	// has to reference a name the same document defines.
-	Fragments(chainName func(nodeID string) string) ([]string, error)
+	Fragments(denied map[string]struct{}, chainName func(nodeID string) string) ([]string, error)
 }
 
 // EnableRouting wires per-subscriber routing rules. Called at startup.
@@ -113,6 +113,14 @@ func (s *Service) Render(u store.User, client, token string) (Result, error) {
 	}
 	sort.Strings(profileIDs)
 
+	// Nodes this subscriber has been denied. Empty for everyone until an
+	// operator says otherwise, so a fleet that does not need per-user control
+	// pays nothing for it.
+	denied, err := s.st.UserNodeDenies(u.ID)
+	if err != nil {
+		return Result{}, err
+	}
+
 	var fragments []string
 	// Access points that could not be rendered, with the reason. Not an error:
 	// see the skip below.
@@ -131,6 +139,9 @@ func (s *Service) Render(u store.User, client, token string) (Result, error) {
 		}
 		sort.Strings(nodeIDs)
 		for _, nid := range nodeIDs {
+			if _, no := denied[nid]; no {
+				continue
+			}
 			cred, err := s.st.FindCredential(u.ID, pid, nid)
 			if err != nil {
 				// No credential yet means this access point has not been
@@ -200,7 +211,13 @@ func (s *Service) assemble(u store.User, token, client string, fragments []strin
 		// they are selectable like any other. A chained one names a node of
 		// this fleet, which has to be one this subscription actually carries —
 		// hence the lookup over the fragments already rendered.
-		fragments = append(fragments, s.externalFragments(fragments)...)
+		fragments = append(fragments, s.externalFragments(u, fragments)...)
+		// Counted after they are merged, not before. A subscriber whose only
+		// remaining access is external — every fleet node denied, or none
+		// bound yet — otherwise looked empty to the caller and was refused
+		// with "no access point available" while holding a perfectly good
+		// list of them.
+		r.Fragments = len(fragments)
 
 		var b strings.Builder
 		b.WriteString("proxies:\n")
@@ -458,8 +475,12 @@ func (s *Service) routingFor(u store.User, token string, fragments []string) (gr
 // the subscriber is not entitled to has to drop the proxy rather than emit a
 // dangling reference. That is the external service's decision; this supplies
 // the lookup it needs to make it.
-func (s *Service) externalFragments(own []string) []string {
+func (s *Service) externalFragments(u store.User, own []string) []string {
 	if s.externals == nil {
+		return nil
+	}
+	denied, err := s.st.UserExternalDenies(u.ID)
+	if err != nil {
 		return nil
 	}
 	names := make(map[string]string, len(own))
@@ -468,7 +489,7 @@ func (s *Service) externalFragments(own []string) []string {
 			names[n] = n
 		}
 	}
-	out, err := s.externals.Fragments(func(nodeID string) string {
+	out, err := s.externals.Fragments(denied, func(nodeID string) string {
 		return s.nodeProxyName(nodeID, names)
 	})
 	if err != nil {

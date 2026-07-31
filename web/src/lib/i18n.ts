@@ -218,6 +218,12 @@ const EN: Record<string, string> = {
   机队: "Fleet",
   订阅者: "Subscribers",
   运维: "Operations",
+  // per-user node access
+  可用节点: "Nodes they may use",
+  自有节点: "Own nodes",
+  该用户的接入配置未覆盖此节点: "No profile this user holds reaches this node",
+  "取消后该节点不再出现在此用户的订阅里。凭证仍在节点上，订阅者下次刷新订阅时生效。":
+    "Unticked, the node stops appearing in this subscriber's subscription. The credential stays on the node; it applies on their next refresh.",
   // panel settings
   设置: "Settings",
   "面板产出物的一些选项。": "Choices about what the panel produces.",

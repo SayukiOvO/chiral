@@ -271,6 +271,16 @@ export interface Preset {
   Lists: number;
 }
 
+export interface NodeAccessEntry {
+  id: string;
+  name: string;
+  /** "fleet", or the external source's name. */
+  source: string;
+  allowed: boolean;
+  /** Whether anything reaches this node for this user at all. */
+  entitled: boolean;
+}
+
 export interface Settings {
   /** What a subscription is called when it reaches a client. */
   subscription_name: string;
@@ -404,6 +414,11 @@ export const api = {
     req<void>("POST", `/api/nodes/${id}/restart-xray`),
 
   // --- variables ---
+  userNodeAccess: (id: string) =>
+    req<{ fleet: NodeAccessEntry[]; external: NodeAccessEntry[] }>("GET", `/api/users/${id}/nodes`),
+  setUserNodeAccess: (id: string, denied: { denied_nodes: string[]; denied_proxies: string[] }) =>
+    req<void>("PUT", `/api/users/${id}/nodes`, denied),
+
   getSettings: () => req<Settings>("GET", "/api/settings"),
   updateSettings: (patch: { subscription_name?: string }) =>
     req<Settings>("PUT", "/api/settings", patch),

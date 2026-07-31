@@ -142,7 +142,7 @@ func TestFragmentsCarryTheChain(t *testing.T) {
 	proxies, _ := st.ExternalProxies(sub.ID)
 	st.SetExternalProxy(proxies[0].ID, node.ID, true)
 
-	frags, err := svc.Fragments(func(id string) string {
+	frags, err := svc.Fragments(nil, func(id string) string {
 		if id == node.ID {
 			return "日本 · 东京 01"
 		}
@@ -175,7 +175,7 @@ func TestAProxyWhoseChainIsMissingIsLeftOut(t *testing.T) {
 	proxies, _ := st.ExternalProxies(sub.ID)
 	st.SetExternalProxy(proxies[0].ID, node.ID, true)
 
-	frags, err := svc.Fragments(func(string) string { return "" })
+	frags, err := svc.Fragments(nil, func(string) string { return "" })
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -194,13 +194,13 @@ func TestDisabledSourcesAndProxiesAreLeftOut(t *testing.T) {
 	proxies, _ := st.ExternalProxies(sub.ID)
 
 	st.SetExternalProxy(proxies[0].ID, "", false)
-	frags, _ := svc.Fragments(func(string) string { return "" })
+	frags, _ := svc.Fragments(nil, func(string) string { return "" })
 	if len(frags) != 1 {
 		t.Fatalf("a disabled proxy was carried: %v", frags)
 	}
 
 	st.UpdateExternalSub(sub.ID, sub.Name, sub.URL, false)
-	frags, _ = svc.Fragments(func(string) string { return "" })
+	frags, _ = svc.Fragments(nil, func(string) string { return "" })
 	if len(frags) != 0 {
 		t.Fatalf("a disabled source was carried: %v", frags)
 	}
@@ -220,5 +220,73 @@ func TestPastedBodyNeedsNoURL(t *testing.T) {
 	got, _ := st.ExternalProxies(sub.ID)
 	if len(got) != 1 || got[0].Name != "Friend" {
 		t.Fatalf("proxies = %+v", got)
+	}
+}
+
+// A subscriber can be denied an individual external node, and the denial
+// survives a refresh — the rows are rebuilt every time, so an id that changed
+// would take the operator's decision with it.
+func TestDeniedExternalProxiesAreLeftOut(t *testing.T) {
+	st, svc := fixture(t)
+	srv, next := serve(t,
+		"proxies:\n"+
+			"  - {name: A, type: vless, server: a.example.com, port: 443, uuid: u1}\n"+
+			"  - {name: B, type: vless, server: b.example.com, port: 443, uuid: u2}\n",
+		"proxies:\n"+
+			"  - {name: 'A | 61%', type: vless, server: a.example.com, port: 443, uuid: u1}\n"+
+			"  - {name: B, type: vless, server: b.example.com, port: 443, uuid: u2}\n")
+	sub, _ := st.CreateExternalSub("provider", srv.URL, "")
+	if err := svc.Refresh(context.Background(), sub.ID); err != nil {
+		t.Fatal(err)
+	}
+	proxies, _ := st.ExternalProxies(sub.ID)
+	denied := map[string]struct{}{proxies[0].ID: {}}
+
+	frags, err := svc.Fragments(denied, func(string) string { return "" })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(frags) != 1 || strings.Contains(frags[0], "a.example.com") {
+		t.Fatalf("denied proxy was carried: %v", frags)
+	}
+
+	// After a refresh that renames it, the same id must still be the same node.
+	next()
+	if err := svc.Refresh(context.Background(), sub.ID); err != nil {
+		t.Fatal(err)
+	}
+	after, _ := st.ExternalProxies(sub.ID)
+	var still bool
+	for _, p := range after {
+		if p.ID == proxies[0].ID && p.Server == "a.example.com" {
+			still = true
+		}
+	}
+	if !still {
+		t.Fatal("the proxy's identity did not survive a refresh, so the denial would have been lost")
+	}
+	frags, _ = svc.Fragments(denied, func(string) string { return "" })
+	if len(frags) != 1 {
+		t.Fatalf("denial did not survive the refresh: %v", frags)
+	}
+}
+
+// A subscriber whose only access is external is not a subscriber with no
+// access. The count that decides whether a subscription is empty is taken
+// before the external proxies are merged unless something says otherwise, and
+// then the panel refuses to serve a list it is holding.
+func TestExternalOnlySubscriptionIsNotEmpty(t *testing.T) {
+	st, svc := fixture(t)
+	srv, _ := serve(t, "proxies:\n  - {name: A, type: vless, server: a.example.com, port: 443, uuid: u1}\n")
+	sub, _ := st.CreateExternalSub("provider", srv.URL, "")
+	if err := svc.Refresh(context.Background(), sub.ID); err != nil {
+		t.Fatal(err)
+	}
+	frags, err := svc.Fragments(nil, func(string) string { return "" })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(frags) != 1 {
+		t.Fatalf("fragments = %d, want the external one", len(frags))
 	}
 }

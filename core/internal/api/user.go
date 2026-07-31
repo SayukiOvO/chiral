@@ -473,3 +473,113 @@ func (s *Server) adoptCredential(w http.ResponseWriter, r *http.Request) {
 	s.audit(r, "user.credential_adopt", "user", userID, u.Name, "profile="+profileID+" node="+nodeID)
 	w.WriteHeader(http.StatusNoContent)
 }
+
+// nodeAccessView is what the console needs to draw the per-user node list:
+// every node and external proxy that exists, and whether this subscriber may
+// use it.
+type nodeAccessEntry struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+	// Source is "fleet" or the external subscription's name, so the console can
+	// group them and say where a node came from.
+	Source  string `json:"source"`
+	Allowed bool   `json:"allowed"`
+	// Entitled reports whether any profile this user holds reaches this node.
+	// A fleet node they have no profile for is not something denying can
+	// change, and showing it as merely "off" would be a lie.
+	Entitled bool `json:"entitled"`
+}
+
+func (s *Server) userNodeAccess(w http.ResponseWriter, r *http.Request) {
+	u, err := s.st.GetUser(r.PathValue("id"))
+	if err != nil {
+		s.notFoundOr(w, "load user", err, "no such user")
+		return
+	}
+	deniedNodes, err := s.st.UserNodeDenies(u.ID)
+	if err != nil {
+		s.internalErr(w, "load denies", err)
+		return
+	}
+	deniedProxies, err := s.st.UserExternalDenies(u.ID)
+	if err != nil {
+		s.internalErr(w, "load denies", err)
+		return
+	}
+
+	// Which fleet nodes their profiles actually reach.
+	entitled := map[string]struct{}{}
+	if pids, err := s.st.UserProfileIDs(u.ID); err == nil {
+		for _, pid := range pids {
+			if nids, err := s.st.ProfileNodeIDs(pid); err == nil {
+				for _, nid := range nids {
+					entitled[nid] = struct{}{}
+				}
+			}
+		}
+	}
+
+	fleet := []nodeAccessEntry{}
+	if nodes, err := s.st.ListNodes(); err == nil {
+		for _, n := range nodes {
+			_, denied := deniedNodes[n.ID]
+			_, ok := entitled[n.ID]
+			name := n.DisplayName
+			if name == "" {
+				name = n.Name
+			}
+			fleet = append(fleet, nodeAccessEntry{
+				ID: n.ID, Name: name, Source: "fleet",
+				Allowed: !denied, Entitled: ok,
+			})
+		}
+	}
+
+	ext := []nodeAccessEntry{}
+	if subs, err := s.st.ListExternalSubs(); err == nil {
+		for _, sub := range subs {
+			proxies, err := s.st.ExternalProxies(sub.ID)
+			if err != nil {
+				continue
+			}
+			for _, p := range proxies {
+				_, denied := deniedProxies[p.ID]
+				ext = append(ext, nodeAccessEntry{
+					ID: p.ID, Name: p.Name, Source: sub.Name,
+					// An external node reaches every subscriber unless denied;
+					// there is no profile in between to be entitled by.
+					Allowed: !denied, Entitled: sub.Enabled && p.Enabled,
+				})
+			}
+		}
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{"fleet": fleet, "external": ext})
+}
+
+func (s *Server) setUserNodeAccess(w http.ResponseWriter, r *http.Request) {
+	u, err := s.st.GetUser(r.PathValue("id"))
+	if err != nil {
+		s.notFoundOr(w, "load user", err, "no such user")
+		return
+	}
+	var req struct {
+		DeniedNodes   []string `json:"denied_nodes"`
+		DeniedProxies []string `json:"denied_proxies"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeErr(w, http.StatusBadRequest, "body must be JSON")
+		return
+	}
+	if err := s.st.SetUserNodeAccess(u.ID, req.DeniedNodes, req.DeniedProxies); err != nil {
+		s.internalErr(w, "set node access", err)
+		return
+	}
+	// Nothing to push: the denial is applied when the subscription renders, so
+	// the node's own config — which still carries the credential — is unchanged
+	// on purpose. Denying a node hides it from a subscription; it does not
+	// revoke the credential, and the console says so.
+	s.audit(r, "user.node_access", "user", u.ID, u.Name,
+		fmt.Sprintf("denied %d fleet, %d external", len(req.DeniedNodes), len(req.DeniedProxies)))
+	w.WriteHeader(http.StatusNoContent)
+}
