@@ -279,6 +279,12 @@ export interface NodeAccessEntry {
   allowed: boolean;
   /** Whether anything reaches this node for this user at all. */
   entitled: boolean;
+  /**
+   * Set on an external node whose relay this subscriber will not get. The
+   * proxy cannot be carried without it, so it leaves the subscription too —
+   * this is what says so instead of leaving the toggle looking on.
+   */
+  chained_via?: string;
 }
 
 export interface Settings {

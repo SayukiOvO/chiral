@@ -488,6 +488,13 @@ type nodeAccessEntry struct {
 	// A fleet node they have no profile for is not something denying can
 	// change, and showing it as merely "off" would be a lie.
 	Entitled bool `json:"entitled"`
+	// ChainedVia names the fleet node an external node dials through, when
+	// that node is one this subscriber has been denied. Such a proxy cannot be
+	// carried — an unresolvable dialer-proxy makes the whole document
+	// unloadable, and dropping the chain would send them straight at the
+	// provider — so it silently leaves the subscription along with the relay.
+	// Silently is the problem: the console said it was on.
+	ChainedVia string `json:"chained_via,omitempty"`
 }
 
 func (s *Server) userNodeAccess(w http.ResponseWriter, r *http.Request) {
@@ -520,6 +527,8 @@ func (s *Server) userNodeAccess(w http.ResponseWriter, r *http.Request) {
 	}
 
 	fleet := []nodeAccessEntry{}
+	// Kept so an external node chained through a denied relay can name it.
+	nodeName := map[string]string{}
 	if nodes, err := s.st.ListNodes(); err == nil {
 		for _, n := range nodes {
 			_, denied := deniedNodes[n.ID]
@@ -528,6 +537,7 @@ func (s *Server) userNodeAccess(w http.ResponseWriter, r *http.Request) {
 			if name == "" {
 				name = n.Name
 			}
+			nodeName[n.ID] = name
 			fleet = append(fleet, nodeAccessEntry{
 				ID: n.ID, Name: name, Source: "fleet",
 				Allowed: !denied, Entitled: ok,
@@ -544,11 +554,25 @@ func (s *Server) userNodeAccess(w http.ResponseWriter, r *http.Request) {
 			}
 			for _, p := range proxies {
 				_, denied := deniedProxies[p.ID]
+				// A relay this subscription will not carry — not entitled, or
+				// denied — takes everything chained through it with it.
+				var via string
+				if p.ChainNodeID != "" {
+					_, ok := entitled[p.ChainNodeID]
+					_, no := deniedNodes[p.ChainNodeID]
+					if !ok || no {
+						via = nodeName[p.ChainNodeID]
+						if via == "" {
+							via = p.ChainNodeID
+						}
+					}
+				}
 				ext = append(ext, nodeAccessEntry{
 					ID: p.ID, Name: p.Name, Source: sub.Name,
 					// An external node reaches every subscriber unless denied;
 					// there is no profile in between to be entitled by.
 					Allowed: !denied, Entitled: sub.Enabled && p.Enabled,
+					ChainedVia: via,
 				})
 			}
 		}

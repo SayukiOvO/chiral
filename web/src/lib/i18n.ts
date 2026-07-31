@@ -222,6 +222,8 @@ const EN: Record<string, string> = {
   可用节点: "Nodes they may use",
   自有节点: "Own nodes",
   该用户的接入配置未覆盖此节点: "No profile this user holds reaches this node",
+  "链经「{node}」，而此用户拿不到那个节点":
+    "Chained through “{node}”, which this user does not get",
   "取消后该节点不再出现在此用户的订阅里。凭证仍在节点上，订阅者下次刷新订阅时生效。":
     "Unticked, the node stops appearing in this subscriber's subscription. The credential stays on the node; it applies on their next refresh.",
   // panel settings

@@ -13,7 +13,7 @@ import { useT } from "../lib/i18n";
  * nobody has been asked about is usable by everyone the moment it is bound.
  */
 export function NodeAccess({ userId }: { userId: string }) {
-  const { t } = useT();
+  const { t, tf } = useT();
   const [fleet, setFleet] = useState<NodeAccessEntry[]>([]);
   const [external, setExternal] = useState<NodeAccessEntry[]>([]);
   const [busy, setBusy] = useState(false);
@@ -78,17 +78,26 @@ export function NodeAccess({ userId }: { userId: string }) {
                 // this user holds reaches that node, and switching it on here
                 // changes nothing. Shown rather than hidden, because "where did
                 // my node go" is a worse question than a greyed row.
-                title={e.entitled ? undefined : t("该用户的接入配置未覆盖此节点")}
+                title={
+                  e.chained_via
+                    ? tf("链经「{node}」，而此用户拿不到那个节点", { node: e.chained_via })
+                    : e.entitled
+                      ? undefined
+                      : t("该用户的接入配置未覆盖此节点")
+                }
                 className={cn(
                   "inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs transition-colors disabled:opacity-50",
-                  e.allowed
+                  // A chained node whose relay is gone is not carried, whatever
+                  // the toggle says — so it does not get to look on.
+                  e.allowed && !e.chained_via
                     ? "border-[color-mix(in_srgb,var(--online)_45%,transparent)] text-online"
                     : "border-line-strong text-muted hover:border-signal hover:text-ink",
-                  !e.entitled && "opacity-45",
+                  (!e.entitled || e.chained_via) && "opacity-45",
                 )}
               >
-                {e.allowed && <CheckIcon size={12} />}
+                {e.allowed && !e.chained_via && <CheckIcon size={12} />}
                 {e.name}
+                {e.chained_via && <span className="text-faint">⛓</span>}
               </button>
             ))}
           </div>
