@@ -318,6 +318,12 @@ export interface ConfigPreview {
   kernel_version: string;
   kernel_exact: boolean;
   kernel_note: string;
+  /**
+   * Configurations that validate and still will not work for somebody — a
+   * REALITY inbound that refuses every clash client, for instance. Not errors:
+   * the apply is allowed, the consequence is just made visible first.
+   */
+  advisories: string[] | null;
 }
 
 export interface XrayAvailable {

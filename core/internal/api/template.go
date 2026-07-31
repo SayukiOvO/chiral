@@ -519,6 +519,7 @@ func (s *Server) previewNodeConfig(w http.ResponseWriter, r *http.Request) {
 		"kernel_version": pv.KernelVersion,
 		"kernel_exact":   pv.KernelExact,
 		"kernel_note":    pv.KernelNote,
+		"advisories":     pv.Advisories,
 	})
 }
 

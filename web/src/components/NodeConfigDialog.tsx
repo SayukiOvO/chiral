@@ -125,6 +125,19 @@ export function NodeConfigDialog({ node, onClose }: { node: Node; onClose: () =>
         />
       </div>
 
+      {/* Shown above the config rather than beside the badge: these describe
+          something the validator cannot see, and a subscriber timing out is
+          not a thing to discover from the client end. */}
+      {preview?.advisories?.map((a) => (
+        <div
+          key={a}
+          className="mt-3 rounded-xl px-3 py-2 text-xs text-warn"
+          style={{ background: "color-mix(in srgb, var(--warn) 10%, transparent)" }}
+        >
+          {a}
+        </div>
+      ))}
+
       <div className="mt-6">
         <div className="mb-2 flex items-center justify-between gap-3">
           <h4 className="text-[11px] font-medium uppercase tracking-[0.07em] text-faint">

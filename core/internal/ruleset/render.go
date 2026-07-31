@@ -2,6 +2,7 @@ package ruleset
 
 import (
 	"fmt"
+	"net/url"
 	"path"
 	"regexp"
 	"sort"
@@ -79,6 +80,18 @@ func Render(cfg Config, proxyNames []string, providerBase string) Rendered {
 
 	var pb, rb strings.Builder
 	rb.WriteString("rules:\n")
+	// The panel itself, always direct, ahead of everything else.
+	//
+	// Without this the preset's catch-all sends the panel through the proxy,
+	// and two things follow. The operator loses the console exactly when the
+	// proxy breaks — which is the moment they need it — and the client cannot
+	// load these rules at all, because the rule lists live on the panel and
+	// fetching them is itself routed by the rules being fetched. The observed
+	// form is a client logging "--> panel:443 match Match using <proxy>" for
+	// its own provider requests.
+	if host := providerHost(providerBase); host != "" {
+		fmt.Fprintf(&rb, "  - DOMAIN,%s,DIRECT\n", yamlScalar(host))
+	}
 	names := newNamer()
 	for _, r := range cfg.Rules {
 		// A rule whose policy was dropped has nowhere to go. Keeping it would
@@ -230,4 +243,14 @@ func yamlScalar(s string) string {
 		return `"` + s + `"`
 	}
 	return s
+}
+
+// providerHost is the panel's own hostname, taken from the URL its rule lists
+// are served under.
+func providerHost(base string) string {
+	u, err := url.Parse(base)
+	if err != nil {
+		return ""
+	}
+	return u.Hostname()
 }

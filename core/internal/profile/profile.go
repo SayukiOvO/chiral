@@ -224,6 +224,9 @@ type Preview struct {
 	KernelExact   bool
 	// KernelNote explains an inexact match in words, empty when exact.
 	KernelNote string
+	// Advisories are configurations that pass validation and still will not
+	// work for somebody. See template.Advisories.
+	Advisories []string
 }
 
 func (s *Service) Preview(ctx context.Context, nodeID string) (Preview, error) {
@@ -244,7 +247,34 @@ func (s *Service) Preview(ctx context.Context, nodeID string) (Preview, error) {
 			p.TestError = err.Error()
 		}
 	}
+	p.Advisories = template.Advisories(cfg, s.clientKindsOn(nodeID))
 	return p, nil
+}
+
+// clientKindsOn lists the client templates every profile bound to this node
+// offers, so an advisory can tell whether anybody is being served a config the
+// inbound will refuse.
+func (s *Service) clientKindsOn(nodeID string) []string {
+	profileIDs, err := s.st.NodeProfileIDs(nodeID)
+	if err != nil {
+		return nil
+	}
+	seen := map[string]struct{}{}
+	var out []string
+	for _, pid := range profileIDs {
+		kinds, err := s.st.ClientTemplateKinds(pid)
+		if err != nil {
+			continue
+		}
+		for _, k := range kinds {
+			if _, dup := seen[k]; dup {
+				continue
+			}
+			seen[k] = struct{}{}
+			out = append(out, k)
+		}
+	}
+	return out
 }
 
 // Apply assembles, validates, stores a new version and pushes it to the node.

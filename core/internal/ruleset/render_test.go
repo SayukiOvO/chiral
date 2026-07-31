@@ -79,8 +79,15 @@ func TestDroppingCascades(t *testing.T) {
 	if len(r.Dropped) != 3 {
 		t.Fatalf("Dropped = %v, want all three", r.Dropped)
 	}
-	if strings.TrimSpace(r.Rules) != "rules:" {
-		t.Fatalf("a rule survived with no group to route to:\n%s", r.Rules)
+	// The panel's own direct rule stays — it targets DIRECT, which no amount
+	// of dropping can remove, and it is the one rule that has to survive so
+	// the operator can still reach the console.
+	for _, line := range strings.Split(r.Rules, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || line == "rules:" || strings.HasSuffix(line, ",DIRECT") {
+			continue
+		}
+		t.Fatalf("a rule survived with no group to route to: %q", line)
 	}
 }
 
@@ -236,5 +243,35 @@ func TestProviderYAMLKeepsNoResolve(t *testing.T) {
 func TestProviderYAMLOnCommentsOnlyIsStillValid(t *testing.T) {
 	if got := ProviderYAML("# nothing but a comment\n"); got != "payload:\n" {
 		t.Fatalf("got %q", got)
+	}
+}
+
+// The panel must not depend on the proxy working.
+//
+// Every preset ends in a catch-all, so without this the panel's own hostname
+// goes through the proxy — and then a broken proxy takes the console with it,
+// at exactly the moment the operator needs the console to fix the proxy. It
+// also makes the rules unloadable: the rule lists are served by the panel, so
+// fetching them is itself routed by the rules being fetched.
+func TestThePanelIsAlwaysDirect(t *testing.T) {
+	r := render(t, regionINI, "香港 01")
+	first := strings.SplitN(strings.TrimPrefix(r.Rules, "rules:\n"), "\n", 2)[0]
+	if first != "  - DOMAIN,panel.example.com,DIRECT" {
+		t.Fatalf("first rule = %q, want the panel pinned direct", first)
+	}
+	// Ahead of the catch-all, or the catch-all wins.
+	if strings.Index(r.Rules, "DOMAIN,panel.example.com,DIRECT") > strings.Index(r.Rules, "MATCH,") {
+		t.Fatal("the panel rule must come before the catch-all")
+	}
+}
+
+func TestNoPanelRuleWithoutAUsableBase(t *testing.T) {
+	cfg, err := ParseINI(regionINI)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := Render(cfg, []string{"香港 01"}, "")
+	if strings.Contains(r.Rules, "DIRECT\n  - DOMAIN") || strings.Contains(r.Rules, "DOMAIN,,DIRECT") {
+		t.Fatalf("emitted an empty-host rule:\n%s", r.Rules)
 	}
 }
