@@ -120,3 +120,65 @@ export const ShieldIcon = ({ size = 16, className }: IconProps) => (
     <path d="M12 3l7 3v5.5c0 4.3-2.9 7.8-7 9.5-4.1-1.7-7-5.2-7-9.5V6Z" />
   </svg>
 );
+
+export const MenuIcon = ({ size = 16, className }: IconProps) => (
+  <svg {...base(size, className)}>
+    <path d="M3.5 6.5h17M3.5 12h17M3.5 17.5h17" />
+  </svg>
+);
+
+/** Points left; `flip` turns it round for the opposite affordance. */
+export const ChevronIcon = ({
+  size = 16,
+  className,
+  flip,
+}: IconProps & { flip?: boolean }) => (
+  <svg {...base(size, className)} style={flip ? undefined : { transform: "scaleX(-1)" }}>
+    <path d="M14.5 5.5 8 12l6.5 6.5" />
+  </svg>
+);
+
+export const NodeIcon = ({ size = 16, className }: IconProps) => (
+  <svg {...base(size, className)}>
+    <rect x="3.5" y="4.5" width="17" height="6" rx="2" />
+    <rect x="3.5" y="13.5" width="17" height="6" rx="2" />
+    <path d="M7 7.5h.01M7 16.5h.01" />
+  </svg>
+);
+
+export const CloudIcon = ({ size = 16, className }: IconProps) => (
+  <svg {...base(size, className)}>
+    <path d="M7 18.5a4 4 0 0 1-.4-7.98 5.5 5.5 0 0 1 10.65-1.4A3.75 3.75 0 0 1 17.5 18.5z" />
+  </svg>
+);
+
+export const StackIcon = ({ size = 16, className }: IconProps) => (
+  <svg {...base(size, className)}>
+    <path d="m12 3.5 8.5 4.25L12 12 3.5 7.75z" />
+    <path d="m3.5 12 8.5 4.25L20.5 12" />
+    <path d="m3.5 16.25 8.5 4.25 8.5-4.25" />
+  </svg>
+);
+
+export const UsersIcon = ({ size = 16, className }: IconProps) => (
+  <svg {...base(size, className)}>
+    <circle cx="9" cy="8" r="3.25" />
+    <path d="M3.5 19.5a5.5 5.5 0 0 1 11 0" />
+    <path d="M16 5.2a3.25 3.25 0 0 1 0 5.6M17 14.4a5.5 5.5 0 0 1 3.5 5.1" />
+  </svg>
+);
+
+export const RouteIcon = ({ size = 16, className }: IconProps) => (
+  <svg {...base(size, className)}>
+    <circle cx="6" cy="18" r="2.5" />
+    <circle cx="18" cy="6" r="2.5" />
+    <path d="M15.5 6H10a3.5 3.5 0 0 0 0 7h4a3.5 3.5 0 0 1 0 7H8.5" />
+  </svg>
+);
+
+export const AlertIcon = ({ size = 16, className }: IconProps) => (
+  <svg {...base(size, className)}>
+    <path d="M12 4.5a5.5 5.5 0 0 0-5.5 5.5c0 4-1.5 5.5-1.5 5.5h14s-1.5-1.5-1.5-5.5A5.5 5.5 0 0 0 12 4.5z" />
+    <path d="M10.5 19a1.8 1.8 0 0 0 3 0" />
+  </svg>
+);

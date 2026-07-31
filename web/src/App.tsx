@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { api, getToken, setToken } from "./api";
-import { TopBar } from "./components/TopBar";
+import { SideNav } from "./components/SideNav";
 import { LoginPage } from "./components/LoginPage";
 import { NodesPage } from "./pages/NodesPage";
 import { ProfilesPage } from "./pages/ProfilesPage";
@@ -33,10 +33,12 @@ export function App() {
 
 function Console({ onSignOut }: { onSignOut: () => void }) {
   const route = useRoute();
+  // The nav is a column beside the page on a desktop and a drawer over it on a
+  // phone, so the shell is a flex row that collapses to a single column.
   return (
-    <div className="min-h-screen">
-      <TopBar route={route} onSignOut={onSignOut} />
-      <main className="mx-auto max-w-[1120px] px-5 py-8 sm:px-8 sm:py-10">
+    <div className="flex min-h-screen flex-col lg:flex-row">
+      <SideNav route={route} onSignOut={onSignOut} />
+      <main className="min-w-0 flex-1 px-5 py-7 sm:px-8 sm:py-9">
         {route.view === "nodes" && <NodesPage onSignOut={onSignOut} />}
         {route.view === "profiles" && <ProfilesPage id={route.id} />}
         {route.view === "users" && <UsersPage />}

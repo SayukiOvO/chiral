@@ -211,6 +211,13 @@ const EN: Record<string, string> = {
   全部走代理: "Everything via proxy",
   "决定哪些网站走代理、哪些直连。仅对 Clash 类客户端生效，改动后请在客户端更新订阅。":
     "Decides which sites go through the proxy and which go direct. Clash-family clients only; update your subscription in the client after changing it.",
+  // navigation
+  菜单: "Menu",
+  收起侧栏: "Collapse sidebar",
+  展开侧栏: "Expand sidebar",
+  机队: "Fleet",
+  订阅者: "Subscribers",
+  运维: "Operations",
   // panel settings
   设置: "Settings",
   "面板产出物的一些选项。": "Choices about what the panel produces.",
