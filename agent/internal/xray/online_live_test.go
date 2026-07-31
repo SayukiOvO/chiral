@@ -30,6 +30,12 @@ import (
 // The non-loopback part is essential and is why this test can skip: Xray does
 // not record loopback source addresses at all, so the same setup on 127.0.0.1
 // reports zero addresses and looks exactly like a broken feature.
+// liveDeadline bounds the waits in these tests. They poll for a condition and
+// return the moment it holds, so this only bounds failure — and a value tight
+// enough to trip on a loaded machine turns a passing test into an intermittent
+// one, which is worse than a slow failure.
+const liveDeadline = 30 * time.Second
+
 func liveOnlineXray(t *testing.T) (*Manager, string, int) {
 	t.Helper()
 	bin := testBin(t)
@@ -105,14 +111,18 @@ func liveOnlineXray(t *testing.T) (*Manager, string, int) {
 		client.Wait()
 	})
 
-	deadline := time.Now().Add(10 * time.Second)
+	// Generous on purpose. These deadlines only ever elapse when something is
+	// wrong, so a longer one costs nothing on a healthy run and stops the test
+	// failing for being run on a busy machine — which is when the whole suite
+	// runs, alongside every other package.
+	deadline := time.Now().Add(liveDeadline)
 	for time.Now().Before(deadline) {
 		if _, err := m.Stats(context.Background()); err == nil {
 			return m, email, entryPort
 		}
 		time.Sleep(100 * time.Millisecond)
 	}
-	t.Fatal("the server kernel's API never became reachable")
+	t.Fatalf("the server kernel's API never became reachable within %s", liveDeadline)
 	return nil, "", 0
 }
 
@@ -175,7 +185,7 @@ func TestCompleteRoundIsReportedComplete(t *testing.T) {
 
 func waitForOnline(t *testing.T, m *Manager, email string) []OnlineUser {
 	t.Helper()
-	deadline := time.Now().Add(10 * time.Second)
+	deadline := time.Now().Add(liveDeadline)
 	for time.Now().Before(deadline) {
 		users, _, err := m.OnlineUsers(context.Background())
 		if err != nil {
@@ -188,7 +198,7 @@ func waitForOnline(t *testing.T, m *Manager, email string) []OnlineUser {
 		}
 		time.Sleep(200 * time.Millisecond)
 	}
-	t.Fatalf("%s never showed up as online", email)
+	t.Fatalf("%s never showed up as online within %s", email, liveDeadline)
 	return nil
 }
 
