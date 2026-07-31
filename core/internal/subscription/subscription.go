@@ -190,7 +190,7 @@ func (s *Service) assemble(u store.User, token, client string, fragments []strin
 		// the raw list is what modern v2rayN and friends accept.
 		r.Body = strings.Join(fragments, "\n")
 		r.ContentType = "text/plain; charset=utf-8"
-		r.Filename = "chiral.txt"
+		r.Filename = s.subscriptionFilename("txt")
 	case ClientClash, ClientStash:
 		// The templates carry YAML proxy entries; the surrounding document is
 		// the panel's job so a client gets a usable file rather than a
@@ -220,7 +220,7 @@ func (s *Service) assemble(u store.User, token, client string, fragments []strin
 		}
 		r.Body = b.String()
 		r.ContentType = "text/yaml; charset=utf-8"
-		r.Filename = "chiral.yaml"
+		r.Filename = s.subscriptionFilename("yaml")
 	default: // xray-json
 		// A full Xray client config: the fragments are outbounds.
 		var b strings.Builder
@@ -235,7 +235,7 @@ func (s *Service) assemble(u store.User, token, client string, fragments []strin
 		b.WriteString("  ]\n}\n")
 		r.Body = b.String()
 		r.ContentType = "application/json; charset=utf-8"
-		r.Filename = "chiral.json"
+		r.Filename = s.subscriptionFilename("json")
 	}
 	return r
 }
@@ -492,4 +492,42 @@ func (s *Service) nodeProxyName(nodeID string, present map[string]string) string
 		}
 	}
 	return ""
+}
+
+// defaultSubscriptionName is used until an operator picks one.
+const defaultSubscriptionName = "chiral"
+
+// subscriptionFilename is the name a client shows the subscription under.
+//
+// Clash-family clients take the profile's name from this download filename, so
+// what goes here is what every subscriber reads in their client's profile
+// list. Leaving it as the software's own name puts "chiral" on all of their
+// screens, which says something about the operator that the operator did not
+// choose to say.
+func (s *Service) subscriptionFilename(ext string) string {
+	name := sanitiseFilename(s.st.Setting(store.SettingSubscriptionName, defaultSubscriptionName))
+	if name == "" {
+		name = defaultSubscriptionName
+	}
+	return name + "." + ext
+}
+
+// sanitiseFilename keeps a name usable in a Content-Disposition header and as
+// a file on the subscriber's disk.
+//
+// Quotes and backslashes would terminate or escape the header's quoted string,
+// and path separators would make the client write outside the directory it
+// meant to. Everything else — spaces, emoji, Chinese — is left alone, because
+// this is a label a person chose and mangling it would be the wrong kind of
+// safe.
+func sanitiseFilename(name string) string {
+	name = strings.TrimSpace(name)
+	name = strings.Map(func(r rune) rune {
+		switch r {
+		case '"', '\\', '/', '\n', '\r', 0:
+			return -1
+		}
+		return r
+	}, name)
+	return strings.TrimSpace(name)
 }

@@ -399,3 +399,49 @@ func TestAllProfilesBrokenReportsZeroFragmentsAndWhy(t *testing.T) {
 		t.Errorf("Skipped = %v, want one entry per profile", res.Skipped)
 	}
 }
+
+// Clash-family clients take the profile's name from the download filename, so
+// this is what every subscriber reads in their client. Left as the software's
+// own name it puts "chiral" on all of their screens.
+func TestSubscriptionFilenameFollowsTheSetting(t *testing.T) {
+	st, svc, u := twoProfileFixture(t)
+	if got := svc.assemble(u, "", ClientClash, []string{"name: a"}).Filename; got != "chiral.yaml" {
+		t.Fatalf("default filename = %q", got)
+	}
+	if err := st.SetSetting(store.SettingSubscriptionName, "Mai 的机场"); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct{ client, want string }{
+		{ClientClash, "Mai 的机场.yaml"},
+		{ClientXrayJSON, "Mai 的机场.json"},
+		{ClientVlessURI, "Mai 的机场.txt"},
+	} {
+		got := svc.assemble(u, "", tc.client, []string{"name: a"}).Filename
+		if got != tc.want {
+			t.Errorf("%s filename = %q, want %q", tc.client, got, tc.want)
+		}
+	}
+}
+
+// The name goes into a Content-Disposition header and then onto somebody's
+// disk. A quote would end the header's quoted string early and a slash would
+// write outside the directory the client meant; spaces and emoji are a label a
+// person chose and are left alone.
+func TestSubscriptionFilenameIsSafe(t *testing.T) {
+	st, svc, u := twoProfileFixture(t)
+	for _, tc := range []struct{ set, want string }{
+		{`a"b`, "ab.yaml"},
+		{`../../etc/passwd`, "....etcpasswd.yaml"},
+		{"back\\slash", "backslash.yaml"},
+		{"  spaced  ", "spaced.yaml"},
+		{"🇭🇰 香港机场", "🇭🇰 香港机场.yaml"},
+		{"", "chiral.yaml"},
+	} {
+		if err := st.SetSetting(store.SettingSubscriptionName, tc.set); err != nil {
+			t.Fatal(err)
+		}
+		if got := svc.assemble(u, "", ClientClash, []string{"name: a"}).Filename; got != tc.want {
+			t.Errorf("%q -> %q, want %q", tc.set, got, tc.want)
+		}
+	}
+}

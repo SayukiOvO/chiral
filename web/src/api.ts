@@ -271,6 +271,11 @@ export interface Preset {
   Lists: number;
 }
 
+export interface Settings {
+  /** What a subscription is called when it reaches a client. */
+  subscription_name: string;
+}
+
 export interface ExternalProxy {
   id: string;
   name: string;
@@ -399,6 +404,10 @@ export const api = {
     req<void>("POST", `/api/nodes/${id}/restart-xray`),
 
   // --- variables ---
+  getSettings: () => req<Settings>("GET", "/api/settings"),
+  updateSettings: (patch: { subscription_name?: string }) =>
+    req<Settings>("PUT", "/api/settings", patch),
+
   listExternals: () => req<{ externals: ExternalSub[] }>("GET", "/api/externals"),
   createExternal: (e: { name: string; url?: string; body?: string }) =>
     req<ExternalSub>("POST", "/api/externals", e),

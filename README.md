@@ -80,6 +80,7 @@ docker compose up -d
 | 用户 | 流量配额与周期重置、到期与自动续期、在线增删用户、并发地址统计 |
 | 订阅 | 单一链接，按客户端返回 xray-json、Clash、Stash 或分享链接 |
 | 分流 | 内置 33 套 ACL4SSR 预设，或自定义 subconverter ini；按订阅者指派，规则由面板托管下发 |
+| 外部节点 | 并入别人提供的订阅或单条链接，可逐节点配置经本机队节点链式出站 |
 | 门户 | 开放注册，或由管理员发放一次性认领链接 |
 | 管理 | 多管理员与三级权限、审计日志、登录多因素认证（TOTP / Passkey / 邮箱验证码 / 恢复码） |
 | 内核 | 版本发现（含 prerelease）、校验、金丝雀升级、失败回滚 |
@@ -114,13 +115,14 @@ docker compose up -d
 - [模板与变量](docs/template-system.md)
 - [用户与订阅](docs/user-management.md)
 - [分流规则](docs/routing-rules.md)
+- [外部节点](docs/external-nodes.md)
 - [订阅者门户](docs/user-portal.md)
 - [内核在线升级](docs/xray-upgrade.md)
 - [参与开发](docs/development.md)
 
 ## 状态
 
-当前 v0.3.x。完整部署、TLS、端到端代理与内核升级均已在真实环境验证。
+当前 v0.5.x。完整部署、TLS、端到端代理与内核升级均已在真实环境验证。
 
 主版本号为 0 表示接口与数据库结构仍可能变更，升级前请查阅对应 release 说明。
 

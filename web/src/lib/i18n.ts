@@ -211,6 +211,16 @@ const EN: Record<string, string> = {
   全部走代理: "Everything via proxy",
   "决定哪些网站走代理、哪些直连。仅对 Clash 类客户端生效，改动后请在客户端更新订阅。":
     "Decides which sites go through the proxy and which go direct. Clash-family clients only; update your subscription in the client after changing it.",
+  // panel settings
+  设置: "Settings",
+  "面板产出物的一些选项。": "Choices about what the panel produces.",
+  订阅: "Subscription",
+  订阅名称: "Subscription name",
+  "订阅者在客户端里看到的配置名。留空则为 chiral。":
+    "The profile name subscribers see in their client. Defaults to chiral.",
+  已保存: "Saved",
+  "改动对之后每次拉取订阅生效；已导入的客户端需要重新导入才会改名。":
+    "Applies to every subscription fetched from now on; a client that already imported one keeps the old name until it re-imports.",
   // external nodes
   外部节点: "External nodes",
   "别人提供的订阅或单条链接。可为每个节点指定一台本机队节点作为前置，链式出站。":
@@ -407,7 +417,6 @@ const EN: Record<string, string> = {
   "← 接入配置": "← Profiles",
   删除此接入配置: "Delete this profile",
   客户端模板: "Client templates",
-  已保存: "Saved",
   "服务端 inbound 骨架": "Server inbound skeleton",
   "每用户 client-entry": "Per-user client entry",
   绑定节点: "Bound nodes",
