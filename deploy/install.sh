@@ -18,6 +18,10 @@
 #   --https-port N         defaults to 26080
 #   -y                     accept defaults instead of prompting
 #
+# Removal:
+#   ... | sh -s -- --uninstall           services and binaries
+#   ... | sh -s -- --uninstall --purge   also /etc/chiral, the database, Xray
+#
 # POSIX sh on purpose: this runs on whatever a fresh VPS came with.
 set -eu
 
@@ -35,7 +39,7 @@ warn() { printf '%s !%s %s\n' "$YEL" "$OFF" "$*"; }
 die()  { printf '%s !!%s %s\n' "$RED" "$OFF" "$*" >&2; exit 1; }
 
 ROLE=""; PANEL_URL=""; JOIN_TOKEN=""; DOMAIN=""; ASSUME_YES=0
-TLS_MODE=""; TLS_CERT=""; TLS_KEY=""; HTTPS_PORT=""; PUBLIC=""; NEED_ENV=0
+TLS_MODE=""; TLS_CERT=""; TLS_KEY=""; HTTPS_PORT=""; PUBLIC=""; NEED_ENV=0; PURGE=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --panel)     ROLE=panel ;;
@@ -50,6 +54,8 @@ while [ $# -gt 0 ]; do
     --tls-key)   TLS_KEY="$2";  TLS_MODE=2; shift ;;
     --https-port) HTTPS_PORT="$2"; TLS_MODE=2; shift ;;
     --reverse-proxy) TLS_MODE=1 ;;
+    --uninstall) ROLE=uninstall ;;
+    --purge)     PURGE=1 ;;
     -y|--yes)    ASSUME_YES=1 ;;
     -h|--help)
       sed -n '2,19p' "$0" | sed 's/^# \{0,1\}//'
@@ -107,6 +113,67 @@ ask() { # ask VAR "prompt" "default"
   [ -z "$_v" ] && _v="$3"
   eval "$1=\$_v"
 }
+
+# ---------------------------------------------------------------- uninstall
+
+# Before the release lookup: removing what is here needs nothing downloaded.
+if [ "$ROLE" = uninstall ]; then
+  step "Removing Chiral"
+  FOUND=0
+  for _svc in chiral-core chiral-agent; do
+    if [ -f "/etc/systemd/system/$_svc.service" ]; then
+      systemctl disable --now "$_svc" >/dev/null 2>&1 || true
+      rm -f "/etc/systemd/system/$_svc.service"
+      rm -rf "/etc/systemd/system/$_svc.service.d"
+      say "    $_svc"
+      FOUND=1
+    fi
+  done
+  systemctl daemon-reload >/dev/null 2>&1 || true
+  systemctl reset-failed chiral-core chiral-agent >/dev/null 2>&1 || true
+  for _b in "$BIN/chiral-core" "$BIN/chiral-agent"; do
+    if [ -e "$_b" ]; then rm -f "$_b"; say "    $_b"; FOUND=1; fi
+  done
+
+  # What is left is everything that cannot be downloaded again: the database
+  # holds every user, credential and subscription token, and core.env holds the
+  # key that decrypts them. Removing it is a separate answer, and the paths are
+  # printed before the question rather than after it. Xray is on this list
+  # because the installer may have put it there — and may equally have found it
+  # already installed for something else.
+  LEFT=""
+  for _p in "$ETC" /var/lib/chiral /var/lib/chiral-agent \
+            /var/lib/private/chiral /var/lib/private/chiral-agent \
+            "$BIN/xray" "$XRAY_ASSETS"; do
+    [ -e "$_p" ] && LEFT="$LEFT $_p"
+  done
+
+  if [ -n "$LEFT" ] && [ "$PURGE" != 1 ] && [ "$INTERACTIVE" = 1 ]; then
+    say ""
+    say "  Still on disk:"
+    for _p in $LEFT; do say "    $_p"; done
+    say ""
+    warn "The database holds every user, credential and subscription token."
+    ask PURGE_ANS "  Remove these too? (y/N)" "n"
+    case "$PURGE_ANS" in y|Y|yes|YES) PURGE=1 ;; esac
+  fi
+
+  if [ -n "$LEFT" ] && [ "$PURGE" = 1 ]; then
+    for _p in $LEFT; do rm -rf "$_p"; say "    $_p"; done
+    LEFT=""
+    FOUND=1
+  fi
+
+  say ""
+  if [ "$FOUND" = 1 ]; then step "Chiral removed"; else warn "Nothing installed by this script was found"; fi
+  if [ -n "$LEFT" ]; then
+    say ""
+    say "  Kept:"
+    for _p in $LEFT; do say "    $_p"; done
+    say "${DIM}  Remove them with: --uninstall --purge${OFF}"
+  fi
+  exit 0
+fi
 
 # ---------------------------------------------------------------- role
 
