@@ -12,6 +12,7 @@ import (
 	"database/sql"
 	"fmt"
 	"log/slog"
+	"sort"
 
 	"github.com/SayukiOvO/chiral/core/internal/kernel"
 	"github.com/SayukiOvO/chiral/core/internal/store"
@@ -119,8 +120,41 @@ func (s *Service) contextFor(profileID, nodeID string) (*template.Context, error
 	// from it points at an address nobody can reach.
 	merged["node.address"] = n.Dialable()
 	merged["node.hostname"] = n.Hostname
+	// What a subscriber should see. Until this existed a client template had
+	// only node.name to work with, so every subscription named the box the way
+	// the operator names it — which is usually the provider and the datacentre.
+	// The customer-facing name exists precisely so that does not happen, and it
+	// was reachable from the portal and from nowhere else.
+	//
+	// Unset falls back to a number, never to the internal name: an operator who
+	// has not filled it in should get an anonymous line, not their hosting
+	// arrangement published. Same rule the portal applies, and the same
+	// ordering, so the two agree on which line is 01.
+	merged["node.display_name"] = s.customerName(n)
 
 	return template.NewContext(merged, secrets), nil
+}
+
+// customerName is the label a subscriber sees for a node.
+//
+// The number comes from the node's position in the fleet by creation order, so
+// it is stable across renders rather than shifting when another node is added
+// before it alphabetically.
+func (s *Service) customerName(n store.Node) string {
+	if n.DisplayName != "" {
+		return n.DisplayName
+	}
+	nodes, err := s.st.ListNodes()
+	if err != nil {
+		return "线路"
+	}
+	sort.Slice(nodes, func(i, j int) bool { return nodes[i].CreatedAt < nodes[j].CreatedAt })
+	for i, other := range nodes {
+		if other.ID == n.ID {
+			return fmt.Sprintf("线路 %02d", i+1)
+		}
+	}
+	return "线路"
 }
 
 // ClientContext is the render context for a client-side template: the same

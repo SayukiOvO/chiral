@@ -323,3 +323,54 @@ func TestAssembleFailsOnProfileWithoutTemplate(t *testing.T) {
 		t.Fatal("expected assembling with an empty profile template to fail")
 	}
 }
+
+// A client template had only node.name to work with, so every subscription
+// named the box the way the operator does — which is normally the provider and
+// the datacentre. The customer-facing name exists so that does not happen, and
+// it was reachable from the portal and from nowhere else.
+func TestDisplayNameIsAvailableToTemplates(t *testing.T) {
+	svc, st, _ := newFixture(t)
+	n, err := st.CreateNode("tokyo-provider-a", "hash-display")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.UpdateNode(n.ID, n.Name, "日本 · 东京 01", ""); err != nil {
+		t.Fatal(err)
+	}
+	ctx, err := svc.contextFor("", n.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := ctx.Render("{{node.display_name}}")
+	if err != nil {
+		t.Fatalf("render: %v", err)
+	}
+	if got != "日本 · 东京 01" {
+		t.Fatalf("display name = %q", got)
+	}
+}
+
+// Unset must not fall back to the internal name: an operator who has not
+// filled it in should publish an anonymous line, not their hosting
+// arrangement.
+func TestUnnamedNodeGetsANumberNotTheInternalName(t *testing.T) {
+	svc, st, _ := newFixture(t)
+	n, err := st.CreateNode("hetzner-fsn1-07", "hash-unnamed")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, err := svc.contextFor("", n.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := ctx.Render("{{node.display_name}}")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(got, n.Name) {
+		t.Fatalf("leaked the internal name %q as %q", n.Name, got)
+	}
+	if got != "线路 01" {
+		t.Fatalf("display name = %q, want a numbered line", got)
+	}
+}

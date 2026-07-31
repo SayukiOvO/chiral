@@ -10,7 +10,7 @@ import { Empty, ErrorBar, Field, Modal, inputCls } from "../components/primitive
 import { useT } from "../lib/i18n";
 
 /** Injected by the Core for every render; see profile.contextFor. */
-const BUILTIN_NODE_VARS = ["node.name", "node.address", "node.hostname"];
+const BUILTIN_NODE_VARS = ["node.name", "node.display_name", "node.address", "node.hostname"];
 
 const CLIENT_KINDS = ["xray-json", "clash", "vless-uri", "stash"] as const;
 
