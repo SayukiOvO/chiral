@@ -14,6 +14,7 @@ export type Route =
   | { view: "audit" }
   | { view: "alerts" }
   | { view: "kernel" }
+  | { view: "rules" }
   | { view: "security" };
 
 export function parseHash(hash: string): Route {
@@ -33,6 +34,8 @@ export function parseHash(hash: string): Route {
       return { view: "alerts" };
     case "kernel":
       return { view: "kernel" };
+    case "rules":
+      return { view: "rules" };
     case "security":
       return { view: "security" };
     default:
@@ -56,6 +59,8 @@ export function href(route: Route): string {
       return "#/alerts";
     case "kernel":
       return "#/kernel";
+    case "rules":
+      return "#/rules";
     case "security":
       return "#/security";
     default:

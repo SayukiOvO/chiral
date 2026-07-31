@@ -88,6 +88,8 @@ export interface User {
    */
   online_devices?: number;
   profile_ids: string[];
+  /** Routing configuration their clash subscription uses; empty for none. */
+  ruleset_id: string;
   credentials?: Credential[];
   created_at: number;
 }
@@ -247,6 +249,28 @@ export interface Component {
   secret: boolean;
 }
 
+export interface Ruleset {
+  id: string;
+  name: string;
+  /** Built-in preset key, empty for a custom source. */
+  preset: string;
+  url: string;
+  fetched_at: number;
+  last_error: string;
+  /** What the fetched .ini contains; 0 until it has been fetched. */
+  groups: number;
+  rules: number;
+  lists: number;
+}
+
+export interface Preset {
+  Key: string;
+  Name: string;
+  Features: string[] | null;
+  Groups: number;
+  Lists: number;
+}
+
 export interface Variable {
   id: string;
   name: string;
@@ -348,6 +372,17 @@ export const api = {
     req<void>("POST", `/api/nodes/${id}/restart-xray`),
 
   // --- variables ---
+  listRulesets: () => req<{ rulesets: Ruleset[] }>("GET", "/api/rulesets"),
+  listPresets: () => req<{ presets: Preset[] }>("GET", "/api/rulesets/presets"),
+  createRuleset: (r: { name?: string; preset?: string; url?: string }) =>
+    req<Ruleset>("POST", "/api/rulesets", r),
+  updateRuleset: (id: string, patch: { name?: string; url?: string }) =>
+    req<Ruleset>("PUT", `/api/rulesets/${id}`, patch),
+  deleteRuleset: (id: string) => req<void>("DELETE", `/api/rulesets/${id}`),
+  refreshRuleset: (id: string) => req<Ruleset>("POST", `/api/rulesets/${id}/refresh`),
+  setUserRuleset: (userID: string, rulesetID: string) =>
+    req<void>("PUT", `/api/users/${userID}/ruleset`, { ruleset_id: rulesetID }),
+
   listVariables: () => req<{ variables: Variable[] }>("GET", "/api/variables"),
   createVariable: (v: {
     name: string;

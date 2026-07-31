@@ -78,12 +78,19 @@ export interface PortalDevice {
   last_seen: number;
 }
 
+export interface RuleChoice {
+  id: string;
+  name: string;
+}
+
 export interface Me {
   account: Account;
   nodes: PortalNode[];
   subscription: Subscription;
   features: { devices: boolean };
   devices?: PortalDevice[];
+  /** Absent when the operator has configured no rule sets. */
+  rules?: { choices: RuleChoice[]; current: string };
 }
 
 const req = makeRequest(getToken);
@@ -147,6 +154,8 @@ export const portal = {
     guarded(
       req<void>("POST", "/api/portal/password", { current_password, new_password }),
     ),
+  chooseRules: (ruleset_id: string) =>
+    guarded(req<void>("POST", "/api/portal/ruleset", { ruleset_id })),
 };
 
 export { ApiError };

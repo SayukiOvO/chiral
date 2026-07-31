@@ -1,7 +1,9 @@
 package api
 
 import (
+	"encoding/json"
 	"net/http"
+	"strings"
 
 	"github.com/SayukiOvO/chiral/core/internal/portal"
 )
@@ -44,6 +46,15 @@ func (s *Server) portalMe(w http.ResponseWriter, r *http.Request, id portal.Iden
 			"devices": s.online != nil,
 		},
 	}
+	choices, current, err := v.Rules()
+	if err != nil {
+		s.internalErr(w, "load rule choices", err)
+		return
+	}
+	if len(choices) > 0 {
+		body["rules"] = map[string]any{"choices": choices, "current": current}
+	}
+
 	if s.online != nil {
 		devices, err := v.Devices()
 		if err != nil {
@@ -57,4 +68,24 @@ func (s *Server) portalMe(w http.ResponseWriter, r *http.Request, id portal.Iden
 	// state behind a bearer token.
 	w.Header().Set("Cache-Control", "no-store")
 	writeJSON(w, http.StatusOK, body)
+}
+
+// portalChooseRules lets a subscriber pick their own routing rules.
+//
+// Through the View, like everything else on this side: the user id comes from
+// the authenticated identity and never from the request, so this handler
+// cannot be aimed at somebody else's account even by accident.
+func (s *Server) portalChooseRules(w http.ResponseWriter, r *http.Request, id portal.Identity) {
+	var req struct {
+		RulesetID string `json:"ruleset_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeErr(w, http.StatusBadRequest, "body must be JSON")
+		return
+	}
+	if err := s.portalView(id).ChooseRules(strings.TrimSpace(req.RulesetID)); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }

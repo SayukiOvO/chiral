@@ -26,6 +26,9 @@ type userView struct {
 	Active bool `json:"active"`
 	// Allowed is the computed verdict: enabled, in date, and under quota.
 	Allowed bool `json:"allowed"`
+	// RulesetID is the routing configuration their clash-family subscription
+	// is rendered against; empty means none.
+	RulesetID string `json:"ruleset_id"`
 	// Reason names WHICH of those failed, empty when allowed. The precedence
 	// between them lives in one place (user.Reason) precisely so nothing has
 	// to reimplement it; serving only the boolean forced the console to do
@@ -63,6 +66,7 @@ func (s *Server) userView(u store.User, withCredentials bool) (userView, error) 
 		ExpiresAt: u.ExpiresAt, RenewPeriod: u.RenewPeriod,
 		Enabled: u.Enabled, Active: u.Active,
 		Allowed:     user.Allowed(u, time.Now().Unix()),
+		RulesetID:   u.RulesetID,
 		Reason:      user.Reason(u, time.Now().Unix()),
 		DeviceLimit: u.DeviceLimit,
 		ProfileIDs:  profileIDs,

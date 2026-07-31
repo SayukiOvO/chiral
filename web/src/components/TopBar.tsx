@@ -12,6 +12,7 @@ const NAV: { view: Route["view"]; label: string }[] = [
   { view: "profiles", label: "接入配置" },
   { view: "users", label: "用户" },
   { view: "variables", label: "变量" },
+  { view: "rules", label: "分流规则" },
   { view: "kernel", label: "内核" },
   { view: "alerts", label: "告警" },
   { view: "admins", label: "管理员" },

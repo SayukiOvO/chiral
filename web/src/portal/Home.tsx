@@ -8,6 +8,7 @@ import { SubscriptionCard } from "./SubscriptionCard";
 import { NodeTraffic } from "./NodeTraffic";
 import { expiryLabel, periodLabel, relativeTime, splitBytes } from "../format";
 import { useT } from "../lib/i18n";
+import { cn } from "../lib/cn";
 
 /**
  * Everything a subscriber came for, on one screen and in one request.
@@ -78,6 +79,10 @@ export function Home() {
       </section>
 
       <SubscriptionCard sub={me.subscription} />
+
+      {me.rules && me.rules.choices.length > 0 && (
+        <RulesCard rules={me.rules} onChanged={load} />
+      )}
 
       <section className="mt-6">
         <h2 className="mb-3 font-display text-[15px] font-semibold tracking-tight">
@@ -186,5 +191,72 @@ function StatusBanner({ status }: { status: string }) {
     >
       {t(message)}
     </div>
+  );
+}
+
+
+/**
+ * The subscriber's own choice of routing rules.
+ *
+ * Offered here because it is a preference, not an operator setting: one person
+ * wants everything through the proxy, another wants domestic traffic direct,
+ * and neither needs to ask. Only shown when the operator has configured rule
+ * sets at all — an empty picker would read as something being broken.
+ */
+function RulesCard({
+  rules,
+  onChanged,
+}: {
+  rules: { choices: { id: string; name: string }[]; current: string };
+  onChanged: () => void;
+}) {
+  const { t } = useT();
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  async function pick(id: string) {
+    if (id === rules.current) return;
+    setBusy(true);
+    setError("");
+    try {
+      await portal.chooseRules(id);
+      onChanged();
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <section className="mt-6">
+      <h2 className="mb-1 font-display text-[15px] font-semibold tracking-tight">
+        {t("分流规则")}
+      </h2>
+      <p className="mb-3 text-xs text-muted">
+        {t("决定哪些网站走代理、哪些直连。仅对 Clash 类客户端生效，改动后请在客户端更新订阅。")}
+      </p>
+      <div className="flex flex-wrap gap-1.5">
+        {[{ id: "", name: t("全部走代理") }, ...rules.choices].map((c) => {
+          const on = c.id === rules.current;
+          return (
+            <button
+              key={c.id || "none"}
+              onClick={() => pick(c.id)}
+              disabled={busy}
+              className={cn(
+                "rounded-lg border px-3 py-1.5 text-sm transition-colors disabled:opacity-50",
+                on
+                  ? "border-[color-mix(in_srgb,var(--online)_45%,transparent)] text-online"
+                  : "border-line-strong text-muted hover:border-signal hover:text-ink",
+              )}
+            >
+              {c.name}
+            </button>
+          );
+        })}
+      </div>
+      {error && <p className="mt-2 text-sm text-danger">{error}</p>}
+    </section>
   );
 }

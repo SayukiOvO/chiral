@@ -9,6 +9,7 @@ package portal
 
 import (
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/SayukiOvO/chiral/core/internal/store"
@@ -72,6 +73,8 @@ type Data interface {
 	SubToken(userID string) (string, error)
 	UserDevices(userID string) ([]store.Device, error)
 	NodeAnnouncedOnline(nodeID string) (bool, error)
+	ListRulesets() ([]store.Ruleset, error)
+	SetUserRuleset(userID, rulesetID string) error
 }
 
 // View answers questions about one user, and only about that user.
@@ -166,4 +169,57 @@ func status(u store.User, profileCount int, now int64) string {
 		return StatusNoAccess
 	}
 	return StatusActive
+}
+
+// RuleChoice is a routing configuration a subscriber may pick, reduced to what
+// they need to choose between.
+//
+// Name and nothing else. The URL, the fetch state and the preset key are
+// operator concerns; handing them to a subscriber would say which upstream the
+// panel pulls from and whether it is currently failing, neither of which is
+// theirs to know.
+type RuleChoice struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+}
+
+// Rules lists what this subscriber can choose from, and what they have.
+func (v *View) Rules() ([]RuleChoice, string, error) {
+	u, err := v.data.GetUser(v.id.UserID)
+	if err != nil {
+		return nil, "", err
+	}
+	sets, err := v.data.ListRulesets()
+	if err != nil {
+		return nil, "", err
+	}
+	out := make([]RuleChoice, 0, len(sets))
+	for _, r := range sets {
+		out = append(out, RuleChoice{ID: r.ID, Name: r.Name})
+	}
+	return out, u.RulesetID, nil
+}
+
+// ChooseRules points this subscriber at one of them, or at none.
+//
+// Scoped like everything else here: the user id comes from the identity, never
+// from the request, so the worst a caller can do is change their own.
+func (v *View) ChooseRules(rulesetID string) error {
+	if rulesetID != "" {
+		found := false
+		sets, err := v.data.ListRulesets()
+		if err != nil {
+			return err
+		}
+		for _, r := range sets {
+			if r.ID == rulesetID {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return fmt.Errorf("no such ruleset")
+		}
+	}
+	return v.data.SetUserRuleset(v.id.UserID, rulesetID)
 }

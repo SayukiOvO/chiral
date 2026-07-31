@@ -158,6 +158,7 @@ func (s *Server) routePortal(mux *http.ServeMux) {
 	mux.Handle("GET /api/portal/me", s.requireUser(s.portalMe))
 	mux.Handle("POST /api/portal/logout", s.requireUser(s.portalLogout))
 	mux.Handle("POST /api/portal/password", s.requireUser(s.portalChangePassword))
+	mux.Handle("POST /api/portal/ruleset", s.requireUser(s.portalChooseRules))
 }
 
 // portalConfig tells the sign-in page what it may offer. Unauthenticated by

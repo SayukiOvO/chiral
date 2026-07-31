@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { api, type Profile, type User } from "../api";
+import { api, type Profile, type Ruleset, type User } from "../api";
 import { expiryLabel, periodLabel } from "../format";
 import { cn } from "../lib/cn";
 import { QuotaBar } from "../components/QuotaBar";
@@ -17,6 +17,7 @@ export function UsersPage() {
   const { t } = useT();
   const [users, setUsers] = useState<User[]>([]);
   const [profiles, setProfiles] = useState<Profile[]>([]);
+  const [rulesets, setRulesets] = useState<Ruleset[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState("");
   const [editing, setEditing] = useState<User | null>(null);
@@ -25,9 +26,14 @@ export function UsersPage() {
 
   const refresh = useCallback(async () => {
     try {
-      const [u, p] = await Promise.all([api.listUsers(), api.listProfiles()]);
+      const [u, p, rs] = await Promise.all([
+        api.listUsers(),
+        api.listProfiles(),
+        api.listRulesets(),
+      ]);
       setUsers(u.users);
       setProfiles(p.profiles);
+      setRulesets(rs.rulesets);
       setError("");
     } catch (e) {
       setError((e as Error).message);
@@ -75,6 +81,7 @@ export function UsersPage() {
                 key={u.id}
                 user={u}
                 profiles={profiles}
+                rulesets={rulesets}
                 onChanged={refresh}
                 onEdit={() => setEditing(u)}
                 onSubscription={(url) => setSubscription({ url, name: u.name })}
@@ -114,12 +121,14 @@ export function UsersPage() {
 function UserCard({
   user,
   profiles,
+  rulesets,
   onChanged,
   onEdit,
   onSubscription,
 }: {
   user: User;
   profiles: Profile[];
+  rulesets: Ruleset[];
   onChanged: () => void;
   onEdit: () => void;
   onSubscription: (url: string) => void;
@@ -149,6 +158,18 @@ function UserCard({
       onChanged();
     } catch (e) {
       alert(t("重置订阅链接失败：") + (e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function setRuleset(id: string) {
+    setBusy(true);
+    try {
+      await api.setUserRuleset(user.id, id);
+      onChanged();
+    } catch (e) {
+      alert(t("修改分流规则失败：") + (e as Error).message);
     } finally {
       setBusy(false);
     }
@@ -297,6 +318,45 @@ function UserCard({
           <p className="mt-2 text-xs text-faint">
             {t("授权后，在该配置绑定的每个节点上生成独立凭证。")}
           </p>
+
+          {/* Per subscriber, not per profile: which traffic goes through the
+              proxy is a property of the person, and one subscriber may want
+              everything proxied while another wants China direct. */}
+          <div className="mt-5">
+            <div className="mb-2 text-[11px] font-medium uppercase tracking-[0.07em] text-faint">
+              {t("分流规则")}
+            </div>
+            {rulesets.length === 0 ? (
+              <p className="text-sm text-muted">
+                {t("还没有规则集，订阅不带分流规则。可在「分流规则」页添加。")}
+              </p>
+            ) : (
+              <div className="flex flex-wrap gap-1.5">
+                {[{ id: "", name: t("不分流") }, ...rulesets].map((rs) => {
+                  const on = (user.ruleset_id ?? "") === rs.id;
+                  return (
+                    <button
+                      key={rs.id || "none"}
+                      onClick={() => setRuleset(rs.id)}
+                      disabled={busy}
+                      className={cn(
+                        "inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs transition-colors disabled:opacity-50",
+                        on
+                          ? "border-[color-mix(in_srgb,var(--online)_45%,transparent)] text-online"
+                          : "border-line-strong text-muted hover:border-signal hover:text-ink",
+                      )}
+                    >
+                      {on && <CheckIcon size={12} />}
+                      {rs.name}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+            <p className="mt-2 text-xs text-faint">
+              {t("仅影响 Clash 类客户端；订阅者下次刷新订阅时生效。")}
+            </p>
+          </div>
 
           <div className="mt-5">
             <div className="mb-2 text-[11px] font-medium uppercase tracking-[0.07em] text-faint">

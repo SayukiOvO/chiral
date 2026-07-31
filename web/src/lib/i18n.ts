@@ -208,6 +208,51 @@ const EN: Record<string, string> = {
   "订阅与模板中的 {{node.address}} 用这个值。": "Subscriptions and templates resolve {{node.address}} to this.",
   "留空则用探测到的 {ip}，它取自 Agent 连接的对端地址；中间有 NAT 时并不可靠。": "Left empty, the detected {ip} is used — the peer address of the agent's connection, which is unreliable when a NAT sits in between.",
   "（尚未探测到）": "(not detected yet)",
+  全部走代理: "Everything via proxy",
+  "决定哪些网站走代理、哪些直连。仅对 Clash 类客户端生效，改动后请在客户端更新订阅。":
+    "Decides which sites go through the proxy and which go direct. Clash-family clients only; update your subscription in the client after changing it.",
+  // routing rules
+  分流规则: "Routing rules",
+  "决定 Clash 类客户端把哪些流量走代理、哪些直连或拦截。在用户页指派给订阅者。":
+    "Decides what clash-family clients send through the proxy, direct, or reject. Assigned to subscribers on the users page.",
+  "还没有规则集。新增后在用户页指派，订阅即带上分流规则。":
+    "No rule sets yet. Add one and assign it on the users page; subscriptions then carry routing rules.",
+  新增分流规则: "Add routing rules",
+  "内置的是 ACL4SSR 各档预设；自定义可指向任意 subconverter 格式的 .ini。":
+    "The built-ins are ACL4SSR's presets; a custom one can point at any subconverter-format .ini.",
+  内置预设: "Built-in preset",
+  "自定义 ini": "Custom .ini",
+  内置: "Built-in",
+  自定义: "Custom",
+  搜索: "Search",
+  按名称或键筛选: "Filter by name or key",
+  已添加: "already added",
+  "名字（可留空）": "Name (optional)",
+  留空则用预设名: "Defaults to the preset's name",
+  "ini 地址": "ini URL",
+  "例如 自用规则": "e.g. My rules",
+  "subconverter 远程配置格式，需含 custom_proxy_group 与 ruleset 指令。":
+    "subconverter remote-config format, with custom_proxy_group and ruleset directives.",
+  "获取中…": "Fetching…",
+  添加并获取: "Add and fetch",
+  "更新中…": "Updating…",
+  更新: "Update",
+  "{n} 个策略组": "{n} policy groups",
+  "{n} 条规则": "{n} rules",
+  "{n} 个规则列表": "{n} rule lists",
+  "{g} 组 · {l} 列表": "{g} groups · {l} lists",
+  "更新于 {when}": "updated {when}",
+  尚未获取: "never fetched",
+  "尚未获取到内容，订阅暂不会带上分流规则":
+    "Nothing fetched yet; subscriptions will not carry routing rules",
+  "删除「{name}」？使用它的订阅者将回到无分流规则。":
+    "Delete “{name}”? Subscribers using it fall back to no routing rules.",
+  不分流: "No rules",
+  "还没有规则集，订阅不带分流规则。可在「分流规则」页添加。":
+    "No rule sets yet, so subscriptions carry no routing rules. Add one on the routing rules page.",
+  "仅影响 Clash 类客户端；订阅者下次刷新订阅时生效。":
+    "Affects clash-family clients only; applies on the subscriber's next refresh.",
+  "修改分流规则失败：": "Could not change the routing rules: ",
   未定义的变量: "Undefined variable",
   这些节点上没有定义: "Not defined on these nodes",
   "私钥变量（仅服务端）": "Secret variable (server side only)",
