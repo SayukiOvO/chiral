@@ -505,7 +505,13 @@ const defaultSubscriptionName = "chiral"
 // screens, which says something about the operator that the operator did not
 // choose to say.
 func (s *Service) subscriptionFilename(ext string) string {
-	name := sanitiseFilename(s.st.Setting(store.SettingSubscriptionName, defaultSubscriptionName))
+	// A Service with no store has no settings to read, and therefore the
+	// default. Assembly used to be a free function and several tests still
+	// construct a bare Service to exercise it.
+	name := defaultSubscriptionName
+	if s.st != nil {
+		name = sanitiseFilename(s.st.Setting(store.SettingSubscriptionName, defaultSubscriptionName))
+	}
 	if name == "" {
 		name = defaultSubscriptionName
 	}
