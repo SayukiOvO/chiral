@@ -22,19 +22,32 @@ export function refs(template: string): string[] {
 export interface VarProblem {
   name: string;
   reason: string;
+  /** Nodes that do not define this one, for a node-scoped variable. */
+  missingOn?: string[];
 }
 
-/** Mirrors the engine's rules so the editor flags what the server would reject. */
+/**
+ * Mirrors the engine's rules so the editor flags what the server would reject.
+ *
+ * `partial` carries node-scoped variables that some bound nodes define and
+ * others do not. Those are neither undefined nor fine: the template renders
+ * once per node, so it works for the nodes that have the variable and fails
+ * for the rest. Reported as their own kind of problem, naming the nodes.
+ */
 export function checkRefs(
   template: string,
   known: Set<string>,
   secrets: Set<string>,
   clientSide: boolean,
+  partial?: Map<string, string[]>,
 ): VarProblem[] {
   const out: VarProblem[] = [];
   for (const name of refs(template)) {
+    const missingOn = partial?.get(name);
     if (clientSide && secrets.has(name)) {
       out.push({ name, reason: "私钥变量不能用在客户端模板里" });
+    } else if (missingOn && missingOn.length > 0) {
+      out.push({ name, reason: "这些节点上没有定义", missingOn });
     } else if (!known.has(name)) {
       out.push({ name, reason: "未定义的变量" });
     }

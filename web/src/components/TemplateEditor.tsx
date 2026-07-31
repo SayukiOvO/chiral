@@ -23,6 +23,7 @@ export function TemplateEditor({
   onChange,
   known,
   secrets,
+  partial,
   clientSide = false,
   height = 320,
   dark,
@@ -31,14 +32,16 @@ export function TemplateEditor({
   onChange: (v: string) => void;
   known: Set<string>;
   secrets?: Set<string>;
+  /** Node-scoped names some bound nodes define and others do not. */
+  partial?: Map<string, string[]>;
   clientSide?: boolean;
   height?: number;
   dark: boolean;
 }) {
   const secretSet = useMemo(() => secrets ?? new Set<string>(), [secrets]);
   const problems = useMemo(
-    () => checkRefs(value, known, secretSet, clientSide),
-    [value, known, secretSet, clientSide],
+    () => checkRefs(value, known, secretSet, clientSide, partial),
+    [value, known, secretSet, clientSide, partial],
   );
 
   return (
@@ -74,16 +77,20 @@ function VarChips({
   const { t } = useT();
   const used = refs(template);
   if (used.length === 0) return null;
-  const bad = new Map(problems.map((p) => [p.name, p.reason]));
+  const bad = new Map(problems.map((p) => [p.name, p]));
 
   return (
     <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
       {used.map((name) => {
-        const reason = bad.get(name);
+        const problem = bad.get(name);
+        const reason = problem?.reason;
+        const detail = problem?.missingOn?.length
+          ? `${t(problem.reason)}: ${problem.missingOn.join(", ")}`
+          : undefined;
         return (
           <span
             key={name}
-            title={t(reason ?? (secrets.has(name) ? "私钥变量（仅服务端）" : "已定义"))}
+            title={detail ?? t(reason ?? (secrets.has(name) ? "私钥变量（仅服务端）" : "已定义"))}
             className={cn(
               "inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 font-mono text-[11px]",
               reason ? "text-danger" : known.has(name) ? "text-muted" : "text-faint",

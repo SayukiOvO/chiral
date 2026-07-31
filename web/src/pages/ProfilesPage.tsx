@@ -187,22 +187,58 @@ function ProfileEditor({ id, onChanged }: { id: string; onChanged: () => void })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
-  // What a template may reference: global variables, this profile's own, the
-  // built-in node metadata, and (for client templates) the per-user entries.
-  const { known, secrets } = useMemo(() => {
+  // What a template may reference: global variables, this profile's own,
+  // node-scoped ones, the built-in node metadata, and (for client templates)
+  // the per-user entries.
+  //
+  // Node scope is the whole point of node scope: one template, a different
+  // value per node. A name is only safely referenceable when EVERY node this
+  // profile is bound to defines it, though — the template renders once per
+  // node, and a node that is missing the variable fails to render rather than
+  // falling back. So the ones defined on only some bound nodes are reported
+  // separately, naming the nodes that would break, instead of being called
+  // undefined (they are not) or silently accepted (they do not all work).
+  const { known, secrets, partial } = useMemo(() => {
     const known = new Set<string>(BUILTIN_NODE_VARS);
     const secrets = new Set<string>();
+    const perNode = new Map<string, Set<string>>(); // variable name -> node ids
     for (const v of vars) {
-      if (v.scope === "global" || (v.scope === "profile" && v.profile_id === id)) {
+      const add = (into: Set<string>) => {
         for (const c of v.components) {
           const name = c.name ? `${v.name}.${c.name}` : v.name;
-          known.add(name);
+          into.add(name);
           if (c.secret) secrets.add(name);
+        }
+      };
+      if (v.scope === "global" || (v.scope === "profile" && v.profile_id === id)) {
+        add(known);
+      } else if (v.scope === "node" && v.node_id) {
+        const names = new Set<string>();
+        add(names);
+        for (const n of names) {
+          const holders = perNode.get(n) ?? new Set<string>();
+          holders.add(v.node_id);
+          perNode.set(n, holders);
         }
       }
     }
-    return { known, secrets };
-  }, [vars, id]);
+
+    const bound = profile?.node_ids ?? [];
+    const partial = new Map<string, string[]>(); // variable name -> node names missing it
+    for (const [name, holders] of perNode) {
+      const missing = bound.filter((n) => !holders.has(n));
+      // Not bound to anything yet: nothing renders, so nothing is broken.
+      if (bound.length === 0 || missing.length === 0) {
+        known.add(name);
+      } else {
+        partial.set(
+          name,
+          missing.map((nid) => nodes.find((n) => n.id === nid)?.name ?? nid),
+        );
+      }
+    }
+    return { known, secrets, partial };
+  }, [vars, id, profile?.node_ids, nodes]);
 
   // The client-entry template is rendered per user, so it may also use the
   // user-scope names the Core fills in at subscription time (M3).
@@ -315,6 +351,7 @@ function ProfileEditor({ id, onChanged }: { id: string; onChanged: () => void })
           onChange={setInbound}
           known={known}
           secrets={secrets}
+          partial={partial}
           dark={dark}
           height={300}
         />
@@ -329,6 +366,7 @@ function ProfileEditor({ id, onChanged }: { id: string; onChanged: () => void })
           onChange={setClientEntry}
           known={clientEntryKnown}
           secrets={secrets}
+          partial={partial}
           dark={dark}
           height={110}
         />
@@ -361,6 +399,7 @@ function ProfileEditor({ id, onChanged }: { id: string; onChanged: () => void })
           onChange={(v) => setClientTemplates((t) => ({ ...t, [activeClient]: v }))}
           known={clientEntryKnown}
           secrets={secrets}
+          partial={partial}
           clientSide
           dark={dark}
           height={260}

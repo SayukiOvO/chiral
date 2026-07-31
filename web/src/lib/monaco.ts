@@ -1,7 +1,17 @@
-import * as monaco from "monaco-editor";
+// The editor core, and nothing else.
+//
+// `monaco-editor`'s package entry re-exports every language it ships —
+// TypeScript, CSS, HTML and some eighty basic-language tokenizers — and each
+// language service becomes its own worker chunk. The build carried 6.7 MB of
+// ts.worker, 1.0 MB of css.worker, 699 kB of html.worker and a 3.8 MB editor
+// chunk, none of it reachable from here: the only thing this editor ever opens
+// is a template, in the Monarch language registered at the bottom of this
+// file. Not even Monaco's JSON service is used — the tokenizer is ours,
+// because a variable inside a string still has to be highlighted, and JSON's
+// would swallow it.
+import * as monaco from "monaco-editor/editor/editor.api";
 import { loader } from "@monaco-editor/react";
 import editorWorker from "monaco-editor/editor/editor.worker.js?worker";
-import jsonWorker from "monaco-editor/language/json/json.worker.js?worker";
 
 /**
  * Monaco setup. Two things matter here:
@@ -9,11 +19,11 @@ import jsonWorker from "monaco-editor/language/json/json.worker.js?worker";
  * 1. `loader.config({ monaco })` — by default @monaco-editor/react pulls
  *    Monaco from a CDN at runtime, which fails on restricted networks. We
  *    hand it the copy Vite bundled instead, so the editor works offline.
- * 2. The workers are wired explicitly for the same reason.
+ * 2. The worker is wired explicitly for the same reason.
  */
 self.MonacoEnvironment = {
-  getWorker(_workerId: string, label: string) {
-    return label === "json" ? new jsonWorker() : new editorWorker();
+  getWorker() {
+    return new editorWorker();
   },
 };
 

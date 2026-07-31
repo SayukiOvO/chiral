@@ -203,6 +203,7 @@ const EN: Record<string, string> = {
   全局: "Global",
   "私钥变量不能用在客户端模板里": "Secret variables cannot be used in a client template",
   未定义的变量: "Undefined variable",
+  这些节点上没有定义: "Not defined on these nodes",
   "私钥变量（仅服务端）": "Secret variable (server side only)",
   已定义: "Defined",
   下发: "Apply",

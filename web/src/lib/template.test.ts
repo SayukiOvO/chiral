@@ -55,6 +55,28 @@ describe("checkRefs", () => {
     expect(checkRefs(`"{{reality.public}}"`, known, secrets, true)).toEqual([]);
   });
 
+  // A node-scoped variable is defined per node on purpose. Reporting it as
+  // undefined made the one mechanism for per-node values look like a mistake.
+  it("accepts a node-scoped variable every bound node defines", () => {
+    expect(checkRefs(`"{{addr}}"`, new Set([...known, "addr"]), secrets, true)).toEqual([]);
+  });
+
+  it("names the nodes when only some of them define it", () => {
+    const partial = new Map([["addr", ["tokyo-02", "osaka-01"]]]);
+    const [p] = checkRefs(`"{{addr}}"`, known, secrets, true, partial);
+    expect(p.name).toBe("addr");
+    expect(p.missingOn).toEqual(["tokyo-02", "osaka-01"]);
+    expect(p.reason).not.toContain("未定义");
+  });
+
+  // The secret rule outranks it: a private key in a client template is wrong
+  // on every node, and saying "missing on tokyo-02" would read as fixable.
+  it("still refuses a secret in a client template when it is also partial", () => {
+    const partial = new Map([["reality.private", ["tokyo-02"]]]);
+    const [p] = checkRefs(`"{{reality.private}}"`, known, secrets, true, partial);
+    expect(p.reason).toContain("私钥");
+  });
+
   it("reports every problem, not just the first", () => {
     const problems = checkRefs(
       `{{nope}} {{reality.private}} {{alsoNope}}`,
