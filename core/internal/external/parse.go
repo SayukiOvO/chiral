@@ -42,26 +42,28 @@ type Proxy struct {
 // using, so the format is detected rather than configured: a Clash document
 // has a proxies: key, and everything else is a list of share links, possibly
 // base64-encoded as a whole.
-func Parse(body string) ([]Proxy, error) {
+// Parse returns the proxies it could read and a description of each one it
+// could not, so a partly-readable source is served AND reported.
+func Parse(body string) ([]Proxy, []string, error) {
 	body = strings.TrimSpace(body)
 	if body == "" {
-		return nil, fmt.Errorf("empty subscription")
+		return nil, nil, fmt.Errorf("empty subscription")
 	}
 	if proxies, err := parseClash(body); err == nil && len(proxies) > 0 {
-		return proxies, nil
+		return proxies, nil, nil
 	}
 	// A whole-body base64 blob is what v2rayN-style subscriptions serve.
 	if decoded, ok := decodeBase64Body(body); ok {
 		body = decoded
 	}
-	proxies, err := parseLinks(body)
+	proxies, skipped, err := parseLinks(body)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	if len(proxies) == 0 {
-		return nil, fmt.Errorf("no proxies found; expected a Clash document or a list of share links")
+		return nil, skipped, fmt.Errorf("no proxies found; expected a Clash document or a list of share links")
 	}
-	return proxies, nil
+	return proxies, skipped, nil
 }
 
 func parseClash(body string) ([]Proxy, error) {
@@ -130,8 +132,13 @@ func decodeBase64Body(body string) (string, bool) {
 }
 
 // parseLinks reads one share link per line.
-func parseLinks(body string) ([]Proxy, error) {
+//
+// Skipped links are counted and described rather than merely dropped. A source
+// that quietly yields seven nodes out of ten looks exactly like a source with
+// seven nodes, and the operator has no way to tell which they are looking at.
+func parseLinks(body string) ([]Proxy, []string, error) {
 	var out []Proxy
+	var skipped []string
 	for _, line := range strings.Split(body, "\n") {
 		line = strings.TrimSpace(line)
 		if line == "" || strings.HasPrefix(line, "#") {
@@ -141,11 +148,26 @@ func parseLinks(body string) ([]Proxy, error) {
 		if err != nil {
 			// Same reasoning as the Clash path: skip what cannot be read
 			// rather than refuse the whole subscription for it.
+			skipped = append(skipped, describeSkip(line, err))
 			continue
 		}
 		out = append(out, p)
 	}
-	return out, nil
+	return out, skipped, nil
+}
+
+// describeSkip names the link without quoting it — a share link is a working
+// credential, and this string reaches the console and the logs.
+func describeSkip(link string, err error) string {
+	name := "?"
+	if u, e := url.Parse(link); e == nil {
+		if frag := strings.TrimSpace(u.Fragment); frag != "" {
+			name = frag
+		} else if u.Hostname() != "" {
+			name = u.Hostname()
+		}
+	}
+	return fmt.Sprintf("%s: %v", name, err)
 }
 
 // ParseLink converts one share link into a clash-shaped proxy.
@@ -217,7 +239,9 @@ func parseVLESS(link string) (Proxy, error) {
 	if fp := q.Get("fp"); fp != "" {
 		cfg["client-fingerprint"] = fp
 	}
-	applyTransport(cfg, q)
+	if err := applyTransport(cfg, q); err != nil {
+		return Proxy{}, err
+	}
 	return fromMap(cfg)
 }
 
@@ -238,7 +262,9 @@ func parseTrojan(link string) (Proxy, error) {
 	if sni := q.Get("sni"); sni != "" {
 		cfg["sni"] = sni
 	}
-	applyTransport(cfg, q)
+	if err := applyTransport(cfg, q); err != nil {
+		return Proxy{}, err
+	}
 	return fromMap(cfg)
 }
 
@@ -397,8 +423,34 @@ func decodeBase64Raw(s string) (string, bool) {
 }
 
 // applyTransport maps the transport query parameters share links carry.
-func applyTransport(cfg map[string]any, q url.Values) {
-	switch q.Get("type") {
+//
+// An unrecognised transport is an ERROR, not something to leave out. This
+// function used to handle ws and grpc and silently ignore everything else,
+// which did not produce a node without a transport — it produced a node
+// claiming to be plain TCP. A vless+REALITY entry over xhttp came out as a
+// well-formed TCP proxy that every check passes: the panel lists it, mihomo
+// loads the subscription, `xray -test` has nothing to say about it, and the
+// subscriber gets a timeout on a node the console insists is fine. Failing here
+// costs the operator one skipped node with a reason attached; the alternative
+// costs them a support conversation with no evidence in it.
+func applyTransport(cfg map[string]any, q url.Values) error {
+	switch t := q.Get("type"); t {
+	case "", "tcp", "raw":
+		// The default. `headerType=http` disguises it as HTTP/1.1, which
+		// mihomo spells as its own network rather than an option of tcp.
+		if q.Get("headerType") == "http" {
+			cfg["network"] = "http"
+			opts := map[string]any{}
+			if path := q.Get("path"); path != "" {
+				opts["path"] = []string{path}
+			}
+			if host := q.Get("host"); host != "" {
+				opts["headers"] = map[string]any{"Host": host}
+			}
+			if len(opts) > 0 {
+				cfg["http-opts"] = opts
+			}
+		}
 	case "ws":
 		cfg["network"] = "ws"
 		ws := map[string]any{}
@@ -411,12 +463,63 @@ func applyTransport(cfg map[string]any, q url.Values) {
 		if len(ws) > 0 {
 			cfg["ws-opts"] = ws
 		}
+	case "httpupgrade":
+		// Not a network of its own in mihomo — a flag on the websocket one.
+		cfg["network"] = "ws"
+		ws := map[string]any{"v2ray-http-upgrade": true}
+		if path := q.Get("path"); path != "" {
+			ws["path"] = path
+		}
+		if host := q.Get("host"); host != "" {
+			ws["headers"] = map[string]any{"Host": host}
+		}
+		cfg["ws-opts"] = ws
 	case "grpc":
 		cfg["network"] = "grpc"
 		if svc := q.Get("serviceName"); svc != "" {
 			cfg["grpc-opts"] = map[string]any{"grpc-service-name": svc}
 		}
+	case "http", "h2":
+		cfg["network"] = "h2"
+		opts := map[string]any{}
+		if path := q.Get("path"); path != "" {
+			opts["path"] = path
+		}
+		if host := q.Get("host"); host != "" {
+			opts["host"] = strings.Split(host, ",")
+		}
+		if len(opts) > 0 {
+			cfg["h2-opts"] = opts
+		}
+	case "xhttp", "splithttp":
+		// The transport the panel was flattening. `extra` is a JSON blob of
+		// tuning the provider chose (padding sizes, xmux limits); it is passed
+		// through rather than interpreted, because mihomo understands more of
+		// it than this panel needs to.
+		cfg["network"] = "xhttp"
+		opts := map[string]any{}
+		if path := q.Get("path"); path != "" {
+			opts["path"] = path
+		}
+		if host := q.Get("host"); host != "" {
+			opts["host"] = host
+		}
+		if mode := q.Get("mode"); mode != "" {
+			opts["mode"] = mode
+		}
+		if extra := q.Get("extra"); extra != "" {
+			var v any
+			if err := json.Unmarshal([]byte(extra), &v); err == nil {
+				opts["extra"] = v
+			}
+		}
+		if len(opts) > 0 {
+			cfg["xhttp-opts"] = opts
+		}
+	default:
+		return fmt.Errorf("transport %q is not supported", t)
 	}
+	return nil
 }
 
 // RenderYAML emits a proxy as one item of a Clash proxies list.

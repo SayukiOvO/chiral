@@ -27,7 +27,7 @@ proxy-groups:
     type: select
     proxies: ["🇭🇰 香港 01 | 剩余 82%"]
 `
-	got, err := Parse(body)
+	got, _, err := Parse(body)
 	if err != nil {
 		t.Fatalf("Parse: %v", err)
 	}
@@ -50,7 +50,7 @@ func TestUnreadableEntriesAreSkippedNotFatal(t *testing.T) {
 		"  - {name: fine, type: vless, server: a.example.com, port: 443, uuid: x}\n" +
 		"  - {name: broken, type: hysteria2}\n" +
 		"  - {name: alsofine, type: ss, server: b.example.com, port: 8388, cipher: aes-128-gcm, password: p}\n"
-	got, err := Parse(body)
+	got, _, err := Parse(body)
 	if err != nil {
 		t.Fatalf("Parse: %v", err)
 	}
@@ -65,7 +65,7 @@ func TestParsesShareLinks(t *testing.T) {
 		"trojan://hunter2@jp.example.com:8443?sni=jp.example.com#JP",
 		"ss://YWVzLTEyOC1nY206cGFzc3dvcmQ@sg.example.com:8388#SG",
 	}, "\n")
-	got, err := Parse(body)
+	got, _, err := Parse(body)
 	if err != nil {
 		t.Fatalf("Parse: %v", err)
 	}
@@ -99,7 +99,7 @@ func TestParsesShareLinks(t *testing.T) {
 func TestWholeBodyBase64(t *testing.T) {
 	plain := "vless://uuid@a.example.com:443#A\ntrojan://pw@b.example.com:443#B\n"
 	for _, enc := range []*base64.Encoding{base64.StdEncoding, base64.RawURLEncoding} {
-		got, err := Parse(enc.EncodeToString([]byte(plain)))
+		got, _, err := Parse(enc.EncodeToString([]byte(plain)))
 		if err != nil {
 			t.Fatalf("Parse: %v", err)
 		}
@@ -130,7 +130,7 @@ func TestVMess(t *testing.T) {
 
 func TestRejectsWhatIsNotASubscription(t *testing.T) {
 	for _, body := range []string{"", "   ", "<html>404</html>", "{}"} {
-		if _, err := Parse(body); err == nil {
+		if _, _, err := Parse(body); err == nil {
 			t.Errorf("accepted %q", body)
 		}
 	}
@@ -242,5 +242,68 @@ func TestNestedOptionsSurvive(t *testing.T) {
 	ws, _ := got["ws-opts"].(map[string]any)
 	if ws["path"] != "/x" {
 		t.Errorf("ws options lost:\n%s", out)
+	}
+}
+
+// The shape that was silently coming out as plain TCP.
+//
+// A vless+REALITY node over xhttp: the transport lives entirely in the query
+// string, and a parser that knows only ws and grpc drops it without a word.
+// What reaches the subscriber then is a well-formed proxy pointing at the right
+// host and port with the right credential, which every check in this panel
+// passes and which cannot connect — the server is listening for xhttp on a
+// path. The console shows the node as fine; the customer sees a timeout.
+func TestXhttpSurvivesTheRoundTrip(t *testing.T) {
+	link := "vless://11111111-2222-3333-4444-555555555555@198.51.100.7:15700" +
+		"?encryption=none&security=reality&sni=mirror.example.test&fp=chrome" +
+		"&pbk=IRAEG4zZjsHZc4O5_A0VFPntX1ZctKpeCHaS-3AHDWo&sid=9a6f92e2d73090" +
+		"&type=xhttp&path=%2F90e41aaa&mode=auto&spx=%2F" +
+		"&extra=%7B%22xPaddingBytes%22%3A%22100-1000%22%7D#HK"
+
+	got, skipped, err := Parse(link)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(skipped) != 0 {
+		t.Fatalf("skipped: %v", skipped)
+	}
+	if len(got) != 1 {
+		t.Fatalf("proxies = %d", len(got))
+	}
+	out, err := RenderYAML(got[0], "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"network: xhttp",
+		"xhttp-opts:",
+		"path: /90e41aaa",
+		"mode: auto",
+		"xPaddingBytes: 100-1000",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("missing %q in:\n%s", want, out)
+		}
+	}
+}
+
+// An unknown transport is reported, not flattened. The node is dropped with a
+// reason the operator can act on, rather than served as a proxy that cannot
+// work — the failure this panel had was not "a node is missing" but "a node is
+// present and broken", and only one of those gets investigated.
+func TestAnUnknownTransportIsSkippedWithAReason(t *testing.T) {
+	link := "vless://11111111-2222-3333-4444-555555555555@198.51.100.7:443" +
+		"?encryption=none&security=tls&type=quic-not-a-real-one#Odd"
+	got, skipped, err := Parse(link)
+	if err == nil && len(got) != 0 {
+		t.Fatalf("an unreadable transport was carried anyway: %+v", got)
+	}
+	if len(skipped) != 1 || !strings.Contains(skipped[0], "Odd") {
+		t.Fatalf("no usable reason recorded: %v", skipped)
+	}
+	// The reason must not quote the link itself: it is a working credential and
+	// it goes to the console and the logs.
+	if strings.Contains(skipped[0], "11111111-2222") {
+		t.Errorf("the credential leaked into the reason: %q", skipped[0])
 	}
 }

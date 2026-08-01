@@ -157,11 +157,15 @@ function SubCard({
           <Button variant="ghost" onClick={toggleSource}>
             {sub.enabled ? t("停用") : t("启用")}
           </Button>
-          {sub.url && (
-            <Button variant="ghost" onClick={onRefresh} disabled={busy}>
-              {busy ? t("更新中…") : t("更新")}
-            </Button>
-          )}
+          {/* Offered for a pasted source too, where there is nothing to fetch
+              but plenty to re-read. The parser learns new transports over
+              time, and without this a node imported by an older build keeps
+              whatever that build made of it — forever, with no way to say
+              "read it again". That is how two nodes sat in a subscription as
+              well-formed proxies that could not connect. */}
+          <Button variant="ghost" onClick={onRefresh} disabled={busy}>
+            {busy ? t("更新中…") : sub.url ? t("更新") : t("重新解析")}
+          </Button>
           <IconButton label={t("删除")} onClick={onDelete}>
             <TrashIcon size={15} />
           </IconButton>

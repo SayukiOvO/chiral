@@ -55,7 +55,7 @@ func (s *Service) Refresh(ctx context.Context, id string) error {
 		body = fetched
 	}
 
-	proxies, err := Parse(body)
+	proxies, skipped, err := Parse(body)
 	if err != nil {
 		_ = s.st.SaveExternalFetch(id, "", err.Error())
 		return err
@@ -77,6 +77,16 @@ func (s *Service) Refresh(ctx context.Context, id string) error {
 	}
 	if err := s.st.ReplaceExternalProxies(id, rows); err != nil {
 		return err
+	}
+	// Served, but short. A source that quietly yields seven nodes out of ten
+	// looks exactly like a source with seven nodes, and the count on the card
+	// agrees with itself either way — so the reasons go where the operator is
+	// already looking for trouble with this source.
+	if len(skipped) > 0 {
+		s.logger.Warn("some nodes in an external source could not be read",
+			"source", sub.Name, "skipped", len(skipped), "kept", len(rows))
+		return s.st.SaveExternalFetch(id, body,
+			fmt.Sprintf("%d 个节点无法解析，已跳过：%s", len(skipped), strings.Join(skipped, "；")))
 	}
 	return s.st.SaveExternalFetch(id, body, "")
 }
