@@ -24,11 +24,15 @@ func (s *Server) routeExternals(mux *http.ServeMux) {
 }
 
 type externalProxyView struct {
-	ID     string `json:"id"`
-	Name   string `json:"name"`
-	Type   string `json:"type"`
-	Server string `json:"server"`
-	Port   int    `json:"port"`
+	ID string `json:"id"`
+	// Name is what subscribers see: the operator's label when they set one,
+	// otherwise the provider's. ProviderName is always the provider's, so the
+	// console can show what a rename is overriding.
+	Name         string `json:"name"`
+	ProviderName string `json:"provider_name"`
+	Type         string `json:"type"`
+	Server       string `json:"server"`
+	Port         int    `json:"port"`
 	// ChainNodeID is the fleet node this one is dialled through and
 	// ChainProxyID another external node; at most one is set, and both empty
 	// means a direct dial.
@@ -59,7 +63,8 @@ func (s *Server) externalView(e store.ExternalSub) externalView {
 	}
 	for _, p := range proxies {
 		v.Proxies = append(v.Proxies, externalProxyView{
-			ID: p.ID, Name: p.Name, Type: p.Type, Server: p.Server, Port: p.Port,
+			ID: p.ID, Name: p.Label(), ProviderName: p.Name,
+			Type: p.Type, Server: p.Server, Port: p.Port,
 			ChainNodeID: p.ChainNodeID, ChainProxyID: p.ChainProxyID, Enabled: p.Enabled,
 		})
 	}
@@ -202,6 +207,9 @@ func (s *Server) setExternalProxy(w http.ResponseWriter, r *http.Request) {
 		ChainNodeID  *string `json:"chain_node_id"`
 		ChainProxyID *string `json:"chain_proxy_id"`
 		Enabled      *bool   `json:"enabled"`
+		// Name is the operator's label. Empty restores the provider's, which is
+		// why it is a pointer: "not mentioned" and "cleared" differ.
+		Name *string `json:"name"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeErr(w, http.StatusBadRequest, "body must be JSON")
@@ -248,6 +256,19 @@ func (s *Server) setExternalProxy(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.Enabled != nil {
 		enabled = *req.Enabled
+	}
+	if req.Name != nil {
+		name := strings.TrimSpace(*req.Name)
+		// Setting it to exactly the provider's name is the same as not
+		// overriding it, and storing it would silently pin the label to a
+		// string the provider is free to change.
+		if name == cur.Name {
+			name = ""
+		}
+		if err := s.st.RenameExternalProxy(cur.ID, name); err != nil {
+			s.internalErr(w, "rename proxy", err)
+			return
+		}
 	}
 	if err := s.st.SetExternalProxy(cur.ID, chainNode, chainProxy, enabled); err != nil {
 		if errors.Is(err, store.ErrChainCycle) {

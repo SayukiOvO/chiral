@@ -69,7 +69,10 @@ export const CheckIcon = ({ size = 16, className }: IconProps) => (
 
 export const SignOutIcon = ({ size = 16, className }: IconProps) => (
   <svg {...base(size, className)}>
-    <path d="M15 4h3a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1h-3M10 12h9M16 9l3 3-3 3" />
+    {/* Door on the left, arrow leaving to the right. The previous drawing ran
+        the shaft straight through the door panel, so at 16px it read as a
+        smudge rather than as anything leaving anywhere. */}
+    <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9" />
   </svg>
 );
 

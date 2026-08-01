@@ -17,6 +17,7 @@ import {
   StackIcon,
   UsersIcon,
 } from "./icons";
+import { api, type Whoami } from "../api";
 import { cn } from "../lib/cn";
 import { href, type Route } from "../lib/router";
 import { useT } from "../lib/i18n";
@@ -102,12 +103,6 @@ export function SideNav({ route, onSignOut }: { route: Route; onSignOut: () => v
           </span>
           <span className="font-display text-[16px] font-semibold tracking-tight">Chiral</span>
         </a>
-        <div className="ml-auto flex items-center gap-1">
-          <ThemeToggle />
-          <IconButton label={t("退出")} onClick={onSignOut}>
-            <SignOutIcon size={16} />
-          </IconButton>
-        </div>
       </header>
 
       {open && (
@@ -182,47 +177,28 @@ export function SideNav({ route, onSignOut }: { route: Route; onSignOut: () => v
           ))}
         </nav>
 
-        <div
-          className={cn(
-            // The row is unconditional: `collapsed` is a desktop state, and
-            // hanging the only `display: flex` off an `lg:` class left the
-            // phone drawer with no flex at all — the controls stacked one per
-            // line down the bottom of the drawer.
-            "shrink-0 border-t border-line px-2 py-2 flex items-center gap-1",
-            collapsed && "lg:flex-col lg:items-center lg:gap-1",
-          )}
-        >
-          {/* Both are segmented controls wider than the 64px rail — kept for the
-              expanded nav, and reached by expanding it. Leaving them in
-              overflowed the border rather than shrinking. */}
-          <div className={cn(collapsed && "lg:hidden")}>
-            <LangToggle />
-          </div>
-          <div className={cn(collapsed && "lg:hidden")}>
-            <ThemeToggle />
-          </div>
-          <a
-            href={href({ view: "security" })}
-            aria-label={t("安全")}
-            title={t("安全")}
-            className={cn(
-              "inline-grid h-8 w-8 place-items-center rounded-lg transition-colors hover:bg-[color-mix(in_srgb,var(--muted)_10%,transparent)]",
-              route.view === "security" ? "bg-signal-soft text-ink" : "text-muted hover:text-ink",
-            )}
-          >
-            <ShieldIcon size={16} />
-          </a>
-          <IconButton label={t("退出")} onClick={onSignOut}>
-            <SignOutIcon size={16} />
-          </IconButton>
-          {/* Desktop only: on a phone the drawer closes rather than narrows. */}
+        {/* One row, one thing in it.
+
+            This corner used to hold five controls side by side — two segmented
+            toggles and three icon buttons — inside 220px, and at 64px it held
+            whichever of them still fitted. Nothing there was wrong on its own;
+            there were simply too many of them in the smallest space on the
+            page. Theme and language are preferences rather than destinations,
+            so they move into the account menu, which is the one place a person
+            already goes looking for "settings about me". */}
+        <div className="shrink-0 border-t border-line p-2">
+          <AccountMenu route={route} collapsed={collapsed} onSignOut={onSignOut} />
+        </div>
+        {/* Its own line, because it is the one control that is about the nav
+            itself rather than about the operator. */}
+        <div className={cn("hidden shrink-0 border-t border-line p-2 lg:block")}>
           <button
             onClick={() => setCollapsed((v) => !v)}
             aria-label={t(collapsed ? "展开侧栏" : "收起侧栏")}
             title={t(collapsed ? "展开侧栏" : "收起侧栏")}
             className={cn(
-              "ml-auto hidden h-8 w-8 place-items-center rounded-lg text-muted transition-colors hover:bg-[color-mix(in_srgb,var(--muted)_10%,transparent)] hover:text-ink lg:grid",
-              collapsed && "lg:ml-0",
+              "flex h-8 w-full items-center rounded-lg px-2.5 text-muted transition-colors hover:bg-[color-mix(in_srgb,var(--muted)_10%,transparent)] hover:text-ink",
+              collapsed ? "justify-center px-0" : "justify-end",
             )}
           >
             <ChevronIcon size={16} flip={!collapsed} />
@@ -230,5 +206,115 @@ export function SideNav({ route, onSignOut }: { route: Route; onSignOut: () => v
         </div>
       </aside>
     </>
+  );
+}
+
+/**
+ * The operator, and the things that are about them.
+ *
+ * A row rather than a cluster of icons: at 220px five controls left every one
+ * of them 30 pixels wide with no label, and at 64px most of them had to be
+ * hidden to fit at all. One row with a name on it says who is signed in — which
+ * the console never did — and everything else moves one click away, where there
+ * is room to write what it is.
+ */
+function AccountMenu({
+  route,
+  collapsed,
+  onSignOut,
+}: {
+  route: Route;
+  collapsed: boolean;
+  onSignOut: () => void;
+}) {
+  const { t } = useT();
+  const [open, setOpen] = useState(false);
+  const [me, setMe] = useState<Whoami | null>(null);
+
+  useEffect(() => {
+    api.whoami().then(setMe).catch(() => {});
+  }, []);
+
+  // Anywhere else closes it. Without this the menu survives a click on the page
+  // behind it and has to be dismissed by the button that opened it.
+  useEffect(() => {
+    if (!open) return;
+    const away = () => setOpen(false);
+    const esc = (e: KeyboardEvent) => e.key === "Escape" && setOpen(false);
+    window.addEventListener("click", away);
+    window.addEventListener("keydown", esc);
+    return () => {
+      window.removeEventListener("click", away);
+      window.removeEventListener("keydown", esc);
+    };
+  }, [open]);
+
+  useEffect(() => setOpen(false), [route.view]);
+
+  const name = me?.name || "—";
+  const roleLabel =
+    me?.role === "superadmin" ? "超级管理员" : me?.role === "operator" ? "运维" : "只读";
+
+  return (
+    <div className="relative" onClick={(e) => e.stopPropagation()}>
+      {open && (
+        <div
+          // Upwards: it hangs off the bottom of the page.
+          className="absolute bottom-full left-0 z-50 mb-2 w-[212px] rounded-xl border border-line bg-paper p-2 shadow-[var(--shadow-lift)]"
+        >
+          <div className="px-1.5 pb-1.5 text-[10px] uppercase tracking-[0.09em] text-faint">
+            {t("外观")}
+          </div>
+          <div className="flex items-center justify-between gap-2 px-1.5 pb-2">
+            <span className="text-xs text-muted">{t("主题")}</span>
+            <ThemeToggle />
+          </div>
+          <div className="flex items-center justify-between gap-2 px-1.5 pb-2">
+            <span className="text-xs text-muted">{t("语言")}</span>
+            <LangToggle />
+          </div>
+          <div className="my-1 border-t border-line" />
+          <a
+            href={href({ view: "security" })}
+            className={cn(
+              "flex items-center gap-2.5 rounded-lg px-2 py-1.5 text-sm transition-colors",
+              route.view === "security"
+                ? "bg-signal-soft text-ink"
+                : "text-muted hover:bg-[color-mix(in_srgb,var(--muted)_8%,transparent)] hover:text-ink",
+            )}
+          >
+            <ShieldIcon size={15} />
+            {t("账号安全")}
+          </a>
+          <button
+            onClick={onSignOut}
+            className="flex w-full items-center gap-2.5 rounded-lg px-2 py-1.5 text-sm text-muted transition-colors hover:bg-[color-mix(in_srgb,var(--danger)_10%,transparent)] hover:text-danger"
+          >
+            <SignOutIcon size={15} />
+            {t("退出登录")}
+          </button>
+        </div>
+      )}
+
+      <button
+        onClick={() => setOpen((v) => !v)}
+        title={collapsed ? name : undefined}
+        className={cn(
+          "flex w-full items-center gap-2.5 rounded-lg py-1.5 text-left transition-colors hover:bg-[color-mix(in_srgb,var(--muted)_8%,transparent)]",
+          collapsed ? "lg:justify-center lg:px-0" : "px-2",
+        )}
+      >
+        <span className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-signal-soft font-display text-[12px] font-semibold uppercase text-ink">
+          {name.slice(0, 1)}
+        </span>
+        <span className={cn("min-w-0 flex-1", collapsed && "lg:hidden")}>
+          <span className="block truncate text-[13px] font-medium text-ink">{name}</span>
+          <span className="block truncate text-[11px] text-faint">{t(roleLabel)}</span>
+        </span>
+        <span className={cn("shrink-0 text-faint", collapsed && "lg:hidden")}>
+          <ChevronIcon size={14} className={open ? "rotate-90" : "-rotate-90"} />
+        </span>
+      </button>
+    </div>
   );
 }

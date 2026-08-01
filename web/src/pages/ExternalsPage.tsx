@@ -231,7 +231,7 @@ function ProxyRow({
   const [error, setError] = useState("");
   const [whoOpen, setWhoOpen] = useState(false);
 
-  async function patch(p: { chain_node_id?: string; chain_proxy_id?: string; enabled?: boolean }) {
+  async function patch(p: { chain_node_id?: string; chain_proxy_id?: string; enabled?: boolean; name?: string }) {
     setBusy(true);
     setError("");
     try {
@@ -278,8 +278,11 @@ function ProxyRow({
         >
           {proxy.enabled ? t("启用") : t("停用")}
         </button>
-        <span className="min-w-0 flex-1 truncate text-sm">{proxy.name}</span>
-        <span className="font-mono text-[11px] text-faint">
+        {/* The name takes the whole line on a phone. Sharing it with the
+            endpoint meant the name shrank to nothing while the monospaced
+            host:port refused to, and the two rendered on top of each other. */}
+        <ProxyName proxy={proxy} onRename={(name) => patch({ name })} busy={busy} />
+        <span className="min-w-0 basis-full truncate font-mono text-[11px] text-faint sm:basis-auto">
           {proxy.type} · {proxy.server}:{proxy.port}
         </span>
         <button
@@ -318,6 +321,83 @@ function ProxyRow({
       {error && <p className="mt-1 text-xs text-danger">{error}</p>}
       {whoOpen && <ProxyAccess subId={subId} proxyId={proxy.id} />}
     </div>
+  );
+}
+
+/**
+ * The node's name, as the subscriber will see it.
+ *
+ * Providers write things in the name that are not names — remaining traffic, an
+ * expiry date, the slug of the account it was issued to — and that string went
+ * straight into every client. Editing in place rather than behind a dialog:
+ * it is one field, and a dialog for one field is a dialog too many.
+ *
+ * The provider's own name stays underneath. It is what a refresh matches the
+ * row on, so it cannot be overwritten, and showing it is how an operator knows
+ * which node they renamed once the label no longer resembles it.
+ */
+function ProxyName({
+  proxy,
+  onRename,
+  busy,
+}: {
+  proxy: ExternalProxy;
+  onRename: (name: string) => void;
+  busy: boolean;
+}) {
+  const { t } = useT();
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(proxy.name);
+  const renamed = proxy.name !== proxy.provider_name;
+
+  function commit() {
+    setEditing(false);
+    const next = draft.trim();
+    if (next && next !== proxy.name) onRename(next);
+    else setDraft(proxy.name);
+  }
+
+  if (editing) {
+    return (
+      <input
+        autoFocus
+        value={draft}
+        disabled={busy}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={commit}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") commit();
+          if (e.key === "Escape") {
+            setDraft(proxy.name);
+            setEditing(false);
+          }
+        }}
+        className="min-w-0 basis-full rounded-lg border border-signal bg-surface px-2 py-1 text-sm outline-none sm:basis-0 sm:flex-1"
+      />
+    );
+  }
+  return (
+    <span className="flex min-w-0 basis-full items-baseline gap-2 sm:basis-0 sm:flex-1">
+      <button
+        onClick={() => {
+          setDraft(proxy.name);
+          setEditing(true);
+        }}
+        title={t("点击改名")}
+        className="min-w-0 truncate text-left text-sm hover:text-signal"
+      >
+        {proxy.name}
+      </button>
+      {renamed && (
+        <button
+          onClick={() => onRename("")}
+          title={t("恢复对方给的名字")}
+          className="shrink-0 truncate text-[11px] text-faint hover:text-ink"
+        >
+          {proxy.provider_name}
+        </button>
+      )}
+    </span>
   );
 }
 

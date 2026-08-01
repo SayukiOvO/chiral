@@ -1,0 +1,13 @@
+-- A name for an external node that the operator chose.
+--
+-- Until now the only name was the provider's, and providers write things in it
+-- that are not names: remaining traffic, expiry dates, a slug of the account it
+-- was issued to. That string went straight into every subscriber's client as
+-- the label on the node.
+--
+-- It cannot simply overwrite `name`. That column is how a refreshed proxy is
+-- matched back to its row — rename the row and the next refresh sees a node it
+-- has never met, inserts it fresh, and takes the chain and the per-user denials
+-- with it. So the provider's name stays exactly where it was, and this is a
+-- second, optional one that wins when it is set.
+ALTER TABLE external_proxies ADD COLUMN display_name TEXT NOT NULL DEFAULT '';

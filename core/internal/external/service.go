@@ -152,10 +152,16 @@ func (s *Service) Fragments(denied map[string]struct{}, chainName func(nodeID st
 			continue
 		}
 		body := p.Config
+		if label := p.Label(); label != p.Name {
+			body = withName(body, label)
+		}
 		if target, external, chained := p.ChainTarget(); chained {
 			via := chainName(target)
 			if external {
-				via = carried[target].Name
+				// The label, not the provider's name: a dialer-proxy naming
+				// something the document does not define makes the whole
+				// configuration unloadable, and the document defines labels.
+				via = carried[target].Label()
 			}
 			body = appendYAMLKey(body, "dialer-proxy", via)
 		}
@@ -244,4 +250,24 @@ func appendYAMLKey(body, key, value string) string {
 // carry emoji, spaces, colons and the occasional digit-only label.
 func quoteYAML(s string) string {
 	return `"` + strings.NewReplacer(`\`, `\\`, `"`, `\"`).Replace(s) + `"`
+}
+
+// withName swaps the proxy's name for the one the operator chose.
+//
+// A replacement rather than an appended key: the stored body already carries a
+// `name`, and a second one is a duplicate mapping key — which yaml.v3 rejects
+// outright and other readers resolve by picking one, so the document would
+// either fail to load or load under a name nothing else in it refers to.
+//
+// Only column zero is touched. `name` also appears nested inside transport
+// options, and those belong to the provider.
+func withName(body, label string) string {
+	lines := strings.Split(body, "\n")
+	for i, l := range lines {
+		if strings.HasPrefix(l, "name:") {
+			lines[i] = "name: " + quoteYAML(label)
+			return strings.Join(lines, "\n")
+		}
+	}
+	return body
 }

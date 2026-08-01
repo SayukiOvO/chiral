@@ -220,6 +220,9 @@ const EN: Record<string, string> = {
   运维: "Operations",
   谁能用: "Who gets it",
   重新解析: "Re-read",
+  账号安全: "Account security",
+  点击改名: "Click to rename",
+  恢复对方给的名字: "Restore the provider's name",
   "这样会让链路绕回自己。": "That would make the chain loop back on itself.",
   "还没有订阅者。": "No subscribers yet.",
   "取消后此节点不再出现在该订阅者的订阅里，下次刷新订阅时生效。":

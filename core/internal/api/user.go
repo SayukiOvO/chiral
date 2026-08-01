@@ -581,7 +581,7 @@ func (s *Server) userNodeAccess(w http.ResponseWriter, r *http.Request) {
 				continue
 			}
 			for _, p := range proxies {
-				proxyName[p.ID] = p.Name
+				proxyName[p.ID] = p.Label()
 				rows = append(rows, row{p, sub.Name})
 			}
 		}
@@ -608,7 +608,7 @@ func (s *Server) userNodeAccess(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 			ext = append(ext, nodeAccessEntry{
-				ID: p.ID, Name: p.Name, Source: r.src,
+				ID: p.ID, Name: p.Label(), Source: r.src,
 				// An external node reaches every subscriber unless denied;
 				// there is no profile in between to be entitled by.
 				Allowed: !denied, Entitled: enabled && p.Enabled,

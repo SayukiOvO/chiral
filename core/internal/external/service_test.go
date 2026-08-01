@@ -488,3 +488,102 @@ func TestProxyAccessReadsBothWays(t *testing.T) {
 		t.Error("the node side does not see the denial the user side wrote")
 	}
 }
+
+// The provider's name is a label with the account's remaining traffic in it.
+// The operator gets to call the node something else, and that is what reaches
+// the subscriber — while the provider's name stays put underneath, because it
+// is what a refresh matches on.
+func TestARenamedProxyKeepsItsIdentityAcrossARefresh(t *testing.T) {
+	st, svc := fixture(t)
+	srv, next := serve(t,
+		"proxies:\n  - {name: 'HK 01 | 82%', type: vless, server: hk.example.com, port: 443, uuid: u1}\n",
+		"proxies:\n  - {name: 'HK 01 | 61%', type: vless, server: hk.example.com, port: 443, uuid: u1}\n")
+	sub, _ := st.CreateExternalSub("provider", srv.URL, "")
+	if err := svc.Refresh(context.Background(), sub.ID); err != nil {
+		t.Fatal(err)
+	}
+	p, _ := st.ExternalProxies(sub.ID)
+	if err := st.RenameExternalProxy(p[0].ID, "香港 · 中继"); err != nil {
+		t.Fatal(err)
+	}
+
+	frags, err := svc.Fragments(nil, func(string) string { return "" })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(frags) != 1 {
+		t.Fatalf("fragments = %d", len(frags))
+	}
+	if !strings.Contains(frags[0], `name: "香港 · 中继"`) {
+		t.Errorf("the chosen name did not reach the subscription:\n%s", frags[0])
+	}
+	// Exactly one name key, or the document is unloadable.
+	if n := strings.Count(frags[0], "\nname:") + strings.Count(frags[0], "name: "); n != 1 {
+		t.Errorf("expected one name key, found %d:\n%s", n, frags[0])
+	}
+	if strings.Contains(frags[0], "82%") {
+		t.Errorf("the provider's label leaked into the subscription:\n%s", frags[0])
+	}
+
+	next()
+	if err := svc.Refresh(context.Background(), sub.ID); err != nil {
+		t.Fatal(err)
+	}
+	after, _ := st.ExternalProxies(sub.ID)
+	if len(after) != 1 || after[0].ID != p[0].ID {
+		t.Fatalf("the row was replaced rather than updated: %+v", after)
+	}
+	if after[0].DisplayName != "香港 · 中继" {
+		t.Errorf("the rename was lost on refresh: %q", after[0].DisplayName)
+	}
+	if after[0].Name != "HK 01 | 61%" {
+		t.Errorf("the provider's name stopped tracking the provider: %q", after[0].Name)
+	}
+}
+
+// A dialer-proxy has to name what the document defines. Rename the relay and
+// the chain must follow, or every client refuses the whole configuration.
+func TestAChainFollowsARename(t *testing.T) {
+	st, svc := fixture(t)
+	srv, _ := serve(t, "proxies:\n"+
+		"  - {name: Relay, type: vless, server: r.example.com, port: 443, uuid: u1}\n"+
+		"  - {name: Exit, type: vless, server: e.example.com, port: 443, uuid: u2}\n")
+	sub, _ := st.CreateExternalSub("provider", srv.URL, "")
+	svc.Refresh(context.Background(), sub.ID)
+	p, _ := st.ExternalProxies(sub.ID)
+	st.SetExternalProxy(p[1].ID, "", p[0].ID, true)
+	if err := st.RenameExternalProxy(p[0].ID, "中继 A"); err != nil {
+		t.Fatal(err)
+	}
+
+	frags, err := svc.Fragments(nil, func(string) string { return "" })
+	if err != nil {
+		t.Fatal(err)
+	}
+	var names, dialers []string
+	for _, f := range frags {
+		for _, line := range strings.Split(f, "\n") {
+			if strings.HasPrefix(line, "name: ") {
+				names = append(names, strings.Trim(strings.TrimPrefix(line, "name: "), `"`))
+			}
+			if strings.HasPrefix(line, "dialer-proxy: ") {
+				dialers = append(dialers, strings.Trim(strings.TrimPrefix(line, "dialer-proxy: "), `"`))
+			}
+		}
+	}
+	if len(dialers) != 1 {
+		t.Fatalf("dialers = %v", dialers)
+	}
+	found := false
+	for _, n := range names {
+		if n == dialers[0] {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("dialer-proxy %q names nothing the document defines: %v", dialers[0], names)
+	}
+	if dialers[0] != "中继 A" {
+		t.Errorf("the chain kept the old name: %q", dialers[0])
+	}
+}

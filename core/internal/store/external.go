@@ -31,6 +31,10 @@ type ExternalProxy struct {
 	Server string
 	Port   int
 	Config string
+	// DisplayName is the operator's own label, empty when the provider's is
+	// used as-is. Name stays the provider's whatever this says: it is what a
+	// refresh matches on.
+	DisplayName string
 	// ChainNodeID is the fleet node this one is reached through, empty for a
 	// direct dial. ChainProxyID is the same for another external node. At most
 	// one of the two is set.
@@ -38,6 +42,17 @@ type ExternalProxy struct {
 	ChainProxyID string
 	Enabled      bool
 	Ord          int
+}
+
+// Label is the name this proxy goes out under — into the subscription, and
+// into any dialer-proxy that names it. One function, because a chain that
+// referred to a node by a different name than the document defines makes the
+// whole configuration unloadable.
+func (p ExternalProxy) Label() string {
+	if p.DisplayName != "" {
+		return p.DisplayName
+	}
+	return p.Name
 }
 
 // ChainTarget reports what this proxy is dialled through, if anything.
@@ -128,11 +143,11 @@ func (s *Store) SaveExternalFetch(id, body, failure string) error {
 	return err
 }
 
-const externalProxyCols = `id, sub_id, name, type, server, port, config, COALESCE(chain_node_id, ''), COALESCE(chain_proxy_id, ''), enabled, ord`
+const externalProxyCols = `id, sub_id, name, COALESCE(display_name, ''), type, server, port, config, COALESCE(chain_node_id, ''), COALESCE(chain_proxy_id, ''), enabled, ord`
 
 func scanExternalProxy(row interface{ Scan(...any) error }) (ExternalProxy, error) {
 	var p ExternalProxy
-	err := row.Scan(&p.ID, &p.SubID, &p.Name, &p.Type, &p.Server, &p.Port, &p.Config,
+	err := row.Scan(&p.ID, &p.SubID, &p.Name, &p.DisplayName, &p.Type, &p.Server, &p.Port, &p.Config,
 		&p.ChainNodeID, &p.ChainProxyID, &p.Enabled, &p.Ord)
 	return p, err
 }
@@ -429,4 +444,17 @@ func (s *Store) SetExternalProxyAccess(proxyID string, deniedUsers []string) err
 		}
 	}
 	return tx.Commit()
+}
+
+// RenameExternalProxy sets or clears the operator's own label for one proxy.
+// An empty name restores the provider's.
+func (s *Store) RenameExternalProxy(id, displayName string) error {
+	res, err := s.db.Exec(`UPDATE external_proxies SET display_name = ? WHERE id = ?`, displayName, id)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
 }

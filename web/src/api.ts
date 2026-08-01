@@ -301,7 +301,10 @@ export interface Settings {
 
 export interface ExternalProxy {
   id: string;
+  /** What subscribers see: the operator's label if set, else the provider's. */
   name: string;
+  /** Always the provider's, so the console can show what a rename overrides. */
+  provider_name: string;
   type: string;
   server: string;
   port: number;
@@ -453,7 +456,7 @@ export const api = {
   setExternalProxy: (
     subId: string,
     proxyId: string,
-    patch: { chain_node_id?: string; chain_proxy_id?: string; enabled?: boolean },
+    patch: { chain_node_id?: string; chain_proxy_id?: string; enabled?: boolean; name?: string },
   ) => req<void>("PUT", `/api/externals/${subId}/proxies/${proxyId}`, patch),
 
   listRulesets: () => req<{ rulesets: Ruleset[] }>("GET", "/api/rulesets"),
