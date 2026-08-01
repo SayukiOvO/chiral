@@ -13,6 +13,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/SayukiOvO/chiral/core/internal/external"
 	"github.com/SayukiOvO/chiral/core/internal/store"
 	"github.com/SayukiOvO/chiral/core/internal/template"
 	"github.com/SayukiOvO/chiral/core/internal/user"
@@ -70,10 +71,11 @@ func NewService(st *store.Store, ctx Contexts) *Service {
 // Externals contributes proxies this panel does not run. Implemented by the
 // external service.
 type Externals interface {
-	// Fragments returns clash proxy entries. chainName maps a fleet node id to
-	// the name that node carries in this subscription, because a chained proxy
-	// has to reference a name the same document defines.
-	Fragments(denied map[string]struct{}, chainName func(nodeID string) string) ([]string, error)
+	// Fragments returns clash proxy entries, each carrying the place the
+	// operator gave it. chainName maps a fleet node id to the name that node
+	// carries in this subscription, because a chained proxy has to reference a
+	// name the same document defines.
+	Fragments(denied map[string]struct{}, chainName func(nodeID string) string) ([]external.Fragment, error)
 }
 
 // EnableRouting wires per-subscriber routing rules. Called at startup.
@@ -121,7 +123,29 @@ func (s *Service) Render(u store.User, client, token string) (Result, error) {
 		return Result{}, err
 	}
 
-	var fragments []string
+	// The operator's arrangement, by node. Absent means never placed, which is
+	// 0, which sorts to the end — the zero value is the right answer here.
+	nodes, err := s.st.ListNodes()
+	if err != nil {
+		return Result{}, err
+	}
+	nodeOrder := make(map[string]int, len(nodes))
+	// The tie is what decides the never-placed tail, and it has to agree with
+	// the console's list exactly — a subscription that disagrees with the page
+	// the operator is looking at is the thing this feature exists to fix. So it
+	// is the node's rank in the same query the console reads, prefixed to keep
+	// every fleet node ahead of every external one, rather than an id: ids are
+	// random hex, and sorting by them interleaved the two kinds arbitrarily.
+	nodeTie := make(map[string]string, len(nodes))
+	for i, n := range nodes {
+		nodeOrder[n.ID] = n.SortOrder
+		nodeTie[n.ID] = fmt.Sprintf("0:%08d", i)
+	}
+
+	// placed carries each rendered access point with the position the operator
+	// gave it, because the fleet's and the external nodes' are one sequence and
+	// the two are produced by different loops.
+	var placed []placedFragment
 	// Access points that could not be rendered, with the reason. Not an error:
 	// see the skip below.
 	var skipped []string
@@ -137,6 +161,8 @@ func (s *Service) Render(u store.User, client, token string) (Result, error) {
 		if err != nil {
 			return Result{}, err
 		}
+		// Sorted only to keep this loop deterministic; the order that reaches
+		// the subscriber is decided below, by the operator's list.
 		sort.Strings(nodeIDs)
 		for _, nid := range nodeIDs {
 			if _, no := denied[nid]; no {
@@ -175,11 +201,15 @@ func (s *Service) Render(u store.User, client, token string) (Result, error) {
 				skipped = append(skipped, fmt.Sprintf("%s on %s: %v", pid, nid, err))
 				continue
 			}
-			fragments = append(fragments, strings.TrimSpace(body))
+			placed = append(placed, placedFragment{
+				body:  strings.TrimSpace(body),
+				order: nodeOrder[nid],
+				tie:   nodeTie[nid],
+			})
 		}
 	}
 
-	r := s.assemble(u, token, client, fragments)
+	r := s.assemble(u, token, client, placed)
 	r.Skipped = skipped
 	return r, nil
 }
@@ -192,8 +222,49 @@ func (s *Service) templateFor(profileID, client string) (string, error) {
 	return templates[client], nil
 }
 
+// placedFragment is one rendered access point and where the operator put it.
+type placedFragment struct {
+	body string
+	// order is the operator's position, 0 for never placed.
+	order int
+	// tie keeps the never-placed tail in a stable, reproducible order.
+	tie string
+}
+
+// orderFragments sorts one list of access points into the order the subscriber
+// sees, and returns just the bodies.
+//
+// This is the only ordering there is. The proxy-group generator walks the
+// rendered proxy list and takes what its pattern matches, in the order it finds
+// it, so the members of 节点选择 and of every other group come out in this order
+// too. There is deliberately no second setting for that: two settings for one
+// arrangement is two settings that can disagree.
+//
+// Never-placed entries go after every placed one rather than before, so adding
+// a node puts it at the end of the list instead of the front of it.
+func orderFragments(in []placedFragment) []string {
+	sorted := make([]placedFragment, len(in))
+	copy(sorted, in)
+	sort.SliceStable(sorted, func(i, j int) bool {
+		a, b := sorted[i], sorted[j]
+		if (a.order == 0) != (b.order == 0) {
+			return b.order == 0
+		}
+		if a.order != b.order {
+			return a.order < b.order
+		}
+		return a.tie < b.tie
+	})
+	out := make([]string, 0, len(sorted))
+	for _, f := range sorted {
+		out = append(out, f.body)
+	}
+	return out
+}
+
 // assemble joins the fragments the way each client expects to receive them.
-func (s *Service) assemble(u store.User, token, client string, fragments []string) Result {
+func (s *Service) assemble(u store.User, token, client string, placed []placedFragment) Result {
+	fragments := orderFragments(placed)
 	r := Result{Client: client, Fragments: len(fragments)}
 	switch client {
 	case ClientVlessURI:
@@ -211,7 +282,10 @@ func (s *Service) assemble(u store.User, token, client string, fragments []strin
 		// they are selectable like any other. A chained one names a node of
 		// this fleet, which has to be one this subscription actually carries —
 		// hence the lookup over the fragments already rendered.
-		fragments = append(fragments, s.externalFragments(u, fragments)...)
+		// Merged into the one sequence rather than appended after it, so an
+		// external exit can sit next to the fleet node it is chained through.
+		placed = append(placed, s.externalFragments(u, fragments)...)
+		fragments = orderFragments(placed)
 		// Counted after they are merged, not before. A subscriber whose only
 		// remaining access is external — every fleet node denied, or none
 		// bound yet — otherwise looked empty to the caller and was refused
@@ -475,7 +549,7 @@ func (s *Service) routingFor(u store.User, token string, fragments []string) (gr
 // the subscriber is not entitled to has to drop the proxy rather than emit a
 // dangling reference. That is the external service's decision; this supplies
 // the lookup it needs to make it.
-func (s *Service) externalFragments(u store.User, own []string) []string {
+func (s *Service) externalFragments(u store.User, own []string) []placedFragment {
 	if s.externals == nil {
 		return nil
 	}
@@ -495,7 +569,11 @@ func (s *Service) externalFragments(u store.User, own []string) []string {
 	if err != nil {
 		return nil
 	}
-	return out
+	placed := make([]placedFragment, 0, len(out))
+	for _, f := range out {
+		placed = append(placed, placedFragment{body: f.Body, order: f.Order, tie: f.Tie})
+	}
+	return placed
 }
 
 // nodeProxyName resolves a fleet node id to the name it appears under here.

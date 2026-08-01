@@ -15,6 +15,17 @@ import (
 	"github.com/SayukiOvO/chiral/core/internal/store"
 )
 
+// fragmentBodies is what these tests assert on. Fragments now carries each
+// body with the place the operator gave it; the placement has its own tests.
+func (s *Service) fragmentBodies(denied map[string]struct{}, chainName func(string) string) ([]string, error) {
+	fs, err := s.Fragments(denied, chainName)
+	out := make([]string, 0, len(fs))
+	for _, f := range fs {
+		out = append(out, f.Body)
+	}
+	return out, err
+}
+
 func fixture(t *testing.T) (*store.Store, *Service) {
 	t.Helper()
 	box, err := secret.NewBox("external-test-key-0123456789abcd")
@@ -143,7 +154,7 @@ func TestFragmentsCarryTheChain(t *testing.T) {
 	proxies, _ := st.ExternalProxies(sub.ID)
 	st.SetExternalProxy(proxies[0].ID, node.ID, "", true)
 
-	frags, err := svc.Fragments(nil, func(id string) string {
+	frags, err := svc.fragmentBodies(nil, func(id string) string {
 		if id == node.ID {
 			return "日本 · 东京 01"
 		}
@@ -176,7 +187,7 @@ func TestAProxyWhoseChainIsMissingIsLeftOut(t *testing.T) {
 	proxies, _ := st.ExternalProxies(sub.ID)
 	st.SetExternalProxy(proxies[0].ID, node.ID, "", true)
 
-	frags, err := svc.Fragments(nil, func(string) string { return "" })
+	frags, err := svc.fragmentBodies(nil, func(string) string { return "" })
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -195,13 +206,13 @@ func TestDisabledSourcesAndProxiesAreLeftOut(t *testing.T) {
 	proxies, _ := st.ExternalProxies(sub.ID)
 
 	st.SetExternalProxy(proxies[0].ID, "", "", false)
-	frags, _ := svc.Fragments(nil, func(string) string { return "" })
+	frags, _ := svc.fragmentBodies(nil, func(string) string { return "" })
 	if len(frags) != 1 {
 		t.Fatalf("a disabled proxy was carried: %v", frags)
 	}
 
 	st.UpdateExternalSub(sub.ID, sub.Name, sub.URL, false)
-	frags, _ = svc.Fragments(nil, func(string) string { return "" })
+	frags, _ = svc.fragmentBodies(nil, func(string) string { return "" })
 	if len(frags) != 0 {
 		t.Fatalf("a disabled source was carried: %v", frags)
 	}
@@ -243,7 +254,7 @@ func TestDeniedExternalProxiesAreLeftOut(t *testing.T) {
 	proxies, _ := st.ExternalProxies(sub.ID)
 	denied := map[string]struct{}{proxies[0].ID: {}}
 
-	frags, err := svc.Fragments(denied, func(string) string { return "" })
+	frags, err := svc.fragmentBodies(denied, func(string) string { return "" })
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -266,7 +277,7 @@ func TestDeniedExternalProxiesAreLeftOut(t *testing.T) {
 	if !still {
 		t.Fatal("the proxy's identity did not survive a refresh, so the denial would have been lost")
 	}
-	frags, _ = svc.Fragments(denied, func(string) string { return "" })
+	frags, _ = svc.fragmentBodies(denied, func(string) string { return "" })
 	if len(frags) != 1 {
 		t.Fatalf("denial did not survive the refresh: %v", frags)
 	}
@@ -283,7 +294,7 @@ func TestExternalOnlySubscriptionIsNotEmpty(t *testing.T) {
 	if err := svc.Refresh(context.Background(), sub.ID); err != nil {
 		t.Fatal(err)
 	}
-	frags, err := svc.Fragments(nil, func(string) string { return "" })
+	frags, err := svc.fragmentBodies(nil, func(string) string { return "" })
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -309,7 +320,7 @@ func TestAnExternalCanBeChainedThroughAnotherExternal(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	frags, err := svc.Fragments(nil, func(string) string { return "" })
+	frags, err := svc.fragmentBodies(nil, func(string) string { return "" })
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -341,7 +352,7 @@ func TestDenyingARelayDropsWhatChainsThroughIt(t *testing.T) {
 	relay, exit := p[0], p[1]
 	st.SetExternalProxy(exit.ID, "", relay.ID, true)
 
-	frags, err := svc.Fragments(map[string]struct{}{relay.ID: {}}, func(string) string { return "" })
+	frags, err := svc.fragmentBodies(map[string]struct{}{relay.ID: {}}, func(string) string { return "" })
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -376,7 +387,7 @@ func TestABreakPropagatesAlongTheWholeChain(t *testing.T) {
 	st.SetExternalProxy(p[1].ID, "", p[0].ID, true)
 	st.SetExternalProxy(p[2].ID, "", p[1].ID, true)
 
-	frags, err := svc.Fragments(nil, func(id string) string {
+	frags, err := svc.fragmentBodies(nil, func(id string) string {
 		if id == node.ID {
 			return "东京 01"
 		}
@@ -390,7 +401,7 @@ func TestABreakPropagatesAlongTheWholeChain(t *testing.T) {
 	}
 
 	// Now the fleet node is not in this subscription. All three must go.
-	frags, err = svc.Fragments(nil, func(string) string { return "" })
+	frags, err = svc.fragmentBodies(nil, func(string) string { return "" })
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -507,7 +518,7 @@ func TestARenamedProxyKeepsItsIdentityAcrossARefresh(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	frags, err := svc.Fragments(nil, func(string) string { return "" })
+	frags, err := svc.fragmentBodies(nil, func(string) string { return "" })
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -556,7 +567,7 @@ func TestAChainFollowsARename(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	frags, err := svc.Fragments(nil, func(string) string { return "" })
+	frags, err := svc.fragmentBodies(nil, func(string) string { return "" })
 	if err != nil {
 		t.Fatal(err)
 	}

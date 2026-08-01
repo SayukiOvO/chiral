@@ -135,18 +135,34 @@ func (s *Service) fetch(ctx context.Context, url string) (string, error) {
 	return string(body), nil
 }
 
+// Fragment is one rendered proxy with the place the operator gave it.
+//
+// The order travels with the body because the assembler interleaves these with
+// the fleet's own, and it cannot recover a proxy's position from the YAML.
+type Fragment struct {
+	Body string
+	// Order is the operator's position, 0 for never placed.
+	Order int
+	// Tie keeps the unplaced tail stable and reproducible.
+	Tie string
+}
+
 // Fragments renders the enabled external proxies as clash proxies-list items.
 //
 // denied names the proxies this subscriber may not use. chainName resolves a
 // fleet node id to the name that node appears under in this subscriber's own
 // proxies — the chain has to reference a proxy the same
 // document defines, and that name is the customer-facing one, not the node id.
-func (s *Service) Fragments(denied map[string]struct{}, chainName func(nodeID string) string) ([]string, error) {
+func (s *Service) Fragments(denied map[string]struct{}, chainName func(nodeID string) string) ([]Fragment, error) {
 	proxies, carried, _, err := s.carried(denied, chainName)
 	if err != nil {
 		return nil, err
 	}
-	out := make([]string, 0, len(carried))
+	rank := make(map[string]int, len(proxies))
+	for i, p := range proxies {
+		rank[p.ID] = i
+	}
+	out := make([]Fragment, 0, len(carried))
 	for _, p := range proxies {
 		if _, ok := carried[p.ID]; !ok {
 			continue
@@ -165,7 +181,10 @@ func (s *Service) Fragments(denied map[string]struct{}, chainName func(nodeID st
 			}
 			body = appendYAMLKey(body, "dialer-proxy", via)
 		}
-		out = append(out, body)
+		// Prefixed "1" so every external node follows every fleet one while
+		// nothing has been placed, and ranked by the same query the console
+		// lists them from, so the two agree row for row.
+		out = append(out, Fragment{Body: body, Order: p.SortOrder, Tie: fmt.Sprintf("1:%08d", rank[p.ID])})
 	}
 	return out, nil
 }

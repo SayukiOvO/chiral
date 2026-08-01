@@ -185,3 +185,15 @@ export const AlertIcon = ({ size = 16, className }: IconProps) => (
     <path d="M10.5 19a1.8 1.8 0 0 0 3 0" />
   </svg>
 );
+
+/** Two columns of dots: the universal "pick this row up" affordance. */
+export const GripIcon = ({ size = 14, className }: IconProps) => (
+  <svg {...base(size, className)} fill="currentColor" stroke="none">
+    <circle cx="9" cy="6" r="1.5" />
+    <circle cx="15" cy="6" r="1.5" />
+    <circle cx="9" cy="12" r="1.5" />
+    <circle cx="15" cy="12" r="1.5" />
+    <circle cx="9" cy="18" r="1.5" />
+    <circle cx="15" cy="18" r="1.5" />
+  </svg>
+);

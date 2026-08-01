@@ -128,6 +128,11 @@ type Node struct {
 	// Address is what clients are told to dial, when the operator has said.
 	// Empty falls back to PublicIP; see Dialable and migration 0015.
 	Address string
+	// SortOrder is this node's place in the one list the operator arranges,
+	// shared with the external proxies. 0 means never placed — those go last,
+	// so a node that has just been added appears at the end of the list rather
+	// than in the middle of it. See migration 0022.
+	SortOrder int
 }
 
 // Dialable is the address subscriptions and templates use for this node: what
@@ -141,7 +146,7 @@ func (n Node) Dialable() string {
 	return n.PublicIP
 }
 
-const nodeCols = `id, name, hostname, public_ip, agent_version, xray_version, xray_installed_version, platform, created_at, registered_at, last_seen_at, config_skeleton, display_name, address`
+const nodeCols = `id, name, hostname, public_ip, agent_version, xray_version, xray_installed_version, platform, created_at, registered_at, last_seen_at, config_skeleton, display_name, address, sort_order`
 
 // skeletonAAD / configAAD bind a ciphertext to the exact row that holds it.
 func skeletonAAD(nodeID string) string { return "node-skeleton:" + nodeID }
@@ -159,7 +164,7 @@ func probeAAD(nodeID string, version int64) string {
 // carry credentials of its own (an outbound to an upstream proxy, say).
 func (s *Store) scanNode(row interface{ Scan(...any) error }) (Node, error) {
 	var n Node
-	err := row.Scan(&n.ID, &n.Name, &n.Hostname, &n.PublicIP, &n.AgentVersion, &n.XrayVersion, &n.XrayInstalledVersion, &n.Platform, &n.CreatedAt, &n.RegisteredAt, &n.LastSeenAt, &n.ConfigSkeleton, &n.DisplayName, &n.Address)
+	err := row.Scan(&n.ID, &n.Name, &n.Hostname, &n.PublicIP, &n.AgentVersion, &n.XrayVersion, &n.XrayInstalledVersion, &n.Platform, &n.CreatedAt, &n.RegisteredAt, &n.LastSeenAt, &n.ConfigSkeleton, &n.DisplayName, &n.Address, &n.SortOrder)
 	if err != nil {
 		return n, err
 	}
@@ -204,7 +209,8 @@ func (s *Store) CreateNode(name, joinTokenHash string) (Node, error) {
 }
 
 func (s *Store) ListNodes() ([]Node, error) {
-	rows, err := s.db.Query(`SELECT ` + nodeCols + ` FROM nodes ORDER BY created_at`)
+	rows, err := s.db.Query(`SELECT ` + nodeCols + ` FROM nodes
+		ORDER BY sort_order = 0, sort_order, created_at`)
 	if err != nil {
 		return nil, err
 	}
@@ -502,4 +508,51 @@ func (s *Store) SetConfigSkeleton(nodeID, skeleton string) error {
 // IsNotFound reports whether err means "row does not exist".
 func IsNotFound(err error) bool {
 	return err == sql.ErrNoRows || (err != nil && strings.Contains(err.Error(), sql.ErrNoRows.Error()))
+}
+
+// ProxyOrderEntry names one place in the operator's list. Kind is "node" for a
+// machine this panel runs and "external" for one it does not.
+type ProxyOrderEntry struct {
+	Kind string
+	ID   string
+}
+
+// SetProxyOrder writes the whole list at once.
+//
+// Whole-list rather than "move this one up": the console shows the list and the
+// operator is describing an end state, and two callers each nudging one row
+// could interleave into an arrangement neither of them asked for.
+//
+// Positions start at 1 because 0 is the "never placed" sentinel — an entry left
+// out of the list keeps that, and so keeps sorting after everything in it.
+func (s *Store) SetProxyOrder(entries []ProxyOrderEntry) error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	// Everything is cleared first, so an id that has dropped out of the list —
+	// a node deleted between the console's read and its write — does not keep a
+	// position that would put it among the placed rows if it came back.
+	if _, err := tx.Exec(`UPDATE nodes SET sort_order = 0`); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`UPDATE external_proxies SET sort_order = 0`); err != nil {
+		return err
+	}
+	for i, e := range entries {
+		var q string
+		switch e.Kind {
+		case "node":
+			q = `UPDATE nodes SET sort_order = ? WHERE id = ?`
+		case "external":
+			q = `UPDATE external_proxies SET sort_order = ? WHERE id = ?`
+		default:
+			return fmt.Errorf("unknown kind %q", e.Kind)
+		}
+		if _, err := tx.Exec(q, i+1, e.ID); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
 }

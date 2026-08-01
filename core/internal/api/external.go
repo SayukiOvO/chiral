@@ -3,7 +3,9 @@ package api
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
+	"sort"
 	"strings"
 
 	"github.com/SayukiOvO/chiral/core/internal/store"
@@ -13,6 +15,8 @@ import (
 // write-level except the listing: the body of one is a working credential for
 // somebody else's service.
 func (s *Server) routeExternals(mux *http.ServeMux) {
+	mux.Handle("GET /api/proxy-order", s.requireAdmin(s.proxyOrder))
+	mux.Handle("PUT /api/proxy-order", s.requireWrite(s.setProxyOrder))
 	mux.Handle("GET /api/externals", s.requireAdmin(s.listExternals))
 	mux.Handle("POST /api/externals", s.requireWrite(s.createExternal))
 	mux.Handle("PUT /api/externals/{id}", s.requireWrite(s.updateExternal))
@@ -336,5 +340,112 @@ func (s *Server) setExternalProxyUsers(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.audit(r, "external.access", "external", p.ID, p.Name, "")
+	w.WriteHeader(http.StatusNoContent)
+}
+
+type orderEntryView struct {
+	Kind string `json:"kind"`
+	ID   string `json:"id"`
+	Name string `json:"name"`
+	// Source is "fleet" or the external source's name, so the console can say
+	// where each row came from without a second request.
+	Source string `json:"source"`
+	// Online is only meaningful for a fleet node; an external one is never
+	// probed, so it is omitted rather than reported as false.
+	Online *bool `json:"online,omitempty"`
+}
+
+// proxyOrder is the one list a subscriber's proxies come out in — and, because
+// the group generator walks that list and takes what each pattern matches, the
+// order inside every proxy-group as well.
+func (s *Server) proxyOrder(w http.ResponseWriter, r *http.Request) {
+	out := []orderEntryView{}
+	nodes, err := s.st.ListNodes()
+	if err != nil {
+		s.internalErr(w, "list nodes", err)
+		return
+	}
+	for _, n := range nodes {
+		name := n.DisplayName
+		if name == "" {
+			name = n.Name
+		}
+		online := s.mgr.State(n.ID).Online
+		out = append(out, orderEntryView{
+			Kind: "node", ID: n.ID, Name: name, Source: "fleet", Online: &online,
+		})
+	}
+	subs, err := s.st.ListExternalSubs()
+	if err != nil {
+		s.internalErr(w, "list external subscriptions", err)
+		return
+	}
+	byID := map[string]string{}
+	for _, sub := range subs {
+		byID[sub.ID] = sub.Name
+	}
+	proxies, err := s.st.EnabledExternalProxies()
+	if err != nil {
+		s.internalErr(w, "list external proxies", err)
+		return
+	}
+	for _, p := range proxies {
+		out = append(out, orderEntryView{
+			Kind: "external", ID: p.ID, Name: p.Label(), Source: byID[p.SubID],
+		})
+	}
+	// Both queries already sort by the shared sequence; this merges the two
+	// sorted runs into the one list the operator arranged.
+	sort.SliceStable(out, func(i, j int) bool {
+		a, b := orderOf(out[i], nodes, proxies), orderOf(out[j], nodes, proxies)
+		if (a == 0) != (b == 0) {
+			return b == 0
+		}
+		return a < b
+	})
+	writeJSON(w, http.StatusOK, map[string]any{"entries": out})
+}
+
+func orderOf(e orderEntryView, nodes []store.Node, proxies []store.ExternalProxy) int {
+	if e.Kind == "node" {
+		for _, n := range nodes {
+			if n.ID == e.ID {
+				return n.SortOrder
+			}
+		}
+		return 0
+	}
+	for _, p := range proxies {
+		if p.ID == e.ID {
+			return p.SortOrder
+		}
+	}
+	return 0
+}
+
+func (s *Server) setProxyOrder(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Entries []struct {
+			Kind string `json:"kind"`
+			ID   string `json:"id"`
+		} `json:"entries"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeErr(w, http.StatusBadRequest, "body must be JSON")
+		return
+	}
+	entries := make([]store.ProxyOrderEntry, 0, len(req.Entries))
+	for _, e := range req.Entries {
+		if e.Kind != "node" && e.Kind != "external" {
+			writeErr(w, http.StatusBadRequest, `each entry needs a "kind" of "node" or "external"`)
+			return
+		}
+		entries = append(entries, store.ProxyOrderEntry{Kind: e.Kind, ID: e.ID})
+	}
+	if err := s.st.SetProxyOrder(entries); err != nil {
+		s.internalErr(w, "set proxy order", err)
+		return
+	}
+	s.audit(r, "proxy.order", "proxy", "", "", fmt.Sprintf("%d entries", len(entries)))
 	w.WriteHeader(http.StatusNoContent)
 }

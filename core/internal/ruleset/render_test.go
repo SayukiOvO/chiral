@@ -275,3 +275,63 @@ func TestNoPanelRuleWithoutAUsableBase(t *testing.T) {
 		t.Fatalf("emitted an empty-host rule:\n%s", r.Rules)
 	}
 }
+
+// The order inside every group is the order of the proxy list, and nothing
+// else. That is what makes "arrange the nodes once" enough: the operator sets
+// one list, and 节点选择 — and 自动选择, and each region group — comes out in
+// that order without a second setting that could disagree with the first.
+//
+// Also the reason the first member matters: a select group opens on it, so
+// whatever the operator put at the top is what a client picks by default.
+func TestGroupMembersFollowTheProxyListOrder(t *testing.T) {
+	// Deliberately not alphabetical, and not the order a previous version
+	// would have produced by sorting.
+	proxies := []string{"香港 03", "日本 01", "香港 01"}
+	r := render(t, regionINI, proxies...)
+
+	members := groupMembers(t, r.ProxyGroups, "🚀 节点选择")
+	// The literals the preset names come first, then the pattern's matches in
+	// list order.
+	want := []string{"♻️ 自动选择", "🇭🇰 香港", "🇯🇵 日本", "DIRECT"}
+	for i := range want {
+		if members[i] != want[i] {
+			t.Fatalf("节点选择 = %v, want it to start %v", members, want)
+		}
+	}
+
+	auto := groupMembers(t, r.ProxyGroups, "♻️ 自动选择")
+	for i, want := range proxies {
+		if auto[i] != want {
+			t.Fatalf("自动选择 = %v, want the proxy list order %v", auto, proxies)
+		}
+	}
+
+	hk := groupMembers(t, r.ProxyGroups, "🇭🇰 香港")
+	if len(hk) != 2 || hk[0] != "香港 03" || hk[1] != "香港 01" {
+		t.Fatalf("香港 = %v, want the two in list order (03 before 01)", hk)
+	}
+}
+
+// groupMembers reads one group's proxies back out of the rendered YAML, so the
+// assertion is about what a client will actually load.
+func groupMembers(t *testing.T, groups, name string) []string {
+	t.Helper()
+	var out []string
+	inGroup := false
+	inProxies := false
+	for _, line := range strings.Split(groups, "\n") {
+		switch {
+		case strings.HasPrefix(line, "  - name: "):
+			inGroup = strings.Contains(line, name)
+			inProxies = false
+		case inGroup && strings.HasPrefix(line, "    proxies:"):
+			inProxies = true
+		case inGroup && inProxies && strings.HasPrefix(line, "      - "):
+			out = append(out, strings.Trim(strings.TrimPrefix(line, "      - "), `"`))
+		}
+	}
+	if out == nil {
+		t.Fatalf("group %q not found in:\n%s", name, groups)
+	}
+	return out
+}

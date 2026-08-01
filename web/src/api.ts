@@ -287,6 +287,20 @@ export interface NodeAccessEntry {
   chained_via?: string;
 }
 
+/**
+ * One row of the single list that decides the order subscribers see — and,
+ * because the group generator walks that list, the order inside every group.
+ */
+export interface OrderEntry {
+  kind: "node" | "external";
+  id: string;
+  name: string;
+  /** "fleet", or the external source's name. */
+  source: string;
+  /** Only meaningful for a fleet node; absent for an external one. */
+  online?: boolean;
+}
+
 /** One subscriber, seen from an external node's side. */
 export interface ProxyUser {
   id: string;
@@ -436,6 +450,9 @@ export const api = {
     req<{ fleet: NodeAccessEntry[]; external: NodeAccessEntry[] }>("GET", `/api/users/${id}/nodes`),
   setUserNodeAccess: (id: string, denied: { denied_nodes: string[]; denied_proxies: string[] }) =>
     req<void>("PUT", `/api/users/${id}/nodes`, denied),
+  proxyOrder: () => req<{ entries: OrderEntry[] }>("GET", "/api/proxy-order"),
+  setProxyOrder: (entries: { kind: string; id: string }[]) =>
+    req<void>("PUT", "/api/proxy-order", { entries }),
   // The same relation as userNodeAccess, read from the node's end.
   externalProxyUsers: (subId: string, proxyId: string) =>
     req<{ users: ProxyUser[] }>("GET", `/api/externals/${subId}/proxies/${proxyId}/users`),

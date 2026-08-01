@@ -15,6 +15,17 @@ import (
 
 // --- client detection ---
 
+// assembleBodies is what these tests assert on: they are about how fragments
+// are joined for each client, not about where the operator put them. The
+// ordering has its own tests.
+func (s *Service) assembleBodies(u store.User, token, client string, bodies []string) Result {
+	placed := make([]placedFragment, 0, len(bodies))
+	for i, b := range bodies {
+		placed = append(placed, placedFragment{body: b, order: i + 1})
+	}
+	return s.assemble(u, token, client, placed)
+}
+
 func TestExplicitClientWins(t *testing.T) {
 	r := httptest.NewRequest("GET", "/sub/tok?client=clash", nil)
 	r.Header.Set("User-Agent", "v2rayN/6.0")
@@ -61,7 +72,7 @@ func TestStashBeatsClashWhenBothMatch(t *testing.T) {
 // --- assembly ---
 
 func TestVlessURIsAreOnePerLine(t *testing.T) {
-	r := (&Service{}).assemble(store.User{}, "", ClientVlessURI, []string{"vless://a@h:443#one", "vless://b@h:443#two"})
+	r := (&Service{}).assembleBodies(store.User{}, "", ClientVlessURI, []string{"vless://a@h:443#one", "vless://b@h:443#two"})
 	if r.Body != "vless://a@h:443#one\nvless://b@h:443#two" {
 		t.Errorf("got %q", r.Body)
 	}
@@ -71,7 +82,7 @@ func TestVlessURIsAreOnePerLine(t *testing.T) {
 }
 
 func TestXrayJSONIsAValidDocument(t *testing.T) {
-	r := (&Service{}).assemble(store.User{}, "", ClientXrayJSON, []string{`{"tag":"a","protocol":"vless"}`, `{"tag":"b","protocol":"vless"}`})
+	r := (&Service{}).assembleBodies(store.User{}, "", ClientXrayJSON, []string{`{"tag":"a","protocol":"vless"}`, `{"tag":"b","protocol":"vless"}`})
 	var parsed struct {
 		Outbounds []struct {
 			Tag string `json:"tag"`
@@ -86,7 +97,7 @@ func TestXrayJSONIsAValidDocument(t *testing.T) {
 }
 
 func TestXrayJSONWithOneFragmentHasNoTrailingComma(t *testing.T) {
-	r := (&Service{}).assemble(store.User{}, "", ClientXrayJSON, []string{`{"tag":"only"}`})
+	r := (&Service{}).assembleBodies(store.User{}, "", ClientXrayJSON, []string{`{"tag":"only"}`})
 	var parsed map[string]any
 	if err := jsonUnmarshal(r.Body, &parsed); err != nil {
 		t.Fatalf("not valid JSON: %v\n%s", err, r.Body)
@@ -95,7 +106,7 @@ func TestXrayJSONWithOneFragmentHasNoTrailingComma(t *testing.T) {
 
 func TestEmptySubscriptionIsStillValid(t *testing.T) {
 	// A user entitled to nothing must not receive a broken file.
-	r := (&Service{}).assemble(store.User{}, "", ClientXrayJSON, nil)
+	r := (&Service{}).assembleBodies(store.User{}, "", ClientXrayJSON, nil)
 	var parsed map[string]any
 	if err := jsonUnmarshal(r.Body, &parsed); err != nil {
 		t.Errorf("empty xray subscription is not valid JSON: %v\n%s", err, r.Body)
@@ -106,7 +117,7 @@ func TestEmptySubscriptionIsStillValid(t *testing.T) {
 }
 
 func TestClashDocumentHasProxiesAndAGroup(t *testing.T) {
-	r := (&Service{}).assemble(store.User{}, "", ClientClash, []string{
+	r := (&Service{}).assembleBodies(store.User{}, "", ClientClash, []string{
 		"name: tokyo-1\ntype: vless\nserver: 203.0.113.9\nport: 443",
 		"name: frankfurt-1\ntype: vless\nserver: 198.51.100.7\nport: 443",
 	})
@@ -127,7 +138,7 @@ func TestClashDocumentHasProxiesAndAGroup(t *testing.T) {
 }
 
 func TestClashGroupIsOmittedWhenThereAreNoProxies(t *testing.T) {
-	r := (&Service{}).assemble(store.User{}, "", ClientClash, nil)
+	r := (&Service{}).assembleBodies(store.User{}, "", ClientClash, nil)
 	if strings.Contains(r.Body, "proxy-groups:") {
 		t.Errorf("an empty subscription should not declare an empty group:\n%s", r.Body)
 	}
@@ -188,7 +199,7 @@ func TestNestedProxyOptionsKeepTheirStructure(t *testing.T) {
 		"  short-id: a1fcb027",
 		"client-fingerprint: chrome",
 	}, "\n")
-	body := (&Service{}).assemble(store.User{}, "", ClientClash, []string{fragment}).Body
+	body := (&Service{}).assembleBodies(store.User{}, "", ClientClash, []string{fragment}).Body
 
 	// The nested keys must stay deeper than the key that introduces them.
 	depth := func(needle string) int {
@@ -217,7 +228,7 @@ func TestNestedProxyOptionsKeepTheirStructure(t *testing.T) {
 // should still be anchored correctly under the list item.
 func TestIndentedFragmentIsReanchored(t *testing.T) {
 	fragment := "    name: tokyo-1\n    type: vless\n    reality-opts:\n      public-key: K"
-	body := (&Service{}).assemble(store.User{}, "", ClientClash, []string{fragment}).Body
+	body := (&Service{}).assembleBodies(store.User{}, "", ClientClash, []string{fragment}).Body
 	if !strings.Contains(body, "  - name: tokyo-1\n") {
 		t.Errorf("entry not anchored as a list item:\n%s", body)
 	}
@@ -230,7 +241,7 @@ func TestIndentedFragmentIsReanchored(t *testing.T) {
 }
 
 func TestBlankLinesInFragmentsAreDropped(t *testing.T) {
-	body := (&Service{}).assemble(store.User{}, "", ClientClash, []string{"name: a\n\ntype: vless\n"}).Body
+	body := (&Service{}).assembleBodies(store.User{}, "", ClientClash, []string{"name: a\n\ntype: vless\n"}).Body
 	if strings.Contains(body, "\n\n") {
 		t.Errorf("blank line survived into the document:\n%s", body)
 	}
@@ -242,7 +253,7 @@ func TestBlankLinesInFragmentsAreDropped(t *testing.T) {
 // good for them — often for reasons a latency probe cannot see, like which one
 // their bank tolerates — must not have that quietly replaced.
 func TestClashOffersBothManualAndAutomaticGroups(t *testing.T) {
-	r := (&Service{}).assemble(store.User{}, "", ClientClash, []string{
+	r := (&Service{}).assembleBodies(store.User{}, "", ClientClash, []string{
 		"name: tokyo-1\ntype: vless\nserver: 203.0.113.9\nport: 443",
 		"name: frankfurt-1\ntype: vless\nserver: 198.51.100.7\nport: 443",
 	})
@@ -405,7 +416,7 @@ func TestAllProfilesBrokenReportsZeroFragmentsAndWhy(t *testing.T) {
 // own name it puts "chiral" on all of their screens.
 func TestSubscriptionFilenameFollowsTheSetting(t *testing.T) {
 	st, svc, u := twoProfileFixture(t)
-	if got := svc.assemble(u, "", ClientClash, []string{"name: a"}).Filename; got != "chiral" {
+	if got := svc.assembleBodies(u, "", ClientClash, []string{"name: a"}).Filename; got != "chiral" {
 		t.Fatalf("default filename = %q", got)
 	}
 	if err := st.SetSetting(store.SettingSubscriptionName, "Mai 的机场"); err != nil {
@@ -419,7 +430,7 @@ func TestSubscriptionFilenameFollowsTheSetting(t *testing.T) {
 		{ClientXrayJSON, "Mai 的机场"},
 		{ClientVlessURI, "Mai 的机场"},
 	} {
-		got := svc.assemble(u, "", tc.client, []string{"name: a"}).Filename
+		got := svc.assembleBodies(u, "", tc.client, []string{"name: a"}).Filename
 		if got != tc.want {
 			t.Errorf("%s filename = %q, want %q", tc.client, got, tc.want)
 		}
@@ -443,7 +454,7 @@ func TestSubscriptionFilenameIsSafe(t *testing.T) {
 		if err := st.SetSetting(store.SettingSubscriptionName, tc.set); err != nil {
 			t.Fatal(err)
 		}
-		if got := svc.assemble(u, "", ClientClash, []string{"name: a"}).Filename; got != tc.want {
+		if got := svc.assembleBodies(u, "", ClientClash, []string{"name: a"}).Filename; got != tc.want {
 			t.Errorf("%q -> %q, want %q", tc.set, got, tc.want)
 		}
 	}
@@ -506,5 +517,26 @@ func TestSettingAccessReplacesRatherThanAdds(t *testing.T) {
 	denied, _ := st.UserNodeDenies(u.ID)
 	if len(denied) != 0 {
 		t.Fatalf("clearing left %v", denied)
+	}
+}
+
+// The one arrangement.
+//
+// Placed entries come out in the operator's order, and anything never placed
+// follows them rather than jumping the queue — a node added this morning
+// belongs at the end of the list, not in the middle of it.
+func TestTheOperatorsOrderIsWhatComesOut(t *testing.T) {
+	got := orderFragments([]placedFragment{
+		{body: "new-b", order: 0, tie: "b"},
+		{body: "third", order: 3, tie: "x"},
+		{body: "first", order: 1, tie: "x"},
+		{body: "new-a", order: 0, tie: "a"},
+		{body: "second", order: 2, tie: "x"},
+	})
+	want := []string{"first", "second", "third", "new-a", "new-b"}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("order = %v, want %v", got, want)
+		}
 	}
 }

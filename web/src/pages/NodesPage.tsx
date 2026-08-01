@@ -7,6 +7,7 @@ import { NodeConfigDialog } from "../components/NodeConfigDialog";
 import { Button } from "../components/ui";
 import { PlusIcon } from "../components/icons";
 import { ErrorBar } from "../components/primitives";
+import { ProxyOrder } from "../components/ProxyOrder";
 import { useT } from "../lib/i18n";
 
 const REFRESH_MS = 3000;
@@ -86,6 +87,12 @@ export function NodesPage({ onSignOut }: { onSignOut: () => void }) {
               onChanged={refresh}
               onConfigure={setConfiguring}
             />
+          </div>
+          {/* Below the roster, because it is about the fleet as a list rather
+              than about any node in it — and it covers the external nodes too,
+              which have no place of their own to be ordered from. */}
+          <div className="animate-rise" style={{ animationDelay: "120ms" }}>
+            <ProxyOrder />
           </div>
         </div>
       )}

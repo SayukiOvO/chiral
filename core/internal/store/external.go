@@ -41,7 +41,11 @@ type ExternalProxy struct {
 	ChainNodeID  string
 	ChainProxyID string
 	Enabled      bool
-	Ord          int
+	// Ord is the provider's own position in the source it came from.
+	Ord int
+	// SortOrder is this proxy's place in the operator's single list, shared
+	// with the fleet nodes. 0 means never placed; see migration 0022.
+	SortOrder int
 }
 
 // Label is the name this proxy goes out under — into the subscription, and
@@ -143,12 +147,12 @@ func (s *Store) SaveExternalFetch(id, body, failure string) error {
 	return err
 }
 
-const externalProxyCols = `id, sub_id, name, COALESCE(display_name, ''), type, server, port, config, COALESCE(chain_node_id, ''), COALESCE(chain_proxy_id, ''), enabled, ord`
+const externalProxyCols = `id, sub_id, name, COALESCE(display_name, ''), type, server, port, config, COALESCE(chain_node_id, ''), COALESCE(chain_proxy_id, ''), enabled, ord, sort_order`
 
 func scanExternalProxy(row interface{ Scan(...any) error }) (ExternalProxy, error) {
 	var p ExternalProxy
 	err := row.Scan(&p.ID, &p.SubID, &p.Name, &p.DisplayName, &p.Type, &p.Server, &p.Port, &p.Config,
-		&p.ChainNodeID, &p.ChainProxyID, &p.Enabled, &p.Ord)
+		&p.ChainNodeID, &p.ChainProxyID, &p.Enabled, &p.Ord, &p.SortOrder)
 	return p, err
 }
 
@@ -176,7 +180,7 @@ func (s *Store) EnabledExternalProxies() ([]ExternalProxy, error) {
 	rows, err := s.db.Query(`SELECT ` + externalProxyCols + ` FROM external_proxies p
 		WHERE p.enabled = 1 AND EXISTS (
 			SELECT 1 FROM external_subs e WHERE e.id = p.sub_id AND e.enabled = 1)
-		ORDER BY p.sub_id, p.ord`)
+		ORDER BY p.sort_order = 0, p.sort_order, p.sub_id, p.ord`)
 	if err != nil {
 		return nil, err
 	}
