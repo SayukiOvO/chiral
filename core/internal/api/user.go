@@ -276,6 +276,45 @@ func (s *Server) deleteUser(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// subToken hands back the link the subscriber already has.
+//
+// Reading it and replacing it were the same call until now — the console had no
+// way to show an operator a link except by minting a new one, so "let me check
+// what their link is" and "break every client they have configured" were the
+// same button. The token has been recoverable since M5 (users.sub_token_enc);
+// nothing but the absence of this handler required a reset to see it.
+//
+// requireWrite rather than the viewer tier: what comes back is a working
+// credential for every access point that subscriber has, which is the same
+// reasoning that moved config/preview off the viewer tier.
+func (s *Server) subToken(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	u, err := s.st.GetUser(id)
+	if err != nil {
+		s.notFoundOr(w, "load user", err, "no such user")
+		return
+	}
+	token, err := s.st.SubToken(id)
+	if err != nil {
+		s.internalErr(w, "read subscription token", err)
+		return
+	}
+	if token == "" {
+		// Created before recoverable storage, or sealed under a key this panel
+		// no longer has. Saying so is the point: the console can then offer a
+		// reset as a decision rather than performing one as a side effect.
+		writeJSON(w, http.StatusOK, map[string]any{"recoverable": false})
+		return
+	}
+	// Audited for the same reason the address list is: it is a credential, and
+	// who looked at it is worth being able to answer later.
+	s.audit(r, "user.sub_token_view", "user", u.ID, u.Name, "")
+	writeJSON(w, http.StatusOK, map[string]any{
+		"subscription_url": s.subscriptionURL(token),
+		"recoverable":      true,
+	})
+}
+
 func (s *Server) resetSubToken(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	u, err := s.st.GetUser(id)

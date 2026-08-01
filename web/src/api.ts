@@ -450,6 +450,11 @@ export const api = {
     req<{ fleet: NodeAccessEntry[]; external: NodeAccessEntry[] }>("GET", `/api/users/${id}/nodes`),
   setUserNodeAccess: (id: string, denied: { denied_nodes: string[]; denied_proxies: string[] }) =>
     req<void>("PUT", `/api/users/${id}/nodes`, denied),
+  // Reading the link and replacing it are different requests, because they are
+  // very different acts: one shows an operator what a subscriber already has,
+  // the other breaks every client that subscriber has configured.
+  subToken: (id: string) =>
+    req<{ subscription_url?: string; recoverable: boolean }>("GET", `/api/users/${id}/sub-token`),
   proxyOrder: () => req<{ entries: OrderEntry[] }>("GET", "/api/proxy-order"),
   setProxyOrder: (entries: { kind: string; id: string }[]) =>
     req<void>("PUT", "/api/proxy-order", { entries }),

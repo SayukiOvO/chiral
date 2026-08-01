@@ -23,7 +23,12 @@ export function UsersPage() {
   const [error, setError] = useState("");
   const [editing, setEditing] = useState<User | null>(null);
   const [creating, setCreating] = useState(false);
-  const [subscription, setSubscription] = useState<{ url: string; name: string } | null>(null);
+  const [subscription, setSubscription] = useState<{
+    url: string;
+    name: string;
+    id: string;
+    fresh: boolean;
+  } | null>(null);
 
   const refresh = useCallback(async () => {
     try {
@@ -85,7 +90,9 @@ export function UsersPage() {
                 rulesets={rulesets}
                 onChanged={refresh}
                 onEdit={() => setEditing(u)}
-                onSubscription={(url) => setSubscription({ url, name: u.name })}
+                onSubscription={(url, fresh) =>
+                  setSubscription({ url, name: u.name, id: u.id, fresh })
+                }
               />
             ))}
           </div>
@@ -103,7 +110,12 @@ export function UsersPage() {
             setEditing(null);
             refresh();
             if (created) {
-              setSubscription({ url: created.subscription_url, name: created.user.name });
+              setSubscription({
+                url: created.subscription_url,
+                name: created.user.name,
+                id: created.user.id,
+                fresh: true,
+              });
             }
           }}
         />
@@ -112,6 +124,12 @@ export function UsersPage() {
         <SubscriptionDialog
           url={subscription.url}
           userName={subscription.name}
+          fresh={subscription.fresh}
+          onReset={async () => {
+            const { subscription_url } = await api.resetSubToken(subscription.id);
+            setSubscription({ ...subscription, url: subscription_url, fresh: true });
+            refresh();
+          }}
           onClose={() => setSubscription(null)}
         />
       )}
@@ -132,7 +150,7 @@ function UserCard({
   rulesets: Ruleset[];
   onChanged: () => void;
   onEdit: () => void;
-  onSubscription: (url: string) => void;
+  onSubscription: (url: string, fresh: boolean) => void;
 }) {
   const { t, tf } = useT();
   const [confirming, setConfirming] = useState(false);
@@ -151,14 +169,22 @@ function UserCard({
     }
   }
 
-  async function resetLink() {
+  // Shows the link the subscriber already has. Replacing it lives inside the
+  // dialog, behind its own confirmation — looking must not cost anything.
+  async function showLink() {
     setBusy(true);
     try {
-      const { subscription_url } = await api.resetSubToken(user.id);
-      onSubscription(subscription_url);
-      onChanged();
+      const r = await api.subToken(user.id);
+      if (!r.recoverable || !r.subscription_url) {
+        // Created before the token was stored recoverably, or sealed under a
+        // key this panel no longer holds. A reset is the only way forward, and
+        // it is the operator's call rather than a silent consequence.
+        alert(t("这个用户的链接无法找回（早于可恢复存储，或密钥已更换）。只能重置成新链接。"));
+        return;
+      }
+      onSubscription(r.subscription_url, false);
     } catch (e) {
-      alert(t("重置订阅链接失败：") + (e as Error).message);
+      alert(t("获取订阅链接失败：") + (e as Error).message);
     } finally {
       setBusy(false);
     }
@@ -239,7 +265,7 @@ function UserCard({
           </div>
         ) : (
           <div className="flex items-center gap-1 opacity-70 transition-opacity group-hover:opacity-100">
-            <IconButton label={t("重置订阅链接")} onClick={resetLink} disabled={busy}>
+            <IconButton label={t("订阅链接")} onClick={showLink} disabled={busy}>
               <LinkIcon size={16} />
             </IconButton>
             {/* The only way to hand an existing subscriber a portal account,

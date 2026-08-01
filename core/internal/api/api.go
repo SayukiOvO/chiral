@@ -184,6 +184,7 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("GET /api/users/{id}", s.requireAdmin(s.getUser))
 	mux.Handle("PUT /api/users/{id}", s.requireWrite(s.updateUser))
 	mux.Handle("DELETE /api/users/{id}", s.requireWrite(s.deleteUser))
+	mux.Handle("GET /api/users/{id}/sub-token", s.requireWrite(s.subToken))
 	mux.Handle("POST /api/users/{id}/sub-token", s.requireWrite(s.resetSubToken))
 	mux.Handle("POST /api/users/{id}/profiles/{profileID}", s.requireWrite(s.bindUserProfile))
 	mux.Handle("DELETE /api/users/{id}/profiles/{profileID}", s.requireWrite(s.unbindUserProfile))

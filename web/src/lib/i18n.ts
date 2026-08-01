@@ -172,8 +172,8 @@ const EN: Record<string, string> = {
   "到期顺延一个周期，并清零已用流量":
     "On expiry, roll forward one period and reset usage",
   "改动立即下发至节点。": "Changes reach the nodes immediately.",
-  "订阅链接在创建后仅显示一次。":
-    "The subscription link is shown once, at creation.",
+  "创建后会给出订阅链接，之后随时可以回来查看。":
+    "The subscription link is shown on creation, and can be read again any time.",
   "流量配额须为 0 或正数（0 表示不限）":
     "Quota must be 0 or more (0 means unlimited)",
   "每 30 天": "Every 30 days",
@@ -221,6 +221,18 @@ const EN: Record<string, string> = {
   谁能用: "Who gets it",
   重新解析: "Re-read",
   账号安全: "Account security",
+  重置链接: "Replace link",
+  确认重置: "Replace it",
+  "重置中…": "Replacing…",
+  "换成新链接？该用户已配置的客户端全部需要重新导入。":
+    "Replace with a new link? Every client this subscriber has configured must be re-imported by hand.",
+  "这是一条新链接，之前的已失效。客户端将自动获取对应格式。":
+    "This is a new link; the previous one no longer works. Clients pick their own format automatically.",
+  "随时可以回来看，链接不会因为查看而改变。客户端将自动获取对应格式。":
+    "Come back to it any time — looking does not change it. Clients pick their own format automatically.",
+  "这个用户的链接无法找回（早于可恢复存储，或密钥已更换）。只能重置成新链接。":
+    "This subscriber's link cannot be recovered (it predates recoverable storage, or the key has changed). A new one is the only option.",
+  "获取订阅链接失败：": "Could not read the subscription link: ",
   订阅顺序: "Order subscribers see",
   "订阅者看到的节点顺序，也决定每个策略组内的顺序；组的第一个节点是客户端的默认选中项。":
     "The order nodes appear in, which is also the order inside every proxy group. A group opens on its first member, so that is what a client picks by default.",
@@ -370,12 +382,7 @@ const EN: Record<string, string> = {
   "运行中，未验证": "Running, unverified",
   已回滚: "Rolled back",
   // subscription dialog
-  订阅链接: "subscription link",
-  重置订阅链接: "Reset subscription link",
-  "面板仅保存令牌哈希，此链接": "The panel stores only a hash of the token, so this link is ",
-  只显示这一次: "shown only once",
-  "。客户端将自动获取对应格式。":
-    ". Clients receive the format they ask for.",
+  订阅链接: "Subscription link",
   "需要指定格式时可加": "To force a format, append",
   "的订阅链接": "'s subscription link",
 
