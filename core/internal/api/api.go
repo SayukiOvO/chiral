@@ -14,6 +14,7 @@ import (
 
 	"github.com/SayukiOvO/chiral/core/internal/alert"
 	"github.com/SayukiOvO/chiral/core/internal/auth"
+	"github.com/SayukiOvO/chiral/core/internal/external"
 	"github.com/SayukiOvO/chiral/core/internal/mail"
 	"github.com/SayukiOvO/chiral/core/internal/node"
 	"github.com/SayukiOvO/chiral/core/internal/passkey"
@@ -95,6 +96,10 @@ type Rulesets interface {
 // the external service.
 type Externals interface {
 	Refresh(ctx context.Context, id string) error
+	// Blocked reports which external proxies a subscriber cannot be given
+	// because of a chain that does not resolve for them, and what each one was
+	// chained through. The console needs the same answer the renderer reaches.
+	Blocked(denied map[string]struct{}, chainName func(nodeID string) string) (map[string]external.ChainRef, error)
 }
 
 // EnableExternals wires management of other people's subscriptions. Called at

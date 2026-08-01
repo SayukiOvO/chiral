@@ -218,6 +218,13 @@ const EN: Record<string, string> = {
   机队: "Fleet",
   订阅者: "Subscribers",
   运维: "Operations",
+  谁能用: "Who gets it",
+  "这样会让链路绕回自己。": "That would make the chain loop back on itself.",
+  "还没有订阅者。": "No subscribers yet.",
+  "取消后此节点不再出现在该订阅者的订阅里，下次刷新订阅时生效。":
+    "Unticked, this node stops appearing in that subscriber's subscription, from their next refresh.",
+  "别人提供的订阅或单条链接。每个节点可指定前置——本机队节点或另一个外部节点——链式出站。":
+    "Somebody else's subscription, or a single link. Each node can be dialled through another — one of this fleet's, or another external node.",
   // per-user node access
   可用节点: "Nodes they may use",
   自有节点: "Own nodes",

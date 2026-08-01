@@ -2,6 +2,7 @@ package external
 
 import (
 	"context"
+	"errors"
 	"io"
 	"log/slog"
 	"net/http"
@@ -82,7 +83,7 @@ func TestChainSurvivesARename(t *testing.T) {
 		t.Fatal(err)
 	}
 	before, _ := st.ExternalProxies(sub.ID)
-	if err := st.SetExternalProxy(before[0].ID, node.ID, true); err != nil {
+	if err := st.SetExternalProxy(before[0].ID, node.ID, "", true); err != nil {
 		t.Fatal(err)
 	}
 
@@ -140,7 +141,7 @@ func TestFragmentsCarryTheChain(t *testing.T) {
 		t.Fatal(err)
 	}
 	proxies, _ := st.ExternalProxies(sub.ID)
-	st.SetExternalProxy(proxies[0].ID, node.ID, true)
+	st.SetExternalProxy(proxies[0].ID, node.ID, "", true)
 
 	frags, err := svc.Fragments(nil, func(id string) string {
 		if id == node.ID {
@@ -173,7 +174,7 @@ func TestAProxyWhoseChainIsMissingIsLeftOut(t *testing.T) {
 	sub, _ := st.CreateExternalSub("provider", srv.URL, "")
 	svc.Refresh(context.Background(), sub.ID)
 	proxies, _ := st.ExternalProxies(sub.ID)
-	st.SetExternalProxy(proxies[0].ID, node.ID, true)
+	st.SetExternalProxy(proxies[0].ID, node.ID, "", true)
 
 	frags, err := svc.Fragments(nil, func(string) string { return "" })
 	if err != nil {
@@ -193,7 +194,7 @@ func TestDisabledSourcesAndProxiesAreLeftOut(t *testing.T) {
 	svc.Refresh(context.Background(), sub.ID)
 	proxies, _ := st.ExternalProxies(sub.ID)
 
-	st.SetExternalProxy(proxies[0].ID, "", false)
+	st.SetExternalProxy(proxies[0].ID, "", "", false)
 	frags, _ := svc.Fragments(nil, func(string) string { return "" })
 	if len(frags) != 1 {
 		t.Fatalf("a disabled proxy was carried: %v", frags)
@@ -288,5 +289,202 @@ func TestExternalOnlySubscriptionIsNotEmpty(t *testing.T) {
 	}
 	if len(frags) != 1 {
 		t.Fatalf("fragments = %d, want the external one", len(frags))
+	}
+}
+
+// The arrangement the chain exists for and could not express: a relay bought
+// from one provider, an exit from another, no fleet node in between.
+func TestAnExternalCanBeChainedThroughAnotherExternal(t *testing.T) {
+	st, svc := fixture(t)
+	srv, _ := serve(t, "proxies:\n"+
+		"  - {name: Relay, type: vless, server: r.example.com, port: 443, uuid: u1}\n"+
+		"  - {name: Exit, type: vless, server: e.example.com, port: 443, uuid: u2}\n")
+	sub, _ := st.CreateExternalSub("provider", srv.URL, "")
+	if err := svc.Refresh(context.Background(), sub.ID); err != nil {
+		t.Fatal(err)
+	}
+	p, _ := st.ExternalProxies(sub.ID)
+	relay, exit := p[0], p[1]
+	if err := st.SetExternalProxy(exit.ID, "", relay.ID, true); err != nil {
+		t.Fatal(err)
+	}
+
+	frags, err := svc.Fragments(nil, func(string) string { return "" })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(frags) != 2 {
+		t.Fatalf("fragments = %d, want both:\n%v", len(frags), frags)
+	}
+	var exitFrag string
+	for _, f := range frags {
+		if strings.Contains(f, "e.example.com") {
+			exitFrag = f
+		}
+	}
+	if !strings.Contains(exitFrag, `dialer-proxy: "Relay"`) {
+		t.Errorf("exit does not dial through the relay:\n%s", exitFrag)
+	}
+}
+
+// Denying the relay must take the exit with it, exactly as denying a fleet
+// relay does. Emitting the exit unchained would send the subscriber straight at
+// the provider — the one thing the setting prevents.
+func TestDenyingARelayDropsWhatChainsThroughIt(t *testing.T) {
+	st, svc := fixture(t)
+	srv, _ := serve(t, "proxies:\n"+
+		"  - {name: Relay, type: vless, server: r.example.com, port: 443, uuid: u1}\n"+
+		"  - {name: Exit, type: vless, server: e.example.com, port: 443, uuid: u2}\n")
+	sub, _ := st.CreateExternalSub("provider", srv.URL, "")
+	svc.Refresh(context.Background(), sub.ID)
+	p, _ := st.ExternalProxies(sub.ID)
+	relay, exit := p[0], p[1]
+	st.SetExternalProxy(exit.ID, "", relay.ID, true)
+
+	frags, err := svc.Fragments(map[string]struct{}{relay.ID: {}}, func(string) string { return "" })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(frags) != 0 {
+		t.Fatalf("the exit survived its relay being denied:\n%v", frags)
+	}
+	blocked, err := svc.Blocked(map[string]struct{}{relay.ID: {}}, func(string) string { return "" })
+	if err != nil {
+		t.Fatal(err)
+	}
+	ref, ok := blocked[exit.ID]
+	if !ok || ref.ID != relay.ID || !ref.External {
+		t.Fatalf("the console would not have been told why: %+v", blocked)
+	}
+}
+
+// Three deep, and the break is at the far end. A single pass over the list can
+// resolve this only if it happens to visit in the right order; the exit must go
+// whichever order it is visited in.
+func TestABreakPropagatesAlongTheWholeChain(t *testing.T) {
+	st, svc := fixture(t)
+	srv, _ := serve(t, "proxies:\n"+
+		"  - {name: A, type: vless, server: a.example.com, port: 443, uuid: u1}\n"+
+		"  - {name: B, type: vless, server: b.example.com, port: 443, uuid: u2}\n"+
+		"  - {name: C, type: vless, server: c.example.com, port: 443, uuid: u3}\n")
+	node, _ := st.CreateNode("relay", "hash-chain-deep")
+	sub, _ := st.CreateExternalSub("provider", srv.URL, "")
+	svc.Refresh(context.Background(), sub.ID)
+	p, _ := st.ExternalProxies(sub.ID)
+	// C -> B -> A -> fleet node.
+	st.SetExternalProxy(p[0].ID, node.ID, "", true)
+	st.SetExternalProxy(p[1].ID, "", p[0].ID, true)
+	st.SetExternalProxy(p[2].ID, "", p[1].ID, true)
+
+	frags, err := svc.Fragments(nil, func(id string) string {
+		if id == node.ID {
+			return "东京 01"
+		}
+		return ""
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(frags) != 3 {
+		t.Fatalf("a whole intact chain did not render: %v", frags)
+	}
+
+	// Now the fleet node is not in this subscription. All three must go.
+	frags, err = svc.Fragments(nil, func(string) string { return "" })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(frags) != 0 {
+		t.Fatalf("the chain survived losing its far end:\n%v", frags)
+	}
+}
+
+// A chain that loops has no rendering, so it must not be storable. Refusing the
+// write is the only place an operator finds out; the alternative is two proxies
+// silently missing from every subscription.
+func TestAChainCannotLoop(t *testing.T) {
+	st, svc := fixture(t)
+	srv, _ := serve(t, "proxies:\n"+
+		"  - {name: A, type: vless, server: a.example.com, port: 443, uuid: u1}\n"+
+		"  - {name: B, type: vless, server: b.example.com, port: 443, uuid: u2}\n")
+	sub, _ := st.CreateExternalSub("provider", srv.URL, "")
+	svc.Refresh(context.Background(), sub.ID)
+	p, _ := st.ExternalProxies(sub.ID)
+
+	if err := st.SetExternalProxy(p[0].ID, "", p[0].ID, true); !errors.Is(err, store.ErrChainCycle) {
+		t.Errorf("a proxy chained through itself was accepted: %v", err)
+	}
+	if err := st.SetExternalProxy(p[1].ID, "", p[0].ID, true); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetExternalProxy(p[0].ID, "", p[1].ID, true); !errors.Is(err, store.ErrChainCycle) {
+		t.Errorf("A->B->A was accepted: %v", err)
+	}
+}
+
+// One setting, two kinds of value. Switching a proxy from a fleet relay to an
+// external one must not leave both recorded.
+func TestTheTwoChainTargetsAreExclusive(t *testing.T) {
+	st, svc := fixture(t)
+	srv, _ := serve(t, "proxies:\n"+
+		"  - {name: A, type: vless, server: a.example.com, port: 443, uuid: u1}\n"+
+		"  - {name: B, type: vless, server: b.example.com, port: 443, uuid: u2}\n")
+	node, _ := st.CreateNode("relay", "hash-exclusive")
+	sub, _ := st.CreateExternalSub("provider", srv.URL, "")
+	svc.Refresh(context.Background(), sub.ID)
+	p, _ := st.ExternalProxies(sub.ID)
+
+	if err := st.SetExternalProxy(p[1].ID, node.ID, "", true); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetExternalProxy(p[1].ID, "", p[0].ID, true); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := st.GetExternalProxy(p[1].ID)
+	if got.ChainNodeID != "" {
+		t.Errorf("the fleet target survived being replaced: %q", got.ChainNodeID)
+	}
+	if got.ChainProxyID != p[0].ID {
+		t.Errorf("chain proxy = %q", got.ChainProxyID)
+	}
+	if err := st.SetExternalProxy(p[1].ID, node.ID, p[0].ID, true); err == nil {
+		t.Error("both targets at once was accepted")
+	}
+}
+
+// Reading the relation from the node's end must agree with reading it from the
+// subscriber's. They are the same rows.
+func TestProxyAccessReadsBothWays(t *testing.T) {
+	st, svc := fixture(t)
+	srv, _ := serve(t, "proxies:\n  - {name: A, type: vless, server: a.example.com, port: 443, uuid: u1}\n")
+	sub, _ := st.CreateExternalSub("provider", srv.URL, "")
+	svc.Refresh(context.Background(), sub.ID)
+	p, _ := st.ExternalProxies(sub.ID)
+	alice, err := st.CreateUser(store.User{Name: "alice", Enabled: true}, "hash-alice")
+	if err != nil {
+		t.Fatal(err)
+	}
+	bob, err := st.CreateUser(store.User{Name: "bob", Enabled: true}, "hash-bob")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := st.SetExternalProxyAccess(p[0].ID, []string{alice.ID}); err != nil {
+		t.Fatal(err)
+	}
+	from, _ := st.UserExternalDenies(alice.ID)
+	if _, ok := from[p[0].ID]; !ok {
+		t.Error("the user side does not see the denial the node side wrote")
+	}
+	if others, _ := st.UserExternalDenies(bob.ID); len(others) != 0 {
+		t.Errorf("denying alice touched bob: %v", others)
+	}
+	// And writing from the user side is visible from the node side.
+	if err := st.SetUserNodeAccess(bob.ID, nil, []string{p[0].ID}); err != nil {
+		t.Fatal(err)
+	}
+	back, _ := st.ExternalProxyDenies(p[0].ID)
+	if _, ok := back[bob.ID]; !ok {
+		t.Error("the node side does not see the denial the user side wrote")
 	}
 }

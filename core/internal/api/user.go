@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/SayukiOvO/chiral/core/internal/auth"
+	"github.com/SayukiOvO/chiral/core/internal/external"
 	"github.com/SayukiOvO/chiral/core/internal/store"
 	"github.com/SayukiOvO/chiral/core/internal/user"
 )
@@ -545,36 +546,74 @@ func (s *Server) userNodeAccess(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Which chains break for this subscriber, answered by the same code that
+	// renders the subscription rather than by a second copy of the rule here.
+	// The two must agree — the whole point of the marking is to predict what
+	// the subscription will do — and a rule stated twice is a rule that will
+	// eventually be stated two ways.
+	blocked := map[string]external.ChainRef{}
+	proxyName := map[string]string{}
+	if s.externals != nil {
+		carried := func(nodeID string) string {
+			if _, ok := entitled[nodeID]; !ok {
+				return ""
+			}
+			if _, no := deniedNodes[nodeID]; no {
+				return ""
+			}
+			return nodeName[nodeID]
+		}
+		if b, err := s.externals.Blocked(deniedProxies, carried); err == nil {
+			blocked = b
+		}
+	}
+
 	ext := []nodeAccessEntry{}
 	if subs, err := s.st.ListExternalSubs(); err == nil {
+		type row struct {
+			p   store.ExternalProxy
+			src string
+		}
+		var rows []row
 		for _, sub := range subs {
 			proxies, err := s.st.ExternalProxies(sub.ID)
 			if err != nil {
 				continue
 			}
 			for _, p := range proxies {
-				_, denied := deniedProxies[p.ID]
-				// A relay this subscription will not carry — not entitled, or
-				// denied — takes everything chained through it with it.
-				var via string
-				if p.ChainNodeID != "" {
-					_, ok := entitled[p.ChainNodeID]
-					_, no := deniedNodes[p.ChainNodeID]
-					if !ok || no {
-						via = nodeName[p.ChainNodeID]
-						if via == "" {
-							via = p.ChainNodeID
-						}
-					}
-				}
-				ext = append(ext, nodeAccessEntry{
-					ID: p.ID, Name: p.Name, Source: sub.Name,
-					// An external node reaches every subscriber unless denied;
-					// there is no profile in between to be entitled by.
-					Allowed: !denied, Entitled: sub.Enabled && p.Enabled,
-					ChainedVia: via,
-				})
+				proxyName[p.ID] = p.Name
+				rows = append(rows, row{p, sub.Name})
 			}
+		}
+		for _, r := range rows {
+			p := r.p
+			_, denied := deniedProxies[p.ID]
+			// A relay this subscription will not carry takes everything chained
+			// through it with it, however deep the chain runs.
+			var via string
+			if ref, no := blocked[p.ID]; no {
+				if ref.External {
+					via = proxyName[ref.ID]
+				} else {
+					via = nodeName[ref.ID]
+				}
+				if via == "" {
+					via = ref.ID
+				}
+			}
+			enabled := true
+			for _, sub := range subs {
+				if sub.ID == p.SubID {
+					enabled = sub.Enabled
+				}
+			}
+			ext = append(ext, nodeAccessEntry{
+				ID: p.ID, Name: p.Name, Source: r.src,
+				// An external node reaches every subscriber unless denied;
+				// there is no profile in between to be entitled by.
+				Allowed: !denied, Entitled: enabled && p.Enabled,
+				ChainedVia: via,
+			})
 		}
 	}
 

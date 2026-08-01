@@ -132,30 +132,93 @@ func (s *Service) fetch(ctx context.Context, url string) (string, error) {
 // proxies — the chain has to reference a proxy the same
 // document defines, and that name is the customer-facing one, not the node id.
 func (s *Service) Fragments(denied map[string]struct{}, chainName func(nodeID string) string) ([]string, error) {
-	proxies, err := s.st.EnabledExternalProxies()
+	proxies, carried, _, err := s.carried(denied, chainName)
 	if err != nil {
 		return nil, err
 	}
-	out := make([]string, 0, len(proxies))
+	out := make([]string, 0, len(carried))
 	for _, p := range proxies {
-		if _, no := denied[p.ID]; no {
+		if _, ok := carried[p.ID]; !ok {
 			continue
 		}
 		body := p.Config
-		if p.ChainNodeID != "" {
-			via := chainName(p.ChainNodeID)
-			if via == "" {
-				// The chain node is gone or is not in this subscription.
-				// Emitting the proxy without its chain would quietly send the
-				// subscriber straight at the provider, which is the one thing
-				// the setting exists to prevent, so it is left out instead.
-				continue
+		if target, external, chained := p.ChainTarget(); chained {
+			via := chainName(target)
+			if external {
+				via = carried[target].Name
 			}
 			body = appendYAMLKey(body, "dialer-proxy", via)
 		}
 		out = append(out, body)
 	}
 	return out, nil
+}
+
+// ChainRef names what a proxy is dialled through.
+type ChainRef struct {
+	ID       string
+	External bool
+}
+
+// Blocked reports the external proxies this subscriber would otherwise get but
+// cannot, each mapped to the chain target it is missing. The console uses it to
+// show a node as unreachable instead of leaving its toggle looking on; the
+// subscription itself takes the same answer from the same code, so the two
+// cannot drift.
+func (s *Service) Blocked(denied map[string]struct{}, chainName func(nodeID string) string) (map[string]ChainRef, error) {
+	_, _, blocked, err := s.carried(denied, chainName)
+	return blocked, err
+}
+
+// carried resolves which proxies survive their chains.
+//
+// Carried starts as everything this subscriber is allowed, then loses whatever
+// cannot resolve its chain — including anything chained through something that
+// just dropped out. One pass is not enough now that a proxy can be dialled
+// through another proxy: A through B through a fleet node the subscriber does
+// not have means A must go too, and A may be visited before B. Iterating to a
+// fixpoint settles that regardless of order, and terminates because each round
+// either removes a proxy or stops.
+func (s *Service) carried(denied map[string]struct{}, chainName func(nodeID string) string) (
+	all []store.ExternalProxy, carried map[string]store.ExternalProxy, blocked map[string]ChainRef, err error) {
+	all, err = s.st.EnabledExternalProxies()
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	carried = make(map[string]store.ExternalProxy, len(all))
+	for _, p := range all {
+		if _, no := denied[p.ID]; no {
+			continue
+		}
+		carried[p.ID] = p
+	}
+	blocked = map[string]ChainRef{}
+	for changed := true; changed; {
+		changed = false
+		for id, p := range carried {
+			target, external, chained := p.ChainTarget()
+			if !chained {
+				continue
+			}
+			ok := false
+			if external {
+				_, ok = carried[target]
+			} else {
+				ok = chainName(target) != ""
+			}
+			if !ok {
+				// The chain target is gone, disabled, denied to this
+				// subscriber, or dropped for the same reason one step further
+				// along. Emitting the proxy without its chain would quietly
+				// send them straight at the provider, which is the one thing
+				// the setting exists to prevent, so it is left out instead.
+				delete(carried, id)
+				blocked[id] = ChainRef{ID: target, External: external}
+				changed = true
+			}
+		}
+	}
+	return all, carried, blocked, nil
 }
 
 // appendYAMLKey adds one scalar entry to a rendered mapping.

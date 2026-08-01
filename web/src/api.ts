@@ -287,6 +287,13 @@ export interface NodeAccessEntry {
   chained_via?: string;
 }
 
+/** One subscriber, seen from an external node's side. */
+export interface ProxyUser {
+  id: string;
+  name: string;
+  allowed: boolean;
+}
+
 export interface Settings {
   /** What a subscription is called when it reaches a client. */
   subscription_name: string;
@@ -300,6 +307,8 @@ export interface ExternalProxy {
   port: number;
   /** Fleet node this one is dialled through; empty for a direct dial. */
   chain_node_id: string;
+  /** Another external node this one dials through; at most one of the two. */
+  chain_proxy_id: string;
   enabled: boolean;
 }
 
@@ -424,6 +433,11 @@ export const api = {
     req<{ fleet: NodeAccessEntry[]; external: NodeAccessEntry[] }>("GET", `/api/users/${id}/nodes`),
   setUserNodeAccess: (id: string, denied: { denied_nodes: string[]; denied_proxies: string[] }) =>
     req<void>("PUT", `/api/users/${id}/nodes`, denied),
+  // The same relation as userNodeAccess, read from the node's end.
+  externalProxyUsers: (subId: string, proxyId: string) =>
+    req<{ users: ProxyUser[] }>("GET", `/api/externals/${subId}/proxies/${proxyId}/users`),
+  setExternalProxyUsers: (subId: string, proxyId: string, denied: { denied_users: string[] }) =>
+    req<void>("PUT", `/api/externals/${subId}/proxies/${proxyId}/users`, denied),
 
   getSettings: () => req<Settings>("GET", "/api/settings"),
   updateSettings: (patch: { subscription_name?: string }) =>
@@ -439,7 +453,7 @@ export const api = {
   setExternalProxy: (
     subId: string,
     proxyId: string,
-    patch: { chain_node_id?: string; enabled?: boolean },
+    patch: { chain_node_id?: string; chain_proxy_id?: string; enabled?: boolean },
   ) => req<void>("PUT", `/api/externals/${subId}/proxies/${proxyId}`, patch),
 
   listRulesets: () => req<{ rulesets: Ruleset[] }>("GET", "/api/rulesets"),

@@ -2,6 +2,7 @@ package store
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
 	"time"
 )
@@ -31,10 +32,23 @@ type ExternalProxy struct {
 	Port   int
 	Config string
 	// ChainNodeID is the fleet node this one is reached through, empty for a
-	// direct dial.
-	ChainNodeID string
-	Enabled     bool
-	Ord         int
+	// direct dial. ChainProxyID is the same for another external node. At most
+	// one of the two is set.
+	ChainNodeID  string
+	ChainProxyID string
+	Enabled      bool
+	Ord          int
+}
+
+// ChainTarget reports what this proxy is dialled through, if anything.
+func (p ExternalProxy) ChainTarget() (id string, external bool, chained bool) {
+	switch {
+	case p.ChainProxyID != "":
+		return p.ChainProxyID, true, true
+	case p.ChainNodeID != "":
+		return p.ChainNodeID, false, true
+	}
+	return "", false, false
 }
 
 const externalSubCols = `id, name, url, body, enabled, fetched_at, last_error, created_at, updated_at`
@@ -114,12 +128,12 @@ func (s *Store) SaveExternalFetch(id, body, failure string) error {
 	return err
 }
 
-const externalProxyCols = `id, sub_id, name, type, server, port, config, COALESCE(chain_node_id, ''), enabled, ord`
+const externalProxyCols = `id, sub_id, name, type, server, port, config, COALESCE(chain_node_id, ''), COALESCE(chain_proxy_id, ''), enabled, ord`
 
 func scanExternalProxy(row interface{ Scan(...any) error }) (ExternalProxy, error) {
 	var p ExternalProxy
 	err := row.Scan(&p.ID, &p.SubID, &p.Name, &p.Type, &p.Server, &p.Port, &p.Config,
-		&p.ChainNodeID, &p.Enabled, &p.Ord)
+		&p.ChainNodeID, &p.ChainProxyID, &p.Enabled, &p.Ord)
 	return p, err
 }
 
@@ -219,8 +233,8 @@ func (s *Store) ReplaceExternalProxies(subID string, fresh []ExternalProxy) erro
 		}
 		id := NewID()
 		if _, err := tx.Exec(`INSERT INTO external_proxies
-			(id, sub_id, name, type, server, port, config, chain_node_id, enabled, ord)
-			VALUES (?, ?, ?, ?, ?, ?, ?, NULL, 1, ?)`,
+			(id, sub_id, name, type, server, port, config, chain_node_id, chain_proxy_id, enabled, ord)
+			VALUES (?, ?, ?, ?, ?, ?, ?, NULL, NULL, 1, ?)`,
 			id, subID, p.Name, p.Type, p.Server, p.Port, p.Config, i); err != nil {
 			return err
 		}
@@ -242,14 +256,28 @@ func endpointKey(server string, port int, typ string) string {
 	return fmt.Sprintf("%s|%d|%s", server, port, typ)
 }
 
+// ErrChainCycle reports a chain that would come back round to itself.
+var ErrChainCycle = errors.New("that would make the chain loop back on itself")
+
 // SetExternalProxy records the operator's settings for one proxy.
-func (s *Store) SetExternalProxy(id, chainNodeID string, enabled bool) error {
-	var chain any
-	if chainNodeID != "" {
-		chain = chainNodeID
+//
+// chainNodeID and chainProxyID are mutually exclusive: a proxy is dialled
+// directly, through a fleet node, or through another external node. The last of
+// those can loop — A through B through A — which is rejected here rather than
+// left for the renderer, because a setting that silently drops both proxies from
+// every subscription is worse than one that refuses to be saved.
+func (s *Store) SetExternalProxy(id, chainNodeID, chainProxyID string, enabled bool) error {
+	if chainNodeID != "" && chainProxyID != "" {
+		return errors.New("a proxy is chained through one thing, not two")
 	}
-	res, err := s.db.Exec(`UPDATE external_proxies SET chain_node_id = ?, enabled = ? WHERE id = ?`,
-		chain, enabled, id)
+	if chainProxyID != "" {
+		if err := s.checkExternalChain(id, chainProxyID); err != nil {
+			return err
+		}
+	}
+	res, err := s.db.Exec(`UPDATE external_proxies
+		SET chain_node_id = ?, chain_proxy_id = ?, enabled = ? WHERE id = ?`,
+		nullIfEmpty(chainNodeID), nullIfEmpty(chainProxyID), enabled, id)
 	if err != nil {
 		return err
 	}
@@ -257,6 +285,46 @@ func (s *Store) SetExternalProxy(id, chainNodeID string, enabled bool) error {
 		return sql.ErrNoRows
 	}
 	return nil
+}
+
+// checkExternalChain walks from the proposed target and fails if it arrives
+// back at id. The walk is bounded by the number of rows, so a cycle that is
+// already in the table — put there by a hand-edited database — terminates too.
+func (s *Store) checkExternalChain(id, target string) error {
+	if id == target {
+		return ErrChainCycle
+	}
+	next := map[string]string{}
+	rows, err := s.db.Query(`SELECT id, COALESCE(chain_proxy_id, '') FROM external_proxies`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var from, to string
+		if err := rows.Scan(&from, &to); err != nil {
+			return err
+		}
+		if to != "" {
+			next[from] = to
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	for at, steps := target, 0; at != "" && steps <= len(next); at, steps = next[at], steps+1 {
+		if at == id {
+			return ErrChainCycle
+		}
+	}
+	return nil
+}
+
+func nullIfEmpty(s string) any {
+	if s == "" {
+		return nil
+	}
+	return s
 }
 
 // UserNodeDenies lists the fleet nodes this subscriber may not use.
@@ -317,6 +385,46 @@ func (s *Store) SetUserNodeAccess(userID string, deniedNodes, deniedProxies []st
 	for _, id := range deniedProxies {
 		if _, err := tx.Exec(`INSERT OR IGNORE INTO user_external_denies (user_id, proxy_id) VALUES (?, ?)`,
 			userID, id); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
+// GetExternalProxy loads one proxy by id, across sources.
+func (s *Store) GetExternalProxy(id string) (ExternalProxy, error) {
+	return scanExternalProxy(s.db.QueryRow(
+		`SELECT `+externalProxyCols+` FROM external_proxies WHERE id = ?`, id))
+}
+
+// ExternalProxyDenies lists the subscribers who may not use one external node.
+//
+// The mirror of UserExternalDenies. The relation is the same one; which end you
+// read it from is a question about what the operator is doing — going through a
+// person's entitlements, or deciding who a newly added node is for.
+func (s *Store) ExternalProxyDenies(proxyID string) (map[string]struct{}, error) {
+	return s.denySet(`SELECT user_id FROM user_external_denies WHERE proxy_id = ?`, proxyID)
+}
+
+// SetExternalProxyAccess replaces the set of subscribers denied one external
+// node, leaving every other node's denials alone.
+//
+// Whole-set for this proxy, per the same reasoning as SetUserNodeAccess: the
+// console shows the whole list of subscribers and the operator is describing an
+// end state, not a sequence of toggles.
+func (s *Store) SetExternalProxyAccess(proxyID string, deniedUsers []string) error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err := tx.Exec(`DELETE FROM user_external_denies WHERE proxy_id = ?`, proxyID); err != nil {
+		return err
+	}
+	for _, id := range deniedUsers {
+		if _, err := tx.Exec(
+			`INSERT OR IGNORE INTO user_external_denies (user_id, proxy_id) VALUES (?, ?)`,
+			id, proxyID); err != nil {
 			return err
 		}
 	}
