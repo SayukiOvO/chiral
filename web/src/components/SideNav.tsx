@@ -101,8 +101,18 @@ export function SideNav({ route, onSignOut }: { route: Route; onSignOut: () => v
           <span className="text-signal">
             <Mark size={20} />
           </span>
-          <span className="font-display text-[16px] font-semibold tracking-tight">Chiral</span>
+          {/* The wordmark is the first thing to go on a narrow phone: the mark
+              still says where you are, and the two toggles do not shrink. */}
+          <span className="hidden font-display text-[16px] font-semibold tracking-tight min-[360px]:inline">
+            Chiral
+          </span>
         </a>
+        {/* The phone's top-right. The desktop plate would float over content a
+            small screen cannot spare, and this bar is already pinned there. */}
+        <div className="ml-auto flex items-center gap-1">
+          <LangToggle />
+          <ThemeToggle />
+        </div>
       </header>
 
       {open && (
@@ -189,21 +199,18 @@ export function SideNav({ route, onSignOut }: { route: Route; onSignOut: () => v
         <div className="shrink-0 border-t border-line p-2">
           <AccountMenu route={route} collapsed={collapsed} onSignOut={onSignOut} />
         </div>
-        {/* Its own line, because it is the one control that is about the nav
-            itself rather than about the operator. */}
-        <div className={cn("hidden shrink-0 border-t border-line p-2 lg:block")}>
-          <button
-            onClick={() => setCollapsed((v) => !v)}
-            aria-label={t(collapsed ? "展开侧栏" : "收起侧栏")}
-            title={t(collapsed ? "展开侧栏" : "收起侧栏")}
-            className={cn(
-              "flex h-8 w-full items-center rounded-lg px-2.5 text-muted transition-colors hover:bg-[color-mix(in_srgb,var(--muted)_10%,transparent)] hover:text-ink",
-              collapsed ? "justify-center px-0" : "justify-end",
-            )}
-          >
-            <ChevronIcon size={16} flip={!collapsed} />
-          </button>
-        </div>
+        {/* On the edge itself rather than in a row of its own. A whole
+            bordered strip for one chevron was a lot of furniture for a very
+            small thing, and it read as a gap someone forgot to fill. Here it
+            costs no layout at all and sits in the same place at either width. */}
+        <button
+          onClick={() => setCollapsed((v) => !v)}
+          aria-label={t(collapsed ? "展开侧栏" : "收起侧栏")}
+          title={t(collapsed ? "展开侧栏" : "收起侧栏")}
+          className="absolute -right-3 top-1/2 z-10 hidden h-6 w-6 -translate-y-1/2 place-items-center rounded-full border border-line bg-paper text-faint shadow-[var(--shadow-card)] transition-colors hover:border-signal hover:text-ink lg:grid"
+        >
+          <ChevronIcon size={13} flip={!collapsed} />
+        </button>
       </aside>
     </>
   );
@@ -260,20 +267,8 @@ function AccountMenu({
       {open && (
         <div
           // Upwards: it hangs off the bottom of the page.
-          className="absolute bottom-full left-0 z-50 mb-2 w-[212px] rounded-xl border border-line bg-paper p-2 shadow-[var(--shadow-lift)]"
+          className="absolute bottom-full left-0 z-50 mb-2 w-[180px] rounded-xl border border-line bg-paper p-1.5 shadow-[var(--shadow-lift)]"
         >
-          <div className="px-1.5 pb-1.5 text-[10px] uppercase tracking-[0.09em] text-faint">
-            {t("外观")}
-          </div>
-          <div className="flex items-center justify-between gap-2 px-1.5 pb-2">
-            <span className="text-xs text-muted">{t("主题")}</span>
-            <ThemeToggle />
-          </div>
-          <div className="flex items-center justify-between gap-2 px-1.5 pb-2">
-            <span className="text-xs text-muted">{t("语言")}</span>
-            <LangToggle />
-          </div>
-          <div className="my-1 border-t border-line" />
           <a
             href={href({ view: "security" })}
             className={cn(

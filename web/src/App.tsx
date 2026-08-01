@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { api, getToken, setToken } from "./api";
 import { SideNav } from "./components/SideNav";
+import { Utilities } from "./components/Utilities";
 import { LoginPage } from "./components/LoginPage";
 import { NodesPage } from "./pages/NodesPage";
 import { ProfilesPage } from "./pages/ProfilesPage";
@@ -38,7 +39,10 @@ function Console({ onSignOut }: { onSignOut: () => void }) {
   return (
     <div className="flex min-h-screen flex-col lg:flex-row">
       <SideNav route={route} onSignOut={onSignOut} />
-      <main className="min-w-0 flex-1 px-5 py-7 sm:px-8 sm:py-9">
+      <main className="min-w-0 flex-1 px-5 pb-7 pt-6 sm:px-8 sm:pb-9 lg:pt-0">
+        {/* Above the page's own heading, so the heading keeps the left edge to
+            itself and every page's primary action keeps the right. */}
+        <Utilities />
         {route.view === "nodes" && <NodesPage onSignOut={onSignOut} />}
         {route.view === "profiles" && <ProfilesPage id={route.id} />}
         {route.view === "users" && <UsersPage />}
