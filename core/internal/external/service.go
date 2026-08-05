@@ -225,6 +225,13 @@ func (s *Service) carried(denied map[string]struct{}, chainName func(nodeID stri
 		if _, no := denied[p.ID]; no {
 			continue
 		}
+		// A relayed proxy is not a line in anybody's subscription: a node of
+		// this fleet carries it, and the subscriber reaches it by connecting
+		// to that node. Handing them the provider's address as well would
+		// give back everything relaying was for.
+		if p.Relayed() && !p.RelayExposed {
+			continue
+		}
 		carried[p.ID] = p
 	}
 	blocked = map[string]ChainRef{}

@@ -156,7 +156,7 @@ func TestCredentialSecretIsCiphertextOnDisk(t *testing.T) {
 	if !secret.IsEncrypted(raw) {
 		t.Errorf("not encrypted: %q", raw)
 	}
-	back, err := s.FindCredential(u.ID, p.ID, n.ID)
+	back, err := s.FindCredential(u.ID, p.ID, n.ID, "")
 	if err != nil {
 		t.Fatal(err)
 	}

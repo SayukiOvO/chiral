@@ -30,6 +30,9 @@ func (s *Server) routeTemplates(mux *http.ServeMux) {
 	mux.Handle("DELETE /api/profiles/{id}/nodes/{nodeId}", s.requireWrite(s.unbindNode))
 	mux.Handle("POST /api/profiles/{id}/apply", s.requireWrite(s.applyProfile))
 
+	// Read and write sit at the same level: a skeleton may carry an outbound
+	// to an upstream provider, credential and all.
+	mux.Handle("GET /api/nodes/{id}/skeleton", s.requireWrite(s.getSkeleton))
 	mux.Handle("PUT /api/nodes/{id}/skeleton", s.requireWrite(s.putSkeleton))
 	// Write, not read. The preview is the fully assembled config.json: every
 	// REALITY private key and every user's credential in the clear. Reading it
@@ -467,6 +470,31 @@ func (s *Server) applyProfile(w http.ResponseWriter, r *http.Request) {
 }
 
 // --- node config assembly ---
+
+// getSkeleton returns what the operator wrote, or the default when they have
+// written nothing.
+//
+// Its absence was a way to lose work: the console's editor had nowhere to load
+// from, so it opened on the default text, and saving from there replaced a
+// node's dns, routing and outbounds with a skeleton the operator never wrote.
+func (s *Server) getSkeleton(w http.ResponseWriter, r *http.Request) {
+	n, err := s.st.GetNode(r.PathValue("id"))
+	if err != nil {
+		s.notFoundOr(w, "load node", err, "no such node")
+		return
+	}
+	skeleton := n.ConfigSkeleton
+	custom := skeleton != ""
+	if !custom {
+		skeleton = template.DefaultSkeleton
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"skeleton": json.RawMessage(skeleton),
+		// So the console can say whether it is showing the operator's own
+		// skeleton or the default it would start from.
+		"custom": custom,
+	})
+}
 
 func (s *Server) putSkeleton(w http.ResponseWriter, r *http.Request) {
 	// Decode into a map, not RawMessage: `null` is valid JSON but not a valid

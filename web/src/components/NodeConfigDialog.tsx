@@ -30,6 +30,17 @@ export function NodeConfigDialog({ node, onClose }: { node: Node; onClose: () =>
   const [busy, setBusy] = useState(false);
   const [applied, setApplied] = useState("");
 
+  // The operator's own skeleton, not the default: this editor writes back
+  // whatever is in it, so it has to open on what is actually stored.
+  async function loadSkeleton() {
+    try {
+      const r = await api.getSkeleton(node.id);
+      setSkeleton(JSON.stringify(r.skeleton, null, 2));
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  }
+
   async function loadPreview() {
     setError("");
     try {
@@ -41,6 +52,7 @@ export function NodeConfigDialog({ node, onClose }: { node: Node; onClose: () =>
   }
 
   useEffect(() => {
+    loadSkeleton();
     loadPreview();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [node.id]);

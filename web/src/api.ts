@@ -666,6 +666,10 @@ export const api = {
   },
 
   // --- node config assembly ---
+  // Without this the editor opened on the default text and saving replaced
+  // whatever the operator had actually written.
+  getSkeleton: (id: string) =>
+    req<{ skeleton: unknown; custom: boolean }>("GET", `/api/nodes/${id}/skeleton`),
   putSkeleton: (id: string, skeleton: unknown) =>
     req<void>("PUT", `/api/nodes/${id}/skeleton`, skeleton),
   configVersions: (id: string) =>

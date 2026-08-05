@@ -29,6 +29,24 @@ type InboundSource struct {
 	Clients []string
 }
 
+// ExitSource is one relayed exit: somebody else's node, dialled by this one.
+//
+// The subscriber connects to an inbound of ours holding a credential we
+// minted, and this is what their traffic leaves through. They never learn the
+// provider's address — which is the point, and also what makes per-user
+// isolation, accounting and revocation apply to a node we do not own.
+type ExitSource struct {
+	// Tag names the outbound and is what the routing rule points at.
+	Tag string
+	// Outbound is the rendered Xray outbound, already translated out of the
+	// provider's clash shape.
+	Outbound string
+	// Emails are the credentials whose traffic leaves this way. The routing
+	// rule matches on them because the email is the only thing distinguishing
+	// one exit from another on a shared inbound.
+	Emails []string
+}
+
 // AssembleNode renders each profile's inbound and splices the results into
 // the node's config skeleton.
 //
@@ -36,6 +54,11 @@ type InboundSource struct {
 // ones are appended, so a node can carry both profile-managed access points
 // and one-off manual ones.
 func AssembleNode(skeleton string, sources []InboundSource) ([]byte, error) {
+	return AssembleNodeWithExits(skeleton, sources, nil)
+}
+
+// AssembleNodeWithExits is the same with relayed exits spliced in.
+func AssembleNodeWithExits(skeleton string, sources []InboundSource, exits []ExitSource) ([]byte, error) {
 	if skeleton == "" {
 		skeleton = DefaultSkeleton
 	}
@@ -85,6 +108,10 @@ func AssembleNode(skeleton string, sources []InboundSource) ([]byte, error) {
 		return nil, err
 	}
 	cfg["inbounds"] = merged
+
+	if err := spliceExits(cfg, exits); err != nil {
+		return nil, err
+	}
 
 	// Add the management API last, so its inbound and routing rule sit ahead
 	// of everything the profiles contributed.
@@ -166,4 +193,78 @@ func InboundTags(configJSON []byte) ([]string, error) {
 		out = append(out, in.Tag)
 	}
 	return out, nil
+}
+
+// spliceExits appends each exit's outbound and the rule that selects it.
+//
+// The rules go FIRST, ahead of whatever the operator wrote. Routing is
+// first-match, and an operator's own catch-all — "everything to direct", which
+// is the shape of every skeleton in the wild — would otherwise swallow the
+// relayed traffic and send it out of this node instead of through the
+// provider. That failure is silent and looks exactly like the relay working,
+// because the connection succeeds; only the exit address is wrong.
+func spliceExits(cfg map[string]json.RawMessage, exits []ExitSource) error {
+	if len(exits) == 0 {
+		return nil
+	}
+	var outbounds []json.RawMessage
+	if raw, ok := cfg["outbounds"]; ok && len(raw) > 0 {
+		if err := json.Unmarshal(raw, &outbounds); err != nil {
+			return fmt.Errorf(`skeleton "outbounds" is not an array: %w`, err)
+		}
+	}
+	var routing map[string]json.RawMessage
+	if raw, ok := cfg["routing"]; ok && len(raw) > 0 {
+		if err := json.Unmarshal(raw, &routing); err != nil {
+			return fmt.Errorf(`skeleton "routing" is not an object: %w`, err)
+		}
+	}
+	if routing == nil {
+		routing = map[string]json.RawMessage{}
+	}
+	var rules []json.RawMessage
+	if raw, ok := routing["rules"]; ok && len(raw) > 0 {
+		if err := json.Unmarshal(raw, &rules); err != nil {
+			return fmt.Errorf(`skeleton "routing.rules" is not an array: %w`, err)
+		}
+	}
+
+	var fresh []json.RawMessage
+	for _, e := range exits {
+		var ob map[string]json.RawMessage
+		if err := json.Unmarshal([]byte(e.Outbound), &ob); err != nil {
+			return fmt.Errorf("exit %q: outbound is not a JSON object: %w", e.Tag, err)
+		}
+		outbounds = append(outbounds, json.RawMessage(e.Outbound))
+		// An exit nobody may use still gets its outbound — the operator can
+		// see it is configured — but no rule, because a rule with an empty
+		// user list matches every user rather than none.
+		if len(e.Emails) == 0 {
+			continue
+		}
+		emails, err := json.Marshal(e.Emails)
+		if err != nil {
+			return err
+		}
+		fresh = append(fresh, json.RawMessage(fmt.Sprintf(
+			`{"type":"field","user":%s,"outboundTag":%q}`, emails, e.Tag)))
+	}
+
+	merged, err := json.Marshal(append(fresh, rules...))
+	if err != nil {
+		return err
+	}
+	routing["rules"] = merged
+	routingRaw, err := json.Marshal(routing)
+	if err != nil {
+		return err
+	}
+	cfg["routing"] = routingRaw
+
+	obRaw, err := json.Marshal(outbounds)
+	if err != nil {
+		return err
+	}
+	cfg["outbounds"] = obRaw
+	return nil
 }

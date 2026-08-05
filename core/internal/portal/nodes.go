@@ -119,7 +119,7 @@ func (v *View) Nodes() ([]Node, error) {
 				continue
 			}
 			avail := AvailUnavailable
-			if _, err := v.data.FindCredential(v.id.UserID, pid, nid); err != nil {
+			if _, err := v.data.FindCredential(v.id.UserID, pid, nid, ""); err != nil {
 				avail = AvailProvisioning
 			} else if up, err := v.data.NodeAnnouncedOnline(nid); err == nil && up {
 				// Announced up is only half of it. The agent stays connected

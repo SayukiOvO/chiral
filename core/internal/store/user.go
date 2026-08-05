@@ -44,11 +44,16 @@ type Credential struct {
 	UserID    string
 	ProfileID string
 	NodeID    string
-	Email     string
-	Secret    string
-	UpBytes   int64
-	DownBytes int64
-	CreatedAt int64
+	// ExitProxyID is the external node this credential's traffic leaves
+	// through, empty for the node's own outbound. It is part of the identity:
+	// the routing rule that picks an exit matches on the email, so one person
+	// on one inbound needs one credential per exit.
+	ExitProxyID string
+	Email       string
+	Secret      string
+	UpBytes     int64
+	DownBytes   int64
+	CreatedAt   int64
 }
 
 func credentialAAD(id string) string { return "credential:" + id }
@@ -261,11 +266,11 @@ func (s *Store) idList(query string, args ...any) ([]string, error) {
 
 // --- credentials ---
 
-const credCols = `id, user_id, profile_id, node_id, email, secret, up_bytes, down_bytes, created_at`
+const credCols = `id, user_id, profile_id, node_id, COALESCE(exit_proxy_id, ''), email, secret, up_bytes, down_bytes, created_at`
 
 func (s *Store) scanCredential(row interface{ Scan(...any) error }) (Credential, error) {
 	var c Credential
-	if err := row.Scan(&c.ID, &c.UserID, &c.ProfileID, &c.NodeID, &c.Email, &c.Secret,
+	if err := row.Scan(&c.ID, &c.UserID, &c.ProfileID, &c.NodeID, &c.ExitProxyID, &c.Email, &c.Secret,
 		&c.UpBytes, &c.DownBytes, &c.CreatedAt); err != nil {
 		return c, err
 	}
@@ -295,7 +300,7 @@ func (s *Store) scanCredentials(rows *sql.Rows) ([]Credential, error) {
 // assembly can call it freely without churning secrets — a regenerated secret
 // would silently lock the user out until they refetched their subscription.
 func (s *Store) PutCredential(c Credential) (Credential, error) {
-	if existing, err := s.FindCredential(c.UserID, c.ProfileID, c.NodeID); err == nil {
+	if existing, err := s.FindCredential(c.UserID, c.ProfileID, c.NodeID, c.ExitProxyID); err == nil {
 		return existing, nil
 	} else if !IsNotFound(err) {
 		return Credential{}, err
@@ -307,18 +312,19 @@ func (s *Store) PutCredential(c Credential) (Credential, error) {
 		return Credential{}, err
 	}
 	if _, err := s.db.Exec(`
-		INSERT INTO credentials (id, user_id, profile_id, node_id, email, secret, created_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?)`,
-		c.ID, c.UserID, c.ProfileID, c.NodeID, c.Email, sealed, c.CreatedAt); err != nil {
+		INSERT INTO credentials (id, user_id, profile_id, node_id, exit_proxy_id, email, secret, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		c.ID, c.UserID, c.ProfileID, c.NodeID, nullIfEmpty(c.ExitProxyID), c.Email, sealed, c.CreatedAt); err != nil {
 		return Credential{}, err
 	}
 	return c, nil
 }
 
-func (s *Store) FindCredential(userID, profileID, nodeID string) (Credential, error) {
+func (s *Store) FindCredential(userID, profileID, nodeID, exitProxyID string) (Credential, error) {
 	return s.scanCredential(s.db.QueryRow(`SELECT `+credCols+
-		` FROM credentials WHERE user_id = ? AND profile_id = ? AND node_id = ?`,
-		userID, profileID, nodeID))
+		` FROM credentials WHERE user_id = ? AND profile_id = ? AND node_id = ?
+		  AND COALESCE(exit_proxy_id, '') = ?`,
+		userID, profileID, nodeID, exitProxyID))
 }
 
 // NodeCredentials returns every credential installed on a node, which is what
@@ -408,7 +414,7 @@ func (s *Store) AddCredentialTraffic(email string, up, down int64) error {
 // them is a hand-written client sitting in a shared template, outside the user
 // system, with no quota, no accounting and no way to switch it off.
 func (s *Store) SetCredentialSecret(userID, profileID, nodeID, email, secret string) (Credential, error) {
-	c, err := s.FindCredential(userID, profileID, nodeID)
+	c, err := s.FindCredential(userID, profileID, nodeID, "")
 	if err != nil {
 		if !IsNotFound(err) {
 			return Credential{}, err

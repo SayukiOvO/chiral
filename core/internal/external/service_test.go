@@ -163,14 +163,25 @@ func TestFragmentsCarryTheChain(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// Pointed at a node of this fleet, the proxy is RELAYED: that node carries
+	// its traffic and the subscriber reaches it by connecting to the node. So
+	// it is not a line of its own here, and the provider's address never
+	// reaches the subscriber — which is the whole point of relaying.
+	if len(frags) != 1 {
+		t.Fatalf("fragments = %d, want only the unrelayed one:\n%v", len(frags), frags)
+	}
+	if strings.Contains(frags[0], "dialer-proxy") {
+		t.Errorf("unchained proxy grew a dialer:\n%s", frags[0])
+	}
+	if !strings.Contains(frags[0], "jp.example.com") {
+		t.Errorf("the wrong proxy survived:\n%s", frags[0])
+	}
+
+	// The operator can put it back, for a line that skips the relay.
+	st.SetExternalProxyExposed(proxies[0].ID, true)
+	frags, _ = svc.fragmentBodies(nil, func(string) string { return "日本 · 东京 01" })
 	if len(frags) != 2 {
-		t.Fatalf("fragments = %d", len(frags))
-	}
-	if !strings.Contains(frags[0], `dialer-proxy: "日本 · 东京 01"`) {
-		t.Errorf("chained proxy has no dialer:\n%s", frags[0])
-	}
-	if strings.Contains(frags[1], "dialer-proxy") {
-		t.Errorf("unchained proxy grew one:\n%s", frags[1])
+		t.Fatalf("exposing a relayed proxy did not bring it back: %v", frags)
 	}
 }
 
@@ -378,21 +389,17 @@ func TestABreakPropagatesAlongTheWholeChain(t *testing.T) {
 		"  - {name: A, type: vless, server: a.example.com, port: 443, uuid: u1}\n"+
 		"  - {name: B, type: vless, server: b.example.com, port: 443, uuid: u2}\n"+
 		"  - {name: C, type: vless, server: c.example.com, port: 443, uuid: u3}\n")
-	node, _ := st.CreateNode("relay", "hash-chain-deep")
 	sub, _ := st.CreateExternalSub("provider", srv.URL, "")
 	svc.Refresh(context.Background(), sub.ID)
 	p, _ := st.ExternalProxies(sub.ID)
-	// C -> B -> A -> fleet node.
-	st.SetExternalProxy(p[0].ID, node.ID, "", true)
+	// C -> B -> A, all client-side: A is a plain provider, so this is a chain
+	// the subscriber's own client assembles. (A chain whose far end is a node
+	// of this fleet is a different thing entirely — that one is relayed
+	// server-side and has no client-visible link to hang the rest off.)
 	st.SetExternalProxy(p[1].ID, "", p[0].ID, true)
 	st.SetExternalProxy(p[2].ID, "", p[1].ID, true)
 
-	frags, err := svc.fragmentBodies(nil, func(id string) string {
-		if id == node.ID {
-			return "东京 01"
-		}
-		return ""
-	})
+	frags, err := svc.fragmentBodies(nil, func(string) string { return "" })
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -400,8 +407,10 @@ func TestABreakPropagatesAlongTheWholeChain(t *testing.T) {
 		t.Fatalf("a whole intact chain did not render: %v", frags)
 	}
 
-	// Now the fleet node is not in this subscription. All three must go.
-	frags, err = svc.fragmentBodies(nil, func(string) string { return "" })
+	// Now the far end goes: A is denied to this subscriber. B depends on A and
+	// C depends on B, so all three have to go — and B is decided before A is,
+	// which is exactly the ordering a single pass gets wrong.
+	frags, err = svc.fragmentBodies(map[string]struct{}{p[0].ID: {}}, func(string) string { return "" })
 	if err != nil {
 		t.Fatal(err)
 	}

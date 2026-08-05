@@ -46,7 +46,16 @@ type ExternalProxy struct {
 	// SortOrder is this proxy's place in the operator's single list, shared
 	// with the fleet nodes. 0 means never placed; see migration 0022.
 	SortOrder int
+	// RelayExposed puts this proxy in subscriptions as a line of its own even
+	// while a node relays it. Off by default: relaying exists so the
+	// subscriber does not get the provider's address, and handing it to them
+	// anyway undoes that quietly.
+	RelayExposed bool
 }
+
+// Relayed reports whether a node of this fleet carries this proxy's traffic
+// rather than the subscriber's own client doing it.
+func (p ExternalProxy) Relayed() bool { return p.ChainNodeID != "" }
 
 // Label is the name this proxy goes out under — into the subscription, and
 // into any dialer-proxy that names it. One function, because a chain that
@@ -147,12 +156,12 @@ func (s *Store) SaveExternalFetch(id, body, failure string) error {
 	return err
 }
 
-const externalProxyCols = `id, sub_id, name, COALESCE(display_name, ''), type, server, port, config, COALESCE(chain_node_id, ''), COALESCE(chain_proxy_id, ''), enabled, ord, sort_order`
+const externalProxyCols = `id, sub_id, name, COALESCE(display_name, ''), type, server, port, config, COALESCE(chain_node_id, ''), COALESCE(chain_proxy_id, ''), enabled, ord, sort_order, relay_exposed`
 
 func scanExternalProxy(row interface{ Scan(...any) error }) (ExternalProxy, error) {
 	var p ExternalProxy
 	err := row.Scan(&p.ID, &p.SubID, &p.Name, &p.DisplayName, &p.Type, &p.Server, &p.Port, &p.Config,
-		&p.ChainNodeID, &p.ChainProxyID, &p.Enabled, &p.Ord, &p.SortOrder)
+		&p.ChainNodeID, &p.ChainProxyID, &p.Enabled, &p.Ord, &p.SortOrder, &p.RelayExposed)
 	return p, err
 }
 
@@ -464,6 +473,23 @@ func (s *Store) SetExternalProxyAccess(proxyID string, deniedUsers []string) err
 // An empty name restores the provider's.
 func (s *Store) RenameExternalProxy(id, displayName string) error {
 	res, err := s.db.Exec(`UPDATE external_proxies SET display_name = ? WHERE id = ?`, displayName, id)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
+// SetExternalProxyExposed decides whether a relayed proxy is ALSO handed out
+// as a line of its own.
+//
+// Off by default: relaying exists so the subscriber does not learn the
+// provider's address, and shipping it alongside gives that back. On is a real
+// choice though — an operator wanting one direct line for themselves.
+func (s *Store) SetExternalProxyExposed(id string, exposed bool) error {
+	res, err := s.db.Exec(`UPDATE external_proxies SET relay_exposed = ? WHERE id = ?`, exposed, id)
 	if err != nil {
 		return err
 	}

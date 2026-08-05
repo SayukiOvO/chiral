@@ -178,3 +178,88 @@ func TestAssembleRejectsNonObjectSkeletons(t *testing.T) {
 		}
 	}
 }
+
+// A relayed exit puts three things on the node and they have to agree: the
+// provider as an outbound, the credentials that leave through it, and a rule
+// tying the two together. Any one of them missing is a config that loads and
+// sends the traffic somewhere else.
+func TestARelayedExitBecomesAnOutboundAndARule(t *testing.T) {
+	skeleton := `{"inbounds":[],"outbounds":[{"protocol":"freedom","tag":"direct"}],
+		"routing":{"rules":[{"type":"field","network":"tcp,udp","outboundTag":"direct"}]}}`
+	out, err := AssembleNodeWithExits(skeleton, nil, []ExitSource{{
+		Tag:      "exit-abc",
+		Outbound: `{"tag":"exit-abc","protocol":"vless","settings":{}}`,
+		Emails:   []string{"a@p.n.abc", "b@p.n.abc"},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var cfg struct {
+		Outbounds []struct {
+			Tag string `json:"tag"`
+		} `json:"outbounds"`
+		Routing struct {
+			Rules []struct {
+				User        []string `json:"user"`
+				OutboundTag string   `json:"outboundTag"`
+			} `json:"rules"`
+		} `json:"routing"`
+	}
+	if err := json.Unmarshal(out, &cfg); err != nil {
+		t.Fatal(err)
+	}
+	var tags []string
+	for _, o := range cfg.Outbounds {
+		tags = append(tags, o.Tag)
+	}
+	if len(tags) != 2 || tags[1] != "exit-abc" {
+		t.Fatalf("outbounds = %v, want the operator's plus the exit", tags)
+	}
+	// Ahead of the operator's own catch-all, behind the management API.
+	// Routing is first-match: "everything to direct" is the shape of every
+	// skeleton in the wild and would swallow the relayed traffic, sending it
+	// out of this node instead — which succeeds, and is wrong, and looks
+	// identical to working.
+	at := map[string]int{}
+	for i, r := range cfg.Routing.Rules {
+		at[r.OutboundTag] = i
+		if r.OutboundTag == "exit-abc" && len(r.User) != 2 {
+			t.Fatalf("the exit rule does not carry both credentials: %+v", r)
+		}
+	}
+	for _, tag := range []string{"api", "exit-abc", "direct"} {
+		if _, ok := at[tag]; !ok {
+			t.Fatalf("no rule for %q: %+v", tag, cfg.Routing.Rules)
+		}
+	}
+	if !(at["api"] < at["exit-abc"] && at["exit-abc"] < at["direct"]) {
+		t.Fatalf("rule order is api < exit < operator's, got %v", at)
+	}
+}
+
+// An exit nobody may use still gets its outbound, so the operator can see it is
+// configured — but no rule. A rule with an empty user list matches EVERY user,
+// which would send the whole node out through a provider nobody was granted.
+func TestAnExitWithNoUsersGetsNoRule(t *testing.T) {
+	out, err := AssembleNodeWithExits(DefaultSkeleton, nil, []ExitSource{{
+		Tag: "exit-abc", Outbound: `{"tag":"exit-abc","protocol":"vless","settings":{}}`,
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var cfg struct {
+		Routing struct {
+			Rules []struct {
+				OutboundTag string `json:"outboundTag"`
+			} `json:"rules"`
+		} `json:"routing"`
+	}
+	if err := json.Unmarshal(out, &cfg); err != nil {
+		t.Fatal(err)
+	}
+	for _, r := range cfg.Routing.Rules {
+		if r.OutboundTag == "exit-abc" {
+			t.Fatal("an exit with no permitted users got a rule matching everyone")
+		}
+	}
+}

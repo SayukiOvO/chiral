@@ -68,7 +68,7 @@ type Data interface {
 	UserProfileIDs(userID string) ([]string, error)
 	ProfileNodeIDs(profileID string) ([]string, error)
 	GetNode(id string) (store.Node, error)
-	FindCredential(userID, profileID, nodeID string) (store.Credential, error)
+	FindCredential(userID, profileID, nodeID, exitProxyID string) (store.Credential, error)
 	UserNodeTrafficSeries(userID string, from, to time.Time) (map[string][]store.TrafficPoint, error)
 	SubToken(userID string) (string, error)
 	UserDevices(userID string) ([]store.Device, error)

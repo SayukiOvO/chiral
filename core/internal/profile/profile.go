@@ -14,6 +14,7 @@ import (
 	"log/slog"
 	"sort"
 
+	"github.com/SayukiOvO/chiral/core/internal/external"
 	"github.com/SayukiOvO/chiral/core/internal/kernel"
 	"github.com/SayukiOvO/chiral/core/internal/store"
 	"github.com/SayukiOvO/chiral/core/internal/template"
@@ -182,7 +183,16 @@ func (s *Service) AssembleNode(nodeID string) ([]byte, error) {
 		return nil, err
 	}
 
+	// The external nodes this one relays for. "经由 <自有节点>" means a
+	// server-side relay now, not a chain the subscriber's client assembles:
+	// the provider becomes an outbound here and the subscriber never sees it.
+	relayed, err := s.relayedExits(nodeID)
+	if err != nil {
+		return nil, err
+	}
+
 	sources := make([]template.InboundSource, 0, len(profileIDs))
+	exitEmails := map[string][]string{}
 	for _, pid := range profileIDs {
 		p, err := s.st.GetProfile(pid)
 		if err != nil {
@@ -201,6 +211,27 @@ func (s *Service) AssembleNode(nodeID string) ([]byte, error) {
 		if err != nil {
 			return nil, err
 		}
+		// One more credential per relayed exit, rendered into the same inbound.
+		// They are ordinary clients as far as Xray is concerned; what makes
+		// them an exit is the routing rule that matches their email.
+		for _, ex := range relayed {
+			allowed, err := s.allowedUsers(ex.ID)
+			if err != nil {
+				return nil, err
+			}
+			creds, err := s.users.EnsureCredentialsForExit(pid, nodeID, ex.ID, allowed)
+			if err != nil {
+				return nil, err
+			}
+			rendered, err := s.renderCredentials(p, ctx, creds)
+			if err != nil {
+				return nil, err
+			}
+			clients = append(clients, rendered...)
+			for _, c := range creds {
+				exitEmails[ex.ID] = append(exitEmails[ex.ID], c.Email)
+			}
+		}
 		sources = append(sources, template.InboundSource{
 			ProfileID:   pid,
 			ProfileName: p.Name,
@@ -209,7 +240,58 @@ func (s *Service) AssembleNode(nodeID string) ([]byte, error) {
 			Clients:     clients,
 		})
 	}
-	return template.AssembleNode(n.ConfigSkeleton, sources)
+
+	exits := make([]template.ExitSource, 0, len(relayed))
+	for _, ex := range relayed {
+		ob, err := external.XrayOutbound(ex.Config, ExitTag(ex.ID))
+		if err != nil {
+			return nil, fmt.Errorf("外部节点 %q 无法用作中继出口：%w", ex.Label(), err)
+		}
+		exits = append(exits, template.ExitSource{
+			Tag: ExitTag(ex.ID), Outbound: ob, Emails: exitEmails[ex.ID],
+		})
+	}
+	return template.AssembleNodeWithExits(n.ConfigSkeleton, sources, exits)
+}
+
+// ExitTag names an exit's outbound. Derived from the id rather than the label,
+// which the operator renames and the provider rewrites.
+func ExitTag(proxyID string) string { return "exit-" + proxyID }
+
+// relayedExits lists the external nodes this node relays for: the ones whose
+// chain target is this node.
+func (s *Service) relayedExits(nodeID string) ([]store.ExternalProxy, error) {
+	all, err := s.st.EnabledExternalProxies()
+	if err != nil {
+		return nil, err
+	}
+	var out []store.ExternalProxy
+	for _, p := range all {
+		if p.ChainNodeID == nodeID {
+			out = append(out, p)
+		}
+	}
+	return out, nil
+}
+
+// allowedUsers is the set who may leave through one exit. Denials are stored,
+// so this is every subscriber minus the ones told no.
+func (s *Service) allowedUsers(proxyID string) (map[string]bool, error) {
+	denied, err := s.st.ExternalProxyDenies(proxyID)
+	if err != nil {
+		return nil, err
+	}
+	users, err := s.st.ListUsers()
+	if err != nil {
+		return nil, err
+	}
+	out := make(map[string]bool, len(users))
+	for _, u := range users {
+		if _, no := denied[u.ID]; !no {
+			out[u.ID] = true
+		}
+	}
+	return out, nil
 }
 
 // renderClients turns the credentials entitled to this profile on this node
@@ -223,6 +305,15 @@ func (s *Service) renderClients(p store.Profile, nodeID string, ctx *template.Co
 	creds, err := s.users.EnsureCredentials(p.ID, nodeID)
 	if err != nil {
 		return nil, err
+	}
+	return s.renderCredentials(p, ctx, creds)
+}
+
+// renderCredentials turns credentials into client-entry objects. Split out
+// because a relayed exit produces more of them for the same inbound.
+func (s *Service) renderCredentials(p store.Profile, ctx *template.Context, creds []store.Credential) ([]string, error) {
+	if p.ClientEntry == "" {
+		return nil, nil
 	}
 	out := make([]string, 0, len(creds))
 	for _, c := range creds {

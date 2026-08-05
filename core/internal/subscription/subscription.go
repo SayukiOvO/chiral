@@ -122,6 +122,19 @@ func (s *Service) Render(u store.User, client, token string) (Result, error) {
 	if err != nil {
 		return Result{}, err
 	}
+	deniedProxies, err := s.st.UserExternalDenies(u.ID)
+	if err != nil {
+		return Result{}, err
+	}
+	// Relayed exits take their place in the one ordered list like anything
+	// else, keyed by the external proxy they stand for.
+	exitOrder, exitTie := map[string]int{}, map[string]string{}
+	if all, err := s.st.EnabledExternalProxies(); err == nil {
+		for i, p := range all {
+			exitOrder[p.ID] = p.SortOrder
+			exitTie[p.ID] = fmt.Sprintf("1:%08d", i)
+		}
+	}
 
 	// The operator's arrangement, by node. Absent means never placed, which is
 	// 0, which sorts to the end — the zero value is the right answer here.
@@ -168,7 +181,7 @@ func (s *Service) Render(u store.User, client, token string) (Result, error) {
 			if _, no := denied[nid]; no {
 				continue
 			}
-			cred, err := s.st.FindCredential(u.ID, pid, nid)
+			cred, err := s.st.FindCredential(u.ID, pid, nid, "")
 			if err != nil {
 				// No credential yet means this access point has not been
 				// assembled; it is simply not available to the user.
@@ -206,6 +219,42 @@ func (s *Service) Render(u store.User, client, token string) (Result, error) {
 				order: nodeOrder[nid],
 				tie:   nodeTie[nid],
 			})
+
+			// One more entry per exit this node relays for. Same node, same
+			// transport, same template — a different credential, and the
+			// exit's name in place of the node's, so the subscriber sees a
+			// line that goes where they think it goes and never learns whose
+			// machine is at the far end.
+			exits, err := s.relayedExits(nid)
+			if err != nil {
+				return Result{}, err
+			}
+			for _, ex := range exits {
+				if _, no := deniedProxies[ex.ID]; no {
+					continue
+				}
+				ec, err := s.st.FindCredential(u.ID, pid, nid, ex.ID)
+				if err != nil {
+					if store.IsNotFound(err) {
+						continue
+					}
+					return Result{}, err
+				}
+				label := ex.Label()
+				vars := user.CredentialVars(ec)
+				vars["node.display_name"] = label
+				vars["node.name"] = label
+				body, err := ctx.With(vars).Render(tmpl)
+				if err != nil {
+					skipped = append(skipped, fmt.Sprintf("%s via %s: %v", pid, label, err))
+					continue
+				}
+				placed = append(placed, placedFragment{
+					body:  strings.TrimSpace(body),
+					order: exitOrder[ex.ID],
+					tie:   exitTie[ex.ID],
+				})
+			}
 		}
 	}
 
@@ -220,6 +269,26 @@ func (s *Service) templateFor(profileID, client string) (string, error) {
 		return "", err
 	}
 	return templates[client], nil
+}
+
+// relayedExits lists the external nodes a given node relays for.
+//
+// These are the ones whose chain target is that node. They do NOT appear in a
+// subscription as proxies of their own — the subscriber is not supposed to
+// learn the provider's address, which is the whole point of relaying — unless
+// the operator has said otherwise for one of them.
+func (s *Service) relayedExits(nodeID string) ([]store.ExternalProxy, error) {
+	all, err := s.st.EnabledExternalProxies()
+	if err != nil {
+		return nil, err
+	}
+	var out []store.ExternalProxy
+	for _, p := range all {
+		if p.ChainNodeID == nodeID {
+			out = append(out, p)
+		}
+	}
+	return out, nil
 }
 
 // placedFragment is one rendered access point and where the operator put it.

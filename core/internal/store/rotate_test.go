@@ -130,7 +130,7 @@ func TestRotateSecretKeyMovesEverySealedValue(t *testing.T) {
 			}
 		}
 	}
-	cred, err := rotated.FindCredential(u.ID, p.ID, n.ID)
+	cred, err := rotated.FindCredential(u.ID, p.ID, n.ID, "")
 	if err != nil || cred.Secret != "CREDENTIAL-UUID" {
 		t.Errorf("credential = %q, %v", cred.Secret, err)
 	}

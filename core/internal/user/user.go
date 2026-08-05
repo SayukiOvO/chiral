@@ -72,11 +72,28 @@ func Allowed(u store.User, now int64) bool { return Reason(u, now) == "" }
 // The key is fixed at mint time, so renaming a user later keeps their traffic
 // history intact.
 func StatsEmail(userName, userID, profileID, nodeID string) string {
+	return StatsEmailForExit(userName, userID, profileID, nodeID, "")
+}
+
+// StatsEmailForExit is the same key with the exit appended.
+//
+// The exit has to be in the email because the email is what the routing rule
+// matches on: one person on one inbound holds one credential per exit, and
+// Xray picks between them by user. It is also what traffic arrives under, so
+// this is what makes "how much did they use through that provider" a question
+// with an answer.
+//
+// An empty exit produces exactly the old key, so every credential minted
+// before this existed keeps its identity and its counters.
+func StatsEmailForExit(userName, userID, profileID, nodeID, exitID string) string {
 	prefix := sanitize(userName)
 	if prefix != "" {
 		prefix += "."
 	}
-	return fmt.Sprintf("%s%s@%s.%s", prefix, userID, profileID, nodeID)
+	if exitID == "" {
+		return fmt.Sprintf("%s%s@%s.%s", prefix, userID, profileID, nodeID)
+	}
+	return fmt.Sprintf("%s%s@%s.%s.%s", prefix, userID, profileID, nodeID, exitID)
 }
 
 // sanitize reduces a display name to characters that are safe in a stats key.
@@ -108,6 +125,15 @@ func sanitize(s string) string {
 // re-enabling a user would hand them a different secret and silently break
 // every client they had already configured.
 func (s *Service) EnsureCredentials(profileID, nodeID string) ([]store.Credential, error) {
+	return s.EnsureCredentialsForExit(profileID, nodeID, "", nil)
+}
+
+// EnsureCredentialsForExit does the same for one relayed exit.
+//
+// allowed, when non-nil, restricts minting to the users who may use that exit
+// — an exit is somebody else's node, and being entitled to this access point
+// is not the same as being entitled to leave through that provider.
+func (s *Service) EnsureCredentialsForExit(profileID, nodeID, exitID string, allowed map[string]bool) ([]store.Credential, error) {
 	userIDs, err := s.st.ProfileUserIDs(profileID)
 	if err != nil {
 		return nil, err
@@ -122,6 +148,9 @@ func (s *Service) EnsureCredentials(profileID, nodeID string) ([]store.Credentia
 			}
 			return nil, err
 		}
+		if allowed != nil && !allowed[u.ID] {
+			continue
+		}
 		secret, err := template.Generate(template.GenUUID)
 		if err != nil {
 			return nil, err
@@ -129,11 +158,12 @@ func (s *Service) EnsureCredentials(profileID, nodeID string) ([]store.Credentia
 		// PutCredential is idempotent: an existing credential is returned
 		// as-is and this freshly generated secret is discarded.
 		c, err := s.st.PutCredential(store.Credential{
-			UserID:    u.ID,
-			ProfileID: profileID,
-			NodeID:    nodeID,
-			Email:     StatsEmail(u.Name, u.ID, profileID, nodeID),
-			Secret:    secret.Components[""],
+			UserID:      u.ID,
+			ProfileID:   profileID,
+			NodeID:      nodeID,
+			ExitProxyID: exitID,
+			Email:       StatsEmailForExit(u.Name, u.ID, profileID, nodeID, exitID),
+			Secret:      secret.Components[""],
 		})
 		if err != nil {
 			return nil, fmt.Errorf("minting credential for %s: %w", u.Name, err)
