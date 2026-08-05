@@ -63,3 +63,38 @@ func TestNoAdvisoryWhereThereIsNothingToSay(t *testing.T) {
 		t.Errorf("warned about unparseable config: %v", got)
 	}
 }
+
+// The setting that made every chained external node fail while the node itself
+// worked perfectly, `xray -test` passed, and the error named an address nobody
+// had configured.
+func TestSniffingWithoutRouteOnlyIsReported(t *testing.T) {
+	cfg := []byte(`{"inbounds":[{"tag":"in","sniffing":{"enabled":true,"destOverride":["http","tls"]}}]}`)
+	got := Advisories(cfg, []string{"xray-json"})
+	if len(got) != 1 || !strings.Contains(got[0], "routeOnly") {
+		t.Fatalf("advisories = %v", got)
+	}
+
+	// With routeOnly, nothing to say.
+	cfg = []byte(`{"inbounds":[{"tag":"in","sniffing":{"enabled":true,"destOverride":["http","tls"],"routeOnly":true}}]}`)
+	if got := Advisories(cfg, []string{"xray-json"}); len(got) != 0 {
+		t.Fatalf("routeOnly still warned: %v", got)
+	}
+	// And sniffing off is not a relay hazard either.
+	cfg = []byte(`{"inbounds":[{"tag":"in","sniffing":{"enabled":false,"destOverride":["tls"]}}]}`)
+	if got := Advisories(cfg, []string{"xray-json"}); len(got) != 0 {
+		t.Fatalf("disabled sniffing warned: %v", got)
+	}
+}
+
+// The two advisories are independent: a node can serve clash clients badly and
+// relay badly at the same time, and hiding one behind the other is how the
+// second one gets found by a subscriber instead of by the operator.
+func TestBothAdvisoriesCanFireTogether(t *testing.T) {
+	cfg := []byte(`{"inbounds":[{"tag":"in",
+		"streamSettings":{"security":"reality","realitySettings":{"minClientVer":"26.3.27"}},
+		"sniffing":{"enabled":true,"destOverride":["tls"]}}]}`)
+	got := Advisories(cfg, []string{"clash"})
+	if len(got) != 2 {
+		t.Fatalf("expected both, got %v", got)
+	}
+}

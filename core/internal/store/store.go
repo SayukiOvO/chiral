@@ -201,11 +201,35 @@ func (s *Store) UpdateNode(id, name, displayName, address string) error {
 }
 
 // CreateNode inserts a node awaiting registration via its join token.
+// CreateNode adds a machine, denied to every subscriber who already exists.
+//
+// A node arrives because the operator bought a box, not because they decided
+// who it is for, and those are different decisions. Left open, binding it to a
+// profile hands it to everyone holding that profile the moment it is bound —
+// silently, in their next subscription refresh, with nothing asking whether
+// that was meant. Denied on arrival, the node is inert until somebody says who
+// gets it, which is the same order the operator was thinking in anyway.
+//
+// The denials are written for the subscribers who exist NOW. Somebody created
+// later is not covered — a new subscriber's access is decided by the profiles
+// they are granted, and re-deciding it per node they have never heard of is
+// not a question anyone can answer.
 func (s *Store) CreateNode(name, joinTokenHash string) (Node, error) {
 	n := Node{ID: NewID(), Name: name, CreatedAt: time.Now().Unix()}
-	_, err := s.db.Exec(`INSERT INTO nodes (id, name, join_token_hash, created_at) VALUES (?, ?, ?, ?)`,
-		n.ID, n.Name, joinTokenHash, n.CreatedAt)
-	return n, err
+	tx, err := s.db.Begin()
+	if err != nil {
+		return Node{}, err
+	}
+	defer tx.Rollback()
+	if _, err := tx.Exec(`INSERT INTO nodes (id, name, join_token_hash, created_at) VALUES (?, ?, ?, ?)`,
+		n.ID, n.Name, joinTokenHash, n.CreatedAt); err != nil {
+		return Node{}, err
+	}
+	if _, err := tx.Exec(`INSERT INTO user_node_denies (user_id, node_id)
+		SELECT id, ? FROM users`, n.ID); err != nil {
+		return Node{}, err
+	}
+	return n, tx.Commit()
 }
 
 func (s *Store) ListNodes() ([]Node, error) {

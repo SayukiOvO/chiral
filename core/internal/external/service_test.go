@@ -598,3 +598,55 @@ func TestAChainFollowsARename(t *testing.T) {
 		t.Errorf("the chain kept the old name: %q", dialers[0])
 	}
 }
+
+// A node arriving is not a decision about who gets it.
+//
+// Left open, a provider adding a node to their list hands it to every
+// subscriber on the next refresh — silently, with nothing having asked. Denied
+// on arrival it is inert until somebody says otherwise.
+func TestANewExternalNodeReachesNobodyUntilSaidOtherwise(t *testing.T) {
+	st, svc := fixture(t)
+	alice, err := st.CreateUser(store.User{Name: "alice", Enabled: true}, "hash-a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv, next := serve(t,
+		"proxies:\n  - {name: A, type: vless, server: a.example.com, port: 443, uuid: u1}\n",
+		"proxies:\n"+
+			"  - {name: A, type: vless, server: a.example.com, port: 443, uuid: u1}\n"+
+			"  - {name: B, type: vless, server: b.example.com, port: 443, uuid: u2}\n")
+	sub, _ := st.CreateExternalSub("provider", srv.URL, "")
+	if err := svc.Refresh(context.Background(), sub.ID); err != nil {
+		t.Fatal(err)
+	}
+	p, _ := st.ExternalProxies(sub.ID)
+	denied, _ := st.UserExternalDenies(alice.ID)
+	if _, no := denied[p[0].ID]; !no {
+		t.Fatal("a new node was open to an existing subscriber")
+	}
+
+	// The operator says yes to A. Then the provider adds B.
+	if err := st.SetUserNodeAccess(alice.ID, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	next()
+	if err := svc.Refresh(context.Background(), sub.ID); err != nil {
+		t.Fatal(err)
+	}
+	after, _ := st.ExternalProxies(sub.ID)
+	var a, b store.ExternalProxy
+	for _, x := range after {
+		if x.Name == "A" {
+			a = x
+		} else {
+			b = x
+		}
+	}
+	denied, _ = st.UserExternalDenies(alice.ID)
+	if _, no := denied[a.ID]; no {
+		t.Error("a refresh took back a node the operator had allowed")
+	}
+	if _, no := denied[b.ID]; !no {
+		t.Error("the node the provider added arrived open")
+	}
+}

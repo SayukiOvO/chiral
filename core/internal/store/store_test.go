@@ -37,3 +37,33 @@ func TestNodeNamesAreUnique(t *testing.T) {
 		t.Errorf("name = %q after a refused rename, want osaka-1", got.Name)
 	}
 }
+
+// The same for a machine of our own: binding it to a profile should not be the
+// moment every holder of that profile silently acquires it.
+func TestANewNodeIsDeniedToExistingSubscribers(t *testing.T) {
+	st := testStore(t, storeTestKey)
+	alice, err := st.CreateUser(User{Name: "alice", Enabled: true}, "hash-a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	n, err := st.CreateNode("tokyo-01", "hash-n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	denied, err := st.UserNodeDenies(alice.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, no := denied[n.ID]; !no {
+		t.Fatal("a new node was open to an existing subscriber")
+	}
+	// Somebody who arrives later is governed by the profiles they are granted,
+	// not by nodes they have never been asked about.
+	bob, err := st.CreateUser(User{Name: "bob", Enabled: true}, "hash-b")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d, _ := st.UserNodeDenies(bob.ID); len(d) != 0 {
+		t.Fatalf("a new subscriber started out with denials: %v", d)
+	}
+}

@@ -28,9 +28,6 @@ const realityMinClientDefault = "26.3.27"
 // only has to make the consequence visible before somebody debugs it from the
 // wrong end.
 func Advisories(configJSON []byte, clientKinds []string) []string {
-	if !servesClashFamily(clientKinds) {
-		return nil
-	}
 	var cfg struct {
 		Inbounds []struct {
 			Tag            string `json:"tag"`
@@ -40,12 +37,21 @@ func Advisories(configJSON []byte, clientKinds []string) []string {
 					MinClientVer string `json:"minClientVer"`
 				} `json:"realitySettings"`
 			} `json:"streamSettings"`
+			Sniffing struct {
+				Enabled      bool     `json:"enabled"`
+				DestOverride []string `json:"destOverride"`
+				RouteOnly    bool     `json:"routeOnly"`
+			} `json:"sniffing"`
 		} `json:"inbounds"`
 	}
 	if err := json.Unmarshal(configJSON, &cfg); err != nil {
 		return nil
 	}
 	var out []string
+	out = append(out, sniffingAdvisories(cfg.Inbounds)...)
+	if !servesClashFamily(clientKinds) {
+		return out
+	}
 	for _, ib := range cfg.Inbounds {
 		if !strings.EqualFold(ib.StreamSettings.Security, "reality") {
 			continue
@@ -66,6 +72,53 @@ func Advisories(configJSON []byte, clientKinds []string) []string {
 				"（它们自报的版本号是 1.x）。握手会回落到 fallback，客户端只看到 TLS 失败。"+
 				"要服务 Clash 客户端，请在 realitySettings 里设 \"minClientVer\": \"1.8.0\"。",
 			tag, min))
+	}
+	return out
+}
+
+// sniffingAdvisories reports the setting that breaks this node as a relay.
+//
+// `destOverride` replaces a connection's destination address with the name
+// sniffed out of it. For a subscriber browsing, that is the point — it is what
+// lets domain rules match. For a connection this node is relaying on behalf of
+// another proxy, it is fatal: that connection is itself a TLS handshake
+// carrying the other provider's camouflage SNI, so the destination gets
+// rewritten from the address the client asked for to whatever that name
+// resolves to, and the dial fails with nothing in it that names the cause.
+//
+// `routeOnly` keeps the sniffed name for routing decisions and stops it being
+// written back over the address. Reported rather than corrected: a fleet that
+// never relays for anything is fine as it is, and the panel does not get to
+// decide that.
+func sniffingAdvisories(inbounds []struct {
+	Tag            string `json:"tag"`
+	StreamSettings struct {
+		Security string `json:"security"`
+		Reality  struct {
+			MinClientVer string `json:"minClientVer"`
+		} `json:"realitySettings"`
+	} `json:"streamSettings"`
+	Sniffing struct {
+		Enabled      bool     `json:"enabled"`
+		DestOverride []string `json:"destOverride"`
+		RouteOnly    bool     `json:"routeOnly"`
+	} `json:"sniffing"`
+}) []string {
+	var out []string
+	for _, ib := range inbounds {
+		sn := ib.Sniffing
+		if !sn.Enabled || len(sn.DestOverride) == 0 || sn.RouteOnly {
+			continue
+		}
+		tag := ib.Tag
+		if tag == "" {
+			tag = "(未命名 inbound)"
+		}
+		out = append(out, fmt.Sprintf(
+			"%s：sniffing 开了 destOverride 但没有 routeOnly。"+
+				"这个节点给别的代理做前置（链式出站）时，被中转的那条连接会被嗅探到的 SNI "+
+				"改写目的地址，连到别处去，报错里不会提到这里。"+
+				"若要用它做前置，请在 sniffing 里加 \"routeOnly\": true。", tag))
 	}
 	return out
 }

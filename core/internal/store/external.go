@@ -257,6 +257,16 @@ func (s *Store) ReplaceExternalProxies(subID string, fresh []ExternalProxy) erro
 			id, subID, p.Name, p.Type, p.Server, p.Port, p.Config, i); err != nil {
 			return err
 		}
+		// Denied to everyone who already subscribes, for the same reason a new
+		// fleet node is: a provider adding a node to their list is not the
+		// operator deciding to hand it out. This runs on every refresh, so a
+		// node the provider adds next month is inert too — only the rows that
+		// are genuinely new get denials, because matched rows take the UPDATE
+		// path above and never reach here.
+		if _, err := tx.Exec(`INSERT INTO user_external_denies (user_id, proxy_id)
+			SELECT id, ? FROM users`, id); err != nil {
+			return err
+		}
 		kept[id] = struct{}{}
 	}
 
