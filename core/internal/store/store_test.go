@@ -57,13 +57,14 @@ func TestANewNodeIsDeniedToExistingSubscribers(t *testing.T) {
 	if _, no := denied[n.ID]; !no {
 		t.Fatal("a new node was open to an existing subscriber")
 	}
-	// Somebody who arrives later is governed by the profiles they are granted,
-	// not by nodes they have never been asked about.
+	// And somebody who arrives later starts with nothing either — the node
+	// existed before they did, and nobody has said they should have it.
 	bob, err := st.CreateUser(User{Name: "bob", Enabled: true}, "hash-b")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if d, _ := st.UserNodeDenies(bob.ID); len(d) != 0 {
-		t.Fatalf("a new subscriber started out with denials: %v", d)
+	d, _ := st.UserNodeDenies(bob.ID)
+	if _, no := d[n.ID]; !no {
+		t.Fatal("a new subscriber arrived already holding an existing node")
 	}
 }

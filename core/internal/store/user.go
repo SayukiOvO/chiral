@@ -94,13 +94,34 @@ func (s *Store) createUser(u User, subTokenHash, subToken string) (User, error) 
 			return User{}, err
 		}
 	}
-	_, err := s.db.Exec(`
+	tx, err := s.db.Begin()
+	if err != nil {
+		return User{}, err
+	}
+	defer tx.Rollback()
+	if _, err := tx.Exec(`
 		INSERT INTO users (id, name, sub_token_hash, sub_token_enc, quota_bytes, used_bytes,
 			expires_at, renew_period, enabled, active, device_limit, created_at, updated_at)
 		VALUES (?, ?, ?, ?, ?, 0, ?, ?, ?, 0, ?, ?, ?)`,
 		u.ID, u.Name, subTokenHash, sealed, u.QuotaBytes, u.ExpiresAt, u.RenewPeriod,
-		u.Enabled, u.DeviceLimit, u.CreatedAt, u.UpdatedAt)
-	return u, err
+		u.Enabled, u.DeviceLimit, u.CreatedAt, u.UpdatedAt); err != nil {
+		return User{}, err
+	}
+	// A new subscriber starts with nothing: no access configuration, and no
+	// external node either. Profiles were already opt-in — an unbound user
+	// renders an empty subscription — but external nodes had no profile in
+	// front of them, so "not decided yet" and "give them everything we buy
+	// from anyone" were the same state. Now both halves of what a person can
+	// reach are things somebody said yes to.
+	if _, err := tx.Exec(`INSERT INTO user_external_denies (user_id, proxy_id)
+		SELECT ?, id FROM external_proxies`, u.ID); err != nil {
+		return User{}, err
+	}
+	if _, err := tx.Exec(`INSERT INTO user_node_denies (user_id, node_id)
+		SELECT ?, id FROM nodes`, u.ID); err != nil {
+		return User{}, err
+	}
+	return u, tx.Commit()
 }
 
 func (s *Store) GetUser(id string) (User, error) {

@@ -650,3 +650,34 @@ func TestANewExternalNodeReachesNobodyUntilSaidOtherwise(t *testing.T) {
 		t.Error("the node the provider added arrived open")
 	}
 }
+
+// A subscriber who arrives after the nodes do starts with nothing either.
+// Profiles were already opt-in, but external nodes had nothing in front of
+// them, so "nobody has decided yet" and "hand them everything we buy from
+// anyone" were the same state.
+func TestANewSubscriberStartsWithNoExternalNodes(t *testing.T) {
+	st, svc := fixture(t)
+	srv, _ := serve(t, "proxies:\n"+
+		"  - {name: A, type: vless, server: a.example.com, port: 443, uuid: u1}\n"+
+		"  - {name: B, type: vless, server: b.example.com, port: 443, uuid: u2}\n")
+	sub, _ := st.CreateExternalSub("provider", srv.URL, "")
+	if err := svc.Refresh(context.Background(), sub.ID); err != nil {
+		t.Fatal(err)
+	}
+	u, err := st.CreateUser(store.User{Name: "newcomer", Enabled: true}, "hash-n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	denied, _ := st.UserExternalDenies(u.ID)
+	if len(denied) != 2 {
+		t.Fatalf("new subscriber could reach %d of 2 external nodes unasked", 2-len(denied))
+	}
+	// And their subscription really is empty rather than merely marked so.
+	frags, err := svc.fragmentBodies(denied, func(string) string { return "" })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(frags) != 0 {
+		t.Fatalf("fragments = %v", frags)
+	}
+}

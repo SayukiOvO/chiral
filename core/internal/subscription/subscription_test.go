@@ -347,6 +347,12 @@ func twoProfileFixture(t *testing.T) (*store.Store, *Service, store.User) {
 			t.Fatal(err)
 		}
 	}
+	// The user is created after the node, so they start denied it — a new
+	// subscriber holds nothing until somebody says otherwise. These tests are
+	// about how a subscription renders, so the fixture says otherwise.
+	if err := st.SetUserNodeAccess(u.ID, nil, nil); err != nil {
+		t.Fatal(err)
+	}
 	return st, NewService(st, stubContexts{}), u
 }
 
@@ -488,16 +494,33 @@ func TestDeniedNodesLeaveTheSubscription(t *testing.T) {
 	}
 }
 
-// Denials are stored, not defaults: a fleet that does not use the feature has
-// empty tables and every subscriber keeps exactly what they had.
-func TestNobodyIsDeniedByDefault(t *testing.T) {
-	st, _, u := twoProfileFixture(t)
+// A subscriber holds nothing until somebody says otherwise — including nodes
+// that already existed when they were created. The opposite default meant a
+// person added on Tuesday silently acquired every machine bought before then.
+func TestANewSubscriberHoldsNothingYet(t *testing.T) {
+	box, err := secret.NewBox("subscription-test-key-0123456789ab")
+	if err != nil {
+		t.Fatal(err)
+	}
+	st, err := store.Open(filepath.Join(t.TempDir(), "t.db"), box)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { st.Close() })
+	n, err := st.CreateNode("node1", "join-hash")
+	if err != nil {
+		t.Fatal(err)
+	}
+	u, err := st.CreateUser(store.User{Name: "newcomer", Enabled: true}, "hash-n")
+	if err != nil {
+		t.Fatal(err)
+	}
 	denied, err := st.UserNodeDenies(u.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(denied) != 0 {
-		t.Fatalf("a fresh user starts denied: %v", denied)
+	if _, no := denied[n.ID]; !no {
+		t.Fatal("a fresh subscriber already held a node nobody granted them")
 	}
 }
 
