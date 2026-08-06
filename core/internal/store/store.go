@@ -538,7 +538,8 @@ func IsNotFound(err error) bool {
 }
 
 // ProxyOrderEntry names one place in the operator's list. Kind is "node" for a
-// machine this panel runs and "external" for one it does not.
+// machine this panel runs, "external" for one it does not, and "relay" for a
+// line through one of ours to another.
 type ProxyOrderEntry struct {
 	Kind string
 	ID   string
@@ -567,6 +568,9 @@ func (s *Store) SetProxyOrder(entries []ProxyOrderEntry) error {
 	if _, err := tx.Exec(`UPDATE external_proxies SET sort_order = 0`); err != nil {
 		return err
 	}
+	if _, err := tx.Exec(`UPDATE node_relays SET sort_order = 0`); err != nil {
+		return err
+	}
 	for i, e := range entries {
 		var q string
 		switch e.Kind {
@@ -574,6 +578,8 @@ func (s *Store) SetProxyOrder(entries []ProxyOrderEntry) error {
 			q = `UPDATE nodes SET sort_order = ? WHERE id = ?`
 		case "external":
 			q = `UPDATE external_proxies SET sort_order = ? WHERE id = ?`
+		case "relay":
+			q = `UPDATE node_relays SET sort_order = ? WHERE id = ?`
 		default:
 			return fmt.Errorf("unknown kind %q", e.Kind)
 		}

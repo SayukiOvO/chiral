@@ -300,6 +300,10 @@ func (stubContexts) ClientContext(profileID, nodeID string) (*template.Context, 
 		"reality.private": "PRIVATE-KEY",
 		"reality.public":  "PUBLIC-KEY",
 		"address":         "203.0.113." + nodeID[len(nodeID)-1:],
+		// Always present in production, where it is node metadata rather than
+		// an operator's variable — and it is what a relayed line overrides to
+		// give itself a name of its own.
+		"node.display_name": "node-" + nodeID[len(nodeID)-1:],
 	}, []string{"reality.private"}).ForClient(), nil
 }
 
@@ -350,7 +354,7 @@ func twoProfileFixture(t *testing.T) (*store.Store, *Service, store.User) {
 	// The user is created after the node, so they start denied it — a new
 	// subscriber holds nothing until somebody says otherwise. These tests are
 	// about how a subscription renders, so the fixture says otherwise.
-	if err := st.SetUserNodeAccess(u.ID, nil, nil); err != nil {
+	if err := st.SetUserNodeAccess(u.ID, nil, nil, nil); err != nil {
 		t.Fatal(err)
 	}
 	return st, NewService(st, stubContexts{}), u
@@ -485,7 +489,7 @@ func TestDeniedNodesLeaveTheSubscription(t *testing.T) {
 	if err != nil || len(nodes) == 0 {
 		t.Fatalf("no nodes: %v", err)
 	}
-	if err := st.SetUserNodeAccess(u.ID, []string{nodes[0].ID}, nil); err != nil {
+	if err := st.SetUserNodeAccess(u.ID, []string{nodes[0].ID}, nil, nil); err != nil {
 		t.Fatal(err)
 	}
 	after, err := svc.Render(u, ClientXrayJSON, "")
@@ -531,10 +535,10 @@ func TestSettingAccessReplacesRatherThanAdds(t *testing.T) {
 	nodes, _ := st.ListNodes()
 	id := nodes[0].ID
 
-	if err := st.SetUserNodeAccess(u.ID, []string{id}, nil); err != nil {
+	if err := st.SetUserNodeAccess(u.ID, []string{id}, nil, nil); err != nil {
 		t.Fatal(err)
 	}
-	if err := st.SetUserNodeAccess(u.ID, nil, nil); err != nil {
+	if err := st.SetUserNodeAccess(u.ID, nil, nil, nil); err != nil {
 		t.Fatal(err)
 	}
 	denied, _ := st.UserNodeDenies(u.ID)

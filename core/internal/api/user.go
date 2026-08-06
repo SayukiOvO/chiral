@@ -578,6 +578,11 @@ func (s *Server) userNodeAccess(w http.ResponseWriter, r *http.Request) {
 		s.internalErr(w, "load denies", err)
 		return
 	}
+	deniedRelays, err := s.st.UserRelayDenies(u.ID)
+	if err != nil {
+		s.internalErr(w, "load denies", err)
+		return
+	}
 
 	// Which fleet nodes their profiles actually reach.
 	entitled := map[string]struct{}{}
@@ -681,7 +686,32 @@ func (s *Server) userNodeAccess(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	writeJSON(w, http.StatusOK, map[string]any{"fleet": fleet, "external": ext})
+	// Relay lines. Entitled means the ENTRY is reachable for this person —
+	// that is where they connect — and a denied entry takes its lines with it,
+	// which is what the subscription does too: a line through a box is that
+	// box's address and a credential on it.
+	relays := []nodeAccessEntry{}
+	if all, err := s.st.ListNodeRelays(); err == nil {
+		for _, rl := range all {
+			_, denied := deniedRelays[rl.ID]
+			_, reaches := entitled[rl.EntryNodeID]
+			_, entryDenied := deniedNodes[rl.EntryNodeID]
+			via := ""
+			if entryDenied {
+				via = nodeName[rl.EntryNodeID]
+			}
+			relays = append(relays, nodeAccessEntry{
+				ID: rl.ID, Name: rl.Label,
+				Source:     nodeName[rl.EntryNodeID] + " → " + nodeName[rl.ExitNodeID],
+				Allowed:    !denied,
+				Entitled:   rl.Enabled && reaches && !entryDenied,
+				ChainedVia: via,
+			})
+		}
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"fleet": fleet, "external": ext, "relay": relays})
 }
 
 func (s *Server) setUserNodeAccess(w http.ResponseWriter, r *http.Request) {
@@ -693,12 +723,13 @@ func (s *Server) setUserNodeAccess(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		DeniedNodes   []string `json:"denied_nodes"`
 		DeniedProxies []string `json:"denied_proxies"`
+		DeniedRelays  []string `json:"denied_relays"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeErr(w, http.StatusBadRequest, "body must be JSON")
 		return
 	}
-	if err := s.st.SetUserNodeAccess(u.ID, req.DeniedNodes, req.DeniedProxies); err != nil {
+	if err := s.st.SetUserNodeAccess(u.ID, req.DeniedNodes, req.DeniedProxies, req.DeniedRelays); err != nil {
 		s.internalErr(w, "set node access", err)
 		return
 	}
@@ -707,6 +738,15 @@ func (s *Server) setUserNodeAccess(w http.ResponseWriter, r *http.Request) {
 	// on purpose. Denying a node hides it from a subscription; it does not
 	// revoke the credential, and the console says so.
 	s.audit(r, "user.node_access", "user", u.ID, u.Name,
-		fmt.Sprintf("denied %d fleet, %d external", len(req.DeniedNodes), len(req.DeniedProxies)))
+		fmt.Sprintf("denied %d fleet, %d external, %d relay",
+			len(req.DeniedNodes), len(req.DeniedProxies), len(req.DeniedRelays)))
+	// Fleet and external denials only change what a subscription renders, but a
+	// relay's routing rule is built from the emails allowed on it, so the entry
+	// needs its config back in step.
+	for _, id := range s.relayEntryNodes() {
+		if _, err := s.profiles.Apply(r.Context(), id); err != nil {
+			s.logger.Warn("relay access changed but entry not re-applied", "node", id, "err", err)
+		}
+	}
 	w.WriteHeader(http.StatusNoContent)
 }

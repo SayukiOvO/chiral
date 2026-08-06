@@ -134,6 +134,17 @@ func (s *Service) EnsureCredentials(profileID, nodeID string) ([]store.Credentia
 // — an exit is somebody else's node, and being entitled to this access point
 // is not the same as being entitled to leave through that provider.
 func (s *Service) EnsureCredentialsForExit(profileID, nodeID, exitID string, allowed map[string]bool) ([]store.Credential, error) {
+	return s.ensureForExit(profileID, nodeID, exitID, "", allowed)
+}
+
+// EnsureCredentialsForRelay does the same for a line out through another node
+// of this fleet. Same shape, different exit column, so the two kinds of exit
+// cascade with the row they belong to.
+func (s *Service) EnsureCredentialsForRelay(profileID, nodeID, relayID string, allowed map[string]bool) ([]store.Credential, error) {
+	return s.ensureForExit(profileID, nodeID, "", relayID, allowed)
+}
+
+func (s *Service) ensureForExit(profileID, nodeID, exitID, relayID string, allowed map[string]bool) ([]store.Credential, error) {
 	userIDs, err := s.st.ProfileUserIDs(profileID)
 	if err != nil {
 		return nil, err
@@ -162,8 +173,10 @@ func (s *Service) EnsureCredentialsForExit(profileID, nodeID, exitID string, all
 			ProfileID:   profileID,
 			NodeID:      nodeID,
 			ExitProxyID: exitID,
-			Email:       StatsEmailForExit(u.Name, u.ID, profileID, nodeID, exitID),
-			Secret:      secret.Components[""],
+			ExitRelayID: relayID,
+			Email: StatsEmailForExit(u.Name, u.ID, profileID, nodeID,
+				exitKey(exitID, relayID)),
+			Secret: secret.Components[""],
 		})
 		if err != nil {
 			return nil, fmt.Errorf("minting credential for %s: %w", u.Name, err)
@@ -173,6 +186,44 @@ func (s *Service) EnsureCredentialsForExit(profileID, nodeID, exitID string, all
 		}
 	}
 	return out, nil
+}
+
+// exitKey is the exit component of a stats email.
+//
+// A relayed line is prefixed so the two kinds of exit can never produce the
+// same key from different rows: credentials.email is UNIQUE fleet-wide, and a
+// collision there does not merge two counters quietly — it fails assembly for
+// the whole node.
+func exitKey(exitID, relayID string) string {
+	if relayID != "" {
+		return "r" + relayID
+	}
+	return exitID
+}
+
+// RelayStatsEmail is the key the link's OWN credential reports under, on the
+// exit node.
+//
+// It belongs to no subscriber, so it is not in `credentials` and nothing bills
+// it — which is correct: the bytes were already charged to somebody at the
+// entry, where they authenticated as themselves. Counting them again here
+// would bill the same gigabyte twice, once to a person and once to a machine.
+// It is still worth naming: it makes "how much does this line carry" a
+// question the exit's own stats can answer.
+func RelayStatsEmail(relayID, profileID, nodeID string) string {
+	return fmt.Sprintf("relay.%s@%s.%s", relayID, profileID, nodeID)
+}
+
+// RelayVars are what a client-entry template sees when rendering the link's
+// own credential. The same names a subscriber's would bind, because to the
+// exit node this is just one more client.
+func RelayVars(r store.NodeRelay, profileID, nodeID string) map[string]string {
+	email := RelayStatsEmail(r.ID, profileID, nodeID)
+	return map[string]string{
+		"user.uuid":     r.Secret,
+		"user.password": r.Secret,
+		"user.email":    email,
+	}
 }
 
 // CredentialVars are the per-user names a client-entry or client template may

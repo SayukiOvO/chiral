@@ -126,6 +126,10 @@ func (s *Service) Render(u store.User, client, token string) (Result, error) {
 	if err != nil {
 		return Result{}, err
 	}
+	deniedRelays, err := s.st.UserRelayDenies(u.ID)
+	if err != nil {
+		return Result{}, err
+	}
 	// Relayed exits take their place in the one ordered list like anything
 	// else, keyed by the external proxy they stand for.
 	exitOrder, exitTie := map[string]int{}, map[string]string{}
@@ -133,6 +137,14 @@ func (s *Service) Render(u store.User, client, token string) (Result, error) {
 		for i, p := range all {
 			exitOrder[p.ID] = p.SortOrder
 			exitTie[p.ID] = fmt.Sprintf("1:%08d", i)
+		}
+	}
+	// And so do lines out through another of our nodes.
+	relayOrder, relayTie := map[string]int{}, map[string]string{}
+	if all, err := s.st.ListNodeRelays(); err == nil {
+		for i, rl := range all {
+			relayOrder[rl.ID] = rl.SortOrder
+			relayTie[rl.ID] = fmt.Sprintf("2:%08d", i)
 		}
 	}
 
@@ -253,6 +265,47 @@ func (s *Service) Render(u store.User, client, token string) (Result, error) {
 					body:  strings.TrimSpace(body),
 					order: exitOrder[ex.ID],
 					tie:   exitTie[ex.ID],
+				})
+			}
+
+			// And one per line that starts here and lands on another of our
+			// nodes. Same reasoning as above, with one difference worth
+			// stating: nothing is being hidden here — both ends are ours and
+			// the subscriber can see the exit as its own line too. What the
+			// relay adds is a way IN to that exit for someone whose route to
+			// it directly is bad, so it is a separate line with a name of its
+			// own rather than a replacement for either node's.
+			//
+			// A denied entry node has already skipped this whole loop, which
+			// is right: handing someone a line through a box means handing
+			// them that box's address and a credential on it.
+			relays, err := s.st.RelaysFromEntry(nid)
+			if err != nil {
+				return Result{}, err
+			}
+			for _, rl := range relays {
+				if _, no := deniedRelays[rl.ID]; no {
+					continue
+				}
+				rc, err := s.st.FindCredentialForExit(u.ID, pid, nid, "", rl.ID)
+				if err != nil {
+					if store.IsNotFound(err) {
+						continue
+					}
+					return Result{}, err
+				}
+				vars := user.CredentialVars(rc)
+				vars["node.display_name"] = rl.Label
+				vars["node.name"] = rl.Label
+				body, err := ctx.With(vars).Render(tmpl)
+				if err != nil {
+					skipped = append(skipped, fmt.Sprintf("%s via %s: %v", pid, rl.Label, err))
+					continue
+				}
+				placed = append(placed, placedFragment{
+					body:  strings.TrimSpace(body),
+					order: relayOrder[rl.ID],
+					tie:   relayTie[rl.ID],
 				})
 			}
 		}

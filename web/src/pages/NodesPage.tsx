@@ -8,6 +8,7 @@ import { Button } from "../components/ui";
 import { PlusIcon } from "../components/icons";
 import { ErrorBar } from "../components/primitives";
 import { ProxyOrder } from "../components/ProxyOrder";
+import { NodeRelays } from "../components/NodeRelays";
 import { useT } from "../lib/i18n";
 
 const REFRESH_MS = 3000;
@@ -20,6 +21,8 @@ export function NodesPage({ onSignOut }: { onSignOut: () => void }) {
   const [error, setError] = useState("");
   const [addOpen, setAddOpen] = useState(false);
   const [configuring, setConfiguring] = useState<Node | null>(null);
+  // Bumped when a relay line appears or goes, so the order list below reloads.
+  const [orderKey, setOrderKey] = useState(0);
   const timer = useRef<number>();
   // Ring buffer of recent throughput per node — turns the API's instantaneous
   // bytes/sec into an accumulated trace for each node's sparkline.
@@ -88,11 +91,16 @@ export function NodesPage({ onSignOut }: { onSignOut: () => void }) {
               onConfigure={setConfiguring}
             />
           </div>
+          {/* Between the roster and the order, because a line is made OF two
+              nodes and then takes its own place in the one ordered list. */}
+          <div className="animate-rise" style={{ animationDelay: "100ms" }}>
+            <NodeRelays nodes={nodes} onChanged={() => setOrderKey((k) => k + 1)} />
+          </div>
           {/* Below the roster, because it is about the fleet as a list rather
               than about any node in it — and it covers the external nodes too,
               which have no place of their own to be ordered from. */}
           <div className="animate-rise" style={{ animationDelay: "120ms" }}>
-            <ProxyOrder />
+            <ProxyOrder reloadKey={orderKey} />
           </div>
         </div>
       )}

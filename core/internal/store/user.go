@@ -46,10 +46,12 @@ type Credential struct {
 	ProfileID string
 	NodeID    string
 	// ExitProxyID is the external node this credential's traffic leaves
-	// through, empty for the node's own outbound. It is part of the identity:
-	// the routing rule that picks an exit matches on the email, so one person
-	// on one inbound needs one credential per exit.
+	// through and ExitRelayID a link to another node of this fleet; at most
+	// one is set, and neither means the node's own outbound. They are part of
+	// the identity: the routing rule that picks an exit matches on the email,
+	// so one person on one inbound needs one credential per exit.
 	ExitProxyID string
+	ExitRelayID string
 	Email       string
 	Secret      string
 	UpBytes     int64
@@ -125,6 +127,10 @@ func (s *Store) createUser(u User, subTokenHash, subToken string) (User, error) 
 	}
 	if _, err := tx.Exec(`INSERT INTO user_node_denies (user_id, node_id)
 		SELECT ?, id FROM nodes`, u.ID); err != nil {
+		return User{}, err
+	}
+	if _, err := tx.Exec(`INSERT INTO user_relay_denies (user_id, relay_id)
+		SELECT ?, id FROM node_relays`, u.ID); err != nil {
 		return User{}, err
 	}
 	return u, tx.Commit()
@@ -267,11 +273,11 @@ func (s *Store) idList(query string, args ...any) ([]string, error) {
 
 // --- credentials ---
 
-const credCols = `id, user_id, profile_id, node_id, COALESCE(exit_proxy_id, ''), email, secret, up_bytes, down_bytes, created_at`
+const credCols = `id, user_id, profile_id, node_id, COALESCE(exit_proxy_id, ''), COALESCE(exit_relay_id, ''), email, secret, up_bytes, down_bytes, created_at`
 
 func (s *Store) scanCredential(row interface{ Scan(...any) error }) (Credential, error) {
 	var c Credential
-	if err := row.Scan(&c.ID, &c.UserID, &c.ProfileID, &c.NodeID, &c.ExitProxyID, &c.Email, &c.Secret,
+	if err := row.Scan(&c.ID, &c.UserID, &c.ProfileID, &c.NodeID, &c.ExitProxyID, &c.ExitRelayID, &c.Email, &c.Secret,
 		&c.UpBytes, &c.DownBytes, &c.CreatedAt); err != nil {
 		return c, err
 	}
@@ -301,7 +307,7 @@ func (s *Store) scanCredentials(rows *sql.Rows) ([]Credential, error) {
 // assembly can call it freely without churning secrets — a regenerated secret
 // would silently lock the user out until they refetched their subscription.
 func (s *Store) PutCredential(c Credential) (Credential, error) {
-	if existing, err := s.FindCredential(c.UserID, c.ProfileID, c.NodeID, c.ExitProxyID); err == nil {
+	if existing, err := s.FindCredentialForExit(c.UserID, c.ProfileID, c.NodeID, c.ExitProxyID, c.ExitRelayID); err == nil {
 		return existing, nil
 	} else if !IsNotFound(err) {
 		return Credential{}, err
@@ -313,19 +319,28 @@ func (s *Store) PutCredential(c Credential) (Credential, error) {
 		return Credential{}, err
 	}
 	if _, err := s.db.Exec(`
-		INSERT INTO credentials (id, user_id, profile_id, node_id, exit_proxy_id, email, secret, created_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-		c.ID, c.UserID, c.ProfileID, c.NodeID, nullIfEmpty(c.ExitProxyID), c.Email, sealed, c.CreatedAt); err != nil {
+		INSERT INTO credentials
+			(id, user_id, profile_id, node_id, exit_proxy_id, exit_relay_id, email, secret, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		c.ID, c.UserID, c.ProfileID, c.NodeID, nullIfEmpty(c.ExitProxyID),
+		nullIfEmpty(c.ExitRelayID), c.Email, sealed, c.CreatedAt); err != nil {
 		return Credential{}, err
 	}
 	return c, nil
 }
 
+// FindCredential looks one up by its full identity. An exit is at most one of
+// a provider or a link, so the two are passed separately and both empty means
+// the node's own outbound.
 func (s *Store) FindCredential(userID, profileID, nodeID, exitProxyID string) (Credential, error) {
+	return s.FindCredentialForExit(userID, profileID, nodeID, exitProxyID, "")
+}
+
+func (s *Store) FindCredentialForExit(userID, profileID, nodeID, exitProxyID, exitRelayID string) (Credential, error) {
 	return s.scanCredential(s.db.QueryRow(`SELECT `+credCols+
 		` FROM credentials WHERE user_id = ? AND profile_id = ? AND node_id = ?
-		  AND COALESCE(exit_proxy_id, '') = ?`,
-		userID, profileID, nodeID, exitProxyID))
+		  AND COALESCE(exit_proxy_id, '') = ? AND COALESCE(exit_relay_id, '') = ?`,
+		userID, profileID, nodeID, exitProxyID, exitRelayID))
 }
 
 // NodeCredentials returns every credential installed on a node, which is what
@@ -389,10 +404,11 @@ func (s *Store) AddCredentialTraffic(email string, up, down int64) error {
 	var userID string
 	var rate float64
 	if err := tx.QueryRow(`
-		SELECT c.user_id, COALESCE(x.traffic_rate, n.traffic_rate, 1.0)
+		SELECT c.user_id, COALESCE(x.traffic_rate, r.traffic_rate, n.traffic_rate, 1.0)
 		FROM credentials c
 		JOIN nodes n ON n.id = c.node_id
 		LEFT JOIN external_proxies x ON x.id = c.exit_proxy_id
+		LEFT JOIN node_relays r ON r.id = c.exit_relay_id
 		WHERE c.email = ?`, email).Scan(&userID, &rate); err != nil {
 		// An unknown email is not an error worth failing the whole report
 		// over: it is normal right after a credential is revoked, while the

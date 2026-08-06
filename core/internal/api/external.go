@@ -421,10 +421,30 @@ func (s *Server) proxyOrder(w http.ResponseWriter, r *http.Request) {
 			Kind: "external", ID: p.ID, Name: p.Label(), Source: byID[p.SubID],
 		})
 	}
-	// Both queries already sort by the shared sequence; this merges the two
-	// sorted runs into the one list the operator arranged.
+	relays, err := s.st.ListNodeRelays()
+	if err != nil {
+		s.internalErr(w, "list relays", err)
+		return
+	}
+	nodeName := map[string]string{}
+	for _, n := range nodes {
+		if nodeName[n.ID] = n.DisplayName; nodeName[n.ID] == "" {
+			nodeName[n.ID] = n.Name
+		}
+	}
+	for _, rl := range relays {
+		if !rl.Enabled {
+			continue
+		}
+		out = append(out, orderEntryView{
+			Kind: "relay", ID: rl.ID, Name: rl.Label,
+			Source: nodeName[rl.EntryNodeID] + " → " + nodeName[rl.ExitNodeID],
+		})
+	}
+	// Every query already sorts by the shared sequence; this merges the sorted
+	// runs into the one list the operator arranged.
 	sort.SliceStable(out, func(i, j int) bool {
-		a, b := orderOf(out[i], nodes, proxies), orderOf(out[j], nodes, proxies)
+		a, b := orderOf(out[i], nodes, proxies, relays), orderOf(out[j], nodes, proxies, relays)
 		if (a == 0) != (b == 0) {
 			return b == 0
 		}
@@ -433,18 +453,25 @@ func (s *Server) proxyOrder(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"entries": out})
 }
 
-func orderOf(e orderEntryView, nodes []store.Node, proxies []store.ExternalProxy) int {
-	if e.Kind == "node" {
+func orderOf(e orderEntryView, nodes []store.Node, proxies []store.ExternalProxy, relays []store.NodeRelay) int {
+	switch e.Kind {
+	case "node":
 		for _, n := range nodes {
 			if n.ID == e.ID {
 				return n.SortOrder
 			}
 		}
-		return 0
-	}
-	for _, p := range proxies {
-		if p.ID == e.ID {
-			return p.SortOrder
+	case "relay":
+		for _, rl := range relays {
+			if rl.ID == e.ID {
+				return rl.SortOrder
+			}
+		}
+	default:
+		for _, p := range proxies {
+			if p.ID == e.ID {
+				return p.SortOrder
+			}
 		}
 	}
 	return 0
@@ -463,8 +490,8 @@ func (s *Server) setProxyOrder(w http.ResponseWriter, r *http.Request) {
 	}
 	entries := make([]store.ProxyOrderEntry, 0, len(req.Entries))
 	for _, e := range req.Entries {
-		if e.Kind != "node" && e.Kind != "external" {
-			writeErr(w, http.StatusBadRequest, `each entry needs a "kind" of "node" or "external"`)
+		if e.Kind != "node" && e.Kind != "external" && e.Kind != "relay" {
+			writeErr(w, http.StatusBadRequest, `each entry needs a "kind" of "node", "external" or "relay"`)
 			return
 		}
 		entries = append(entries, store.ProxyOrderEntry{Kind: e.Kind, ID: e.ID})

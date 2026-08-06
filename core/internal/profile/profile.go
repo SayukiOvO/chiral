@@ -190,9 +190,17 @@ func (s *Service) AssembleNode(nodeID string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
+	// The lines that leave through another of our nodes. Same shape: this node
+	// is the entry, so it needs an outbound to each exit and a rule per
+	// subscriber allowed to take it.
+	relays, err := s.st.RelaysFromEntry(nodeID)
+	if err != nil {
+		return nil, err
+	}
 
 	sources := make([]template.InboundSource, 0, len(profileIDs))
 	exitEmails := map[string][]string{}
+	relayEmails := map[string][]string{}
 	for _, pid := range profileIDs {
 		p, err := s.st.GetProfile(pid)
 		if err != nil {
@@ -211,6 +219,13 @@ func (s *Service) AssembleNode(nodeID string) ([]byte, error) {
 		if err != nil {
 			return nil, err
 		}
+		// The credentials belonging to lines that LAND here. Not a
+		// subscriber's — one per line, presented by the entry node itself.
+		machine, err := s.relayClientEntries(p, nodeID, ctx)
+		if err != nil {
+			return nil, err
+		}
+		clients = append(clients, machine...)
 		// One more credential per relayed exit, rendered into the same inbound.
 		// They are ordinary clients as far as Xray is concerned; what makes
 		// them an exit is the routing rule that matches their email.
@@ -232,6 +247,25 @@ func (s *Service) AssembleNode(nodeID string) ([]byte, error) {
 				exitEmails[ex.ID] = append(exitEmails[ex.ID], c.Email)
 			}
 		}
+		// And one per line that STARTS here, for each subscriber allowed on it.
+		for _, rl := range relays {
+			allowed, err := s.allowedOnRelay(rl.ID)
+			if err != nil {
+				return nil, err
+			}
+			creds, err := s.users.EnsureCredentialsForRelay(pid, nodeID, rl.ID, allowed)
+			if err != nil {
+				return nil, err
+			}
+			rendered, err := s.renderCredentials(p, ctx, creds)
+			if err != nil {
+				return nil, err
+			}
+			clients = append(clients, rendered...)
+			for _, c := range creds {
+				relayEmails[rl.ID] = append(relayEmails[rl.ID], c.Email)
+			}
+		}
 		sources = append(sources, template.InboundSource{
 			ProfileID:   pid,
 			ProfileName: p.Name,
@@ -241,7 +275,16 @@ func (s *Service) AssembleNode(nodeID string) ([]byte, error) {
 		})
 	}
 
-	exits := make([]template.ExitSource, 0, len(relayed))
+	exits := make([]template.ExitSource, 0, len(relayed)+len(relays))
+	for _, rl := range relays {
+		ob, err := s.relayOutbound(rl)
+		if err != nil {
+			return nil, fmt.Errorf("中转线路 %q 无法拨号：%w", rl.Label, err)
+		}
+		exits = append(exits, template.ExitSource{
+			Tag: RelayTag(rl.ID), Outbound: ob, Emails: relayEmails[rl.ID],
+		})
+	}
 	for _, ex := range relayed {
 		ob, err := external.XrayOutbound(ex.Config, ExitTag(ex.ID))
 		if err != nil {

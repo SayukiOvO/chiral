@@ -299,7 +299,7 @@ export interface NodeAccessEntry {
  * because the group generator walks that list, the order inside every group.
  */
 export interface OrderEntry {
-  kind: "node" | "external";
+  kind: "node" | "external" | "relay";
   id: string;
   name: string;
   /** "fleet", or the external source's name. */
@@ -308,11 +308,40 @@ export interface OrderEntry {
   online?: boolean;
 }
 
+/**
+ * A line out through another of our nodes: subscribers connect to the entry,
+ * their traffic leaves at the exit.
+ *
+ * There is no credential here on purpose. The line has one, but both ends are
+ * ours and both receive it in an assembled config — nobody ever has to read
+ * or type it, so showing it would be exposure without use.
+ */
+export interface Relay {
+  id: string;
+  entry_node_id: string;
+  exit_node_id: string;
+  profile_id: string;
+  label: string;
+  enabled: boolean;
+  entry_name: string;
+  exit_name: string;
+  profile_name: string;
+  traffic_rate: number;
+  /** Why the line cannot currently be assembled; absent when it can. */
+  problem?: string;
+}
+
 /** One subscriber, seen from an external node's side. */
 export interface ProxyUser {
   id: string;
   name: string;
   allowed: boolean;
+  /**
+   * Whether anything this subscriber holds reaches the thing being toggled at
+   * all. Only relay lines answer it — an external node has no profile in
+   * between to be entitled by, so it is absent there.
+   */
+  entitled?: boolean;
 }
 
 export interface Settings {
@@ -463,9 +492,32 @@ export const api = {
 
   // --- variables ---
   userNodeAccess: (id: string) =>
-    req<{ fleet: NodeAccessEntry[]; external: NodeAccessEntry[] }>("GET", `/api/users/${id}/nodes`),
-  setUserNodeAccess: (id: string, denied: { denied_nodes: string[]; denied_proxies: string[] }) =>
-    req<void>("PUT", `/api/users/${id}/nodes`, denied),
+    req<{ fleet: NodeAccessEntry[]; external: NodeAccessEntry[]; relay: NodeAccessEntry[] }>(
+      "GET",
+      `/api/users/${id}/nodes`,
+    ),
+  setUserNodeAccess: (
+    id: string,
+    denied: { denied_nodes: string[]; denied_proxies: string[]; denied_relays: string[] },
+  ) => req<void>("PUT", `/api/users/${id}/nodes`, denied),
+
+  // --- relay lines: one of our nodes leaving through another ---
+  listRelays: () => req<{ relays: Relay[] }>("GET", "/api/relays"),
+  createRelay: (r: {
+    entry_node_id: string;
+    exit_node_id: string;
+    profile_id: string;
+    label: string;
+    traffic_rate?: number;
+  }) => req<Relay>("POST", "/api/relays", r),
+  updateRelay: (
+    id: string,
+    patch: { label?: string; enabled?: boolean; traffic_rate?: number },
+  ) => req<Relay>("PUT", `/api/relays/${id}`, patch),
+  deleteRelay: (id: string) => req<void>("DELETE", `/api/relays/${id}`),
+  relayUsers: (id: string) => req<{ users: ProxyUser[] }>("GET", `/api/relays/${id}/users`),
+  setRelayUsers: (id: string, denied: { denied_users: string[] }) =>
+    req<void>("PUT", `/api/relays/${id}/users`, denied),
   // Reading the link and replacing it are different requests, because they are
   // very different acts: one shows an operator what a subscriber already has,
   // the other breaks every client that subscriber has configured.

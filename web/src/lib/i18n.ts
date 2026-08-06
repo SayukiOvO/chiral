@@ -271,6 +271,26 @@ const EN: Record<string, string> = {
     "Chained through “{node}”, which this user does not get",
   "取消后该节点不再出现在此用户的订阅里。凭证仍在节点上，订阅者下次刷新订阅时生效。":
     "Unticked, the node stops appearing in this subscriber's subscription. The credential stays on the node; it applies on their next refresh.",
+  // relay lines: one of our nodes leaving through another
+  中转线路: "Relay lines",
+  "订阅者连入口节点，流量从出口节点出去。两端都是自有节点，落地对订阅者不可见。":
+    "Subscribers connect to the entry node; their traffic leaves at the exit node. Both ends are your own, and the landing is invisible to subscribers.",
+  新增线路: "Add line",
+  "还没有中转线路。": "No relay lines yet.",
+  "删除这条中转线路？订阅者会失去这条线，两端节点会重新下发配置。":
+    "Delete this relay line? Subscribers lose it, and both nodes get a new config.",
+  新增中转线路: "New relay line",
+  "入口节点会用一份线路自己的凭证拨号出口节点。这份凭证不属于任何订阅者，流量只在入口计一次费。":
+    "The entry node dials the exit with a credential belonging to the line itself. It belongs to no subscriber, and traffic is billed once, at the entry.",
+  "入口节点（订阅者连这里）": "Entry node (subscribers connect here)",
+  "出口节点（流量从这里出去）": "Exit node (traffic leaves here)",
+  出口节点的接入配置: "The exit's access configuration",
+  "线路名称（订阅者看到的）": "Line name (what subscribers see)",
+  "例如：香港中转 · 东京落地": "e.g. HK relay · Tokyo exit",
+  请选择: "Choose one",
+  此用户的接入配置没有覆盖这条线路的入口节点:
+    "This subscriber's access configuration does not reach the line's entry node",
+  "改动会立刻重新下发入口节点的配置。": "Changes are pushed to the entry node immediately.",
   // panel settings
   设置: "Settings",
   "面板产出物的一些选项。": "Choices about what the panel produces.",

@@ -406,7 +406,7 @@ func (s *Store) denySet(query, userID string) (map[string]struct{}, error) {
 // list and an operator ticking boxes is describing an end state. Two calls that
 // each toggled one node could interleave into a state neither of them asked
 // for.
-func (s *Store) SetUserNodeAccess(userID string, deniedNodes, deniedProxies []string) error {
+func (s *Store) SetUserNodeAccess(userID string, deniedNodes, deniedProxies, deniedRelays []string) error {
 	tx, err := s.db.Begin()
 	if err != nil {
 		return err
@@ -418,6 +418,9 @@ func (s *Store) SetUserNodeAccess(userID string, deniedNodes, deniedProxies []st
 	if _, err := tx.Exec(`DELETE FROM user_external_denies WHERE user_id = ?`, userID); err != nil {
 		return err
 	}
+	if _, err := tx.Exec(`DELETE FROM user_relay_denies WHERE user_id = ?`, userID); err != nil {
+		return err
+	}
 	for _, id := range deniedNodes {
 		if _, err := tx.Exec(`INSERT OR IGNORE INTO user_node_denies (user_id, node_id) VALUES (?, ?)`,
 			userID, id); err != nil {
@@ -426,6 +429,12 @@ func (s *Store) SetUserNodeAccess(userID string, deniedNodes, deniedProxies []st
 	}
 	for _, id := range deniedProxies {
 		if _, err := tx.Exec(`INSERT OR IGNORE INTO user_external_denies (user_id, proxy_id) VALUES (?, ?)`,
+			userID, id); err != nil {
+			return err
+		}
+	}
+	for _, id := range deniedRelays {
+		if _, err := tx.Exec(`INSERT OR IGNORE INTO user_relay_denies (user_id, relay_id) VALUES (?, ?)`,
 			userID, id); err != nil {
 			return err
 		}

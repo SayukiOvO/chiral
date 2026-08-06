@@ -22,7 +22,7 @@ import { useT } from "../lib/i18n";
  * HTML5 drag-and-drop does not fire for touch at all, so on a phone they are
  * the whole feature.
  */
-export function ProxyOrder() {
+export function ProxyOrder({ reloadKey }: { reloadKey?: number }) {
   const { t } = useT();
   const [entries, setEntries] = useState<OrderEntry[]>([]);
   const [dirty, setDirty] = useState(false);
@@ -43,7 +43,11 @@ export function ProxyOrder() {
   }
   useEffect(() => {
     load();
-  }, []);
+    // Adding or removing a relay line adds or removes a row here, and the two
+    // sitting on the same page made the staleness plain: a line the operator
+    // had just created was missing from the list that decides where it goes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [reloadKey]);
 
   function move(from: number, to: number) {
     if (to < 0 || to >= entries.length || from === to) return;

@@ -16,6 +16,7 @@ export function NodeAccess({ userId }: { userId: string }) {
   const { t, tf } = useT();
   const [fleet, setFleet] = useState<NodeAccessEntry[]>([]);
   const [external, setExternal] = useState<NodeAccessEntry[]>([]);
+  const [relay, setRelay] = useState<NodeAccessEntry[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
@@ -24,6 +25,7 @@ export function NodeAccess({ userId }: { userId: string }) {
       const a = await api.userNodeAccess(userId);
       setFleet(a.fleet);
       setExternal(a.external);
+      setRelay(a.relay ?? []);
       setError("");
     } catch (e) {
       setError((e as Error).message);
@@ -34,17 +36,23 @@ export function NodeAccess({ userId }: { userId: string }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userId]);
 
-  async function toggle(entry: NodeAccessEntry, isExternal: boolean) {
-    const next = { ...entry, allowed: !entry.allowed };
-    const nextFleet = isExternal ? fleet : fleet.map((e) => (e.id === entry.id ? next : e));
-    const nextExternal = isExternal ? external.map((e) => (e.id === entry.id ? next : e)) : external;
+  type Kind = "fleet" | "external" | "relay";
+
+  async function toggle(entry: NodeAccessEntry, kind: Kind) {
+    const flip = (list: NodeAccessEntry[], mine: boolean) =>
+      mine ? list.map((e) => (e.id === entry.id ? { ...e, allowed: !e.allowed } : e)) : list;
+    const nextFleet = flip(fleet, kind === "fleet");
+    const nextExternal = flip(external, kind === "external");
+    const nextRelay = flip(relay, kind === "relay");
     setFleet(nextFleet);
     setExternal(nextExternal);
+    setRelay(nextRelay);
     setBusy(true);
     try {
       await api.setUserNodeAccess(userId, {
         denied_nodes: nextFleet.filter((e) => !e.allowed).map((e) => e.id),
         denied_proxies: nextExternal.filter((e) => !e.allowed).map((e) => e.id),
+        denied_relays: nextRelay.filter((e) => !e.allowed).map((e) => e.id),
       });
     } catch (e) {
       setError((e as Error).message);
@@ -54,9 +62,10 @@ export function NodeAccess({ userId }: { userId: string }) {
     }
   }
 
-  const groups: { label: string; entries: NodeAccessEntry[]; isExternal: boolean }[] = [];
-  if (fleet.length) groups.push({ label: "自有节点", entries: fleet, isExternal: false });
-  if (external.length) groups.push({ label: "外部节点", entries: external, isExternal: true });
+  const groups: { label: string; entries: NodeAccessEntry[]; kind: Kind }[] = [];
+  if (fleet.length) groups.push({ label: "自有节点", entries: fleet, kind: "fleet" });
+  if (relay.length) groups.push({ label: "中转线路", entries: relay, kind: "relay" });
+  if (external.length) groups.push({ label: "外部节点", entries: external, kind: "external" });
 
   if (groups.length === 0) {
     return <p className="text-sm text-muted">{t("还没有节点。")}</p>;
@@ -72,7 +81,7 @@ export function NodeAccess({ userId }: { userId: string }) {
             {g.entries.map((e) => (
               <button
                 key={e.id}
-                onClick={() => toggle(e, g.isExternal)}
+                onClick={() => toggle(e, g.kind)}
                 disabled={busy}
                 // Not entitled is a different state from denied: no profile
                 // this user holds reaches that node, and switching it on here
@@ -81,6 +90,8 @@ export function NodeAccess({ userId }: { userId: string }) {
                 title={
                   e.chained_via
                     ? tf("链经「{node}」，而此用户拿不到那个节点", { node: e.chained_via })
+                    : g.kind === "relay" && !e.entitled
+                      ? t("此用户的接入配置没有覆盖这条线路的入口节点")
                     : e.entitled
                       ? undefined
                       : t("该用户的接入配置未覆盖此节点")

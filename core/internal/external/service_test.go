@@ -500,7 +500,7 @@ func TestProxyAccessReadsBothWays(t *testing.T) {
 		t.Errorf("denying alice touched bob: %v", others)
 	}
 	// And writing from the user side is visible from the node side.
-	if err := st.SetUserNodeAccess(bob.ID, nil, []string{p[0].ID}); err != nil {
+	if err := st.SetUserNodeAccess(bob.ID, nil, []string{p[0].ID}, nil); err != nil {
 		t.Fatal(err)
 	}
 	back, _ := st.ExternalProxyDenies(p[0].ID)
@@ -635,7 +635,7 @@ func TestANewExternalNodeReachesNobodyUntilSaidOtherwise(t *testing.T) {
 	}
 
 	// The operator says yes to A. Then the provider adds B.
-	if err := st.SetUserNodeAccess(alice.ID, nil, nil); err != nil {
+	if err := st.SetUserNodeAccess(alice.ID, nil, nil, nil); err != nil {
 		t.Fatal(err)
 	}
 	next()

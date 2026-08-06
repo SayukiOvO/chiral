@@ -44,6 +44,7 @@ SQLite（WAL），迁移在 `core/migrations/`，启动时自动应用，只增�
 | [Core ↔ Agent 通信](communication.md) | gRPC 帧、重连、协议决策 |
 | [模板与变量系统](template-system.md) | 渲染、作用域、生成器、`xray -test` 的能力边界 |
 | [外部节点](external-nodes.md) | 别人的订阅、格式识别、链式代理 |
+| [中转线路](node-relays.md) | 自有节点经自有节点、机器凭证、权限与计费 |
 | [分流规则](routing-rules.md) | ACL4SSR 预设、解析、空组丢弃、provider 下发 |
 | [用户 / 流量 / 订阅](user-management.md) | 凭证隔离、配额、订阅渲染 |
 | [端用户门户](user-portal.md) | 第二个信任域、在线地址记录 |
