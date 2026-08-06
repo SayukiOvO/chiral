@@ -3,6 +3,7 @@ package store
 import (
 	"database/sql"
 	"fmt"
+	"math"
 	"time"
 )
 
@@ -381,8 +382,18 @@ func (s *Store) AddCredentialTraffic(email string, up, down int64) error {
 	}
 	defer tx.Rollback()
 
+	// The rate comes from whatever the subscriber actually picked in their
+	// client: for a relayed credential that is the exit, because the bytes
+	// really leave through that provider's line and that is the line being
+	// paid for; otherwise the node.
 	var userID string
-	if err := tx.QueryRow(`SELECT user_id FROM credentials WHERE email = ?`, email).Scan(&userID); err != nil {
+	var rate float64
+	if err := tx.QueryRow(`
+		SELECT c.user_id, COALESCE(x.traffic_rate, n.traffic_rate, 1.0)
+		FROM credentials c
+		JOIN nodes n ON n.id = c.node_id
+		LEFT JOIN external_proxies x ON x.id = c.exit_proxy_id
+		WHERE c.email = ?`, email).Scan(&userID, &rate); err != nil {
 		// An unknown email is not an error worth failing the whole report
 		// over: it is normal right after a credential is revoked, while the
 		// node still had in-flight traffic for it.
@@ -396,8 +407,11 @@ func (s *Store) AddCredentialTraffic(email string, up, down int64) error {
 		up, down, email); err != nil {
 		return err
 	}
+	// Rounded up, so a rate above 1 can never bill less than the bytes that
+	// moved, and a trickle on an expensive node still costs something.
+	billed := int64(math.Ceil(float64(up+down) * rate))
 	if _, err := tx.Exec(
-		`UPDATE users SET used_bytes = used_bytes + ? WHERE id = ?`, up+down, userID); err != nil {
+		`UPDATE users SET used_bytes = used_bytes + ? WHERE id = ?`, billed, userID); err != nil {
 		return err
 	}
 	return tx.Commit()

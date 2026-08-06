@@ -49,9 +49,19 @@ type userView struct {
 type credentialView struct {
 	ProfileID string `json:"profile_id"`
 	NodeID    string `json:"node_id"`
-	Email     string `json:"email"`
-	UpBytes   int64  `json:"up_bytes"`
-	DownBytes int64  `json:"down_bytes"`
+	// ExitProxyID names the relayed exit this credential leaves through,
+	// empty for the node's own outbound. Two credentials on one access point
+	// differ only by this, so without it the console shows two identical rows.
+	ExitProxyID string `json:"exit_proxy_id,omitempty"`
+	// ExitName is that exit's label, so the console need not fetch the
+	// external list to render a row.
+	ExitName string `json:"exit_name,omitempty"`
+	// TrafficRate is what a byte on this credential costs the quota — the
+	// exit's when relayed, otherwise the node's.
+	TrafficRate float64 `json:"traffic_rate"`
+	Email       string  `json:"email"`
+	UpBytes     int64   `json:"up_bytes"`
+	DownBytes   int64   `json:"down_bytes"`
 	// The secret itself is never returned: it reaches the user through their
 	// subscription, and an admin UI has no reason to display it.
 }
@@ -82,11 +92,26 @@ func (s *Server) userView(u store.User, withCredentials bool) (userView, error) 
 		if err != nil {
 			return userView{}, err
 		}
+		// Names and rates for the exits these credentials leave through.
+		// Loaded once rather than per credential.
+		exits := map[string]store.ExternalProxy{}
+		if all, err := s.st.EnabledExternalProxies(); err == nil {
+			for _, p := range all {
+				exits[p.ID] = p
+			}
+		}
 		for _, c := range creds {
-			v.Credentials = append(v.Credentials, credentialView{
-				ProfileID: c.ProfileID, NodeID: c.NodeID, Email: c.Email,
-				UpBytes: c.UpBytes, DownBytes: c.DownBytes,
-			})
+			cv := credentialView{
+				ProfileID: c.ProfileID, NodeID: c.NodeID, ExitProxyID: c.ExitProxyID,
+				Email: c.Email, UpBytes: c.UpBytes, DownBytes: c.DownBytes,
+				TrafficRate: 1,
+			}
+			if ex, ok := exits[c.ExitProxyID]; ok {
+				cv.ExitName, cv.TrafficRate = ex.Label(), ex.TrafficRate
+			} else if n, err := s.st.GetNode(c.NodeID); err == nil {
+				cv.TrafficRate = n.TrafficRate
+			}
+			v.Credentials = append(v.Credentials, cv)
 		}
 	}
 	return v, nil

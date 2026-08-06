@@ -344,3 +344,64 @@ func TestBindUserProfileIsIdempotent(t *testing.T) {
 		t.Errorf("expected one binding, got %v", ids)
 	}
 }
+
+// A gigabyte through an expensive node costs more than a gigabyte through a
+// cheap one. What it must NOT do is rewrite what the agent measured: the
+// credential keeps the bytes that moved, the quota takes the billed amount.
+// One number for both would answer neither question.
+func TestTrafficRateBillsTheQuotaButNotTheCounters(t *testing.T) {
+	st := testStore(t, "rate-test-key-0123456789abcdefx")
+	n, err := st.CreateNode("pricey", "hash-rate")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetNodeTrafficRate(n.ID, 2.5); err != nil {
+		t.Fatal(err)
+	}
+	p, err := st.CreateProfile("p")
+	if err != nil {
+		t.Fatal(err)
+	}
+	u, err := st.CreateUser(User{Name: "alice", Enabled: true}, "hash-a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.PutCredential(Credential{
+		UserID: u.ID, ProfileID: p.ID, NodeID: n.ID, Email: "alice@p.n", Secret: "s",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.AddCredentialTraffic("alice@p.n", 1000, 3000); err != nil {
+		t.Fatal(err)
+	}
+
+	creds, _ := st.UserCredentials(u.ID)
+	if len(creds) != 1 || creds[0].UpBytes != 1000 || creds[0].DownBytes != 3000 {
+		t.Fatalf("the counters were rewritten: %+v", creds)
+	}
+	got, _ := st.GetUser(u.ID)
+	if got.UsedBytes != 10000 {
+		t.Fatalf("billed %d against the quota, want 4000 × 2.5", got.UsedBytes)
+	}
+}
+
+// The default has to be exactly 1: every node that existed before rates did
+// keeps billing what it always billed.
+func TestAnUnratedNodeBillsWhatMoved(t *testing.T) {
+	st := testStore(t, "rate-test-key-0123456789abcdefx")
+	n, _ := st.CreateNode("plain", "hash-plain")
+	p, _ := st.CreateProfile("p")
+	u, _ := st.CreateUser(User{Name: "bob", Enabled: true}, "hash-b")
+	if _, err := st.PutCredential(Credential{
+		UserID: u.ID, ProfileID: p.ID, NodeID: n.ID, Email: "bob@p.n", Secret: "s",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.AddCredentialTraffic("bob@p.n", 700, 300); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := st.GetUser(u.ID)
+	if got.UsedBytes != 1000 {
+		t.Fatalf("UsedBytes = %d, want the 1000 that moved", got.UsedBytes)
+	}
+}

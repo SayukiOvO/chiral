@@ -301,6 +301,11 @@ function ProxyRow({
             connect to that node and never learn this address. Saying so where
             the chain is chosen is the difference between a setting and a
             surprise. */}
+        {proxy.relayed && proxy.traffic_rate !== 1 && (
+          <span className="shrink-0 rounded-md border border-warn px-1.5 py-0.5 text-[10px] text-warn">
+            ×{proxy.traffic_rate}
+          </span>
+        )}
         {proxy.relayed && (
           <button
             onClick={() => patch({ relay_exposed: !proxy.relay_exposed })}

@@ -300,9 +300,11 @@ type nodeView struct {
 	RegisteredAt int64  `json:"registered_at,omitempty"`
 	LastSeenAt   int64  `json:"last_seen_at,omitempty"`
 
-	Online    bool       `json:"online"`
-	XrayState string     `json:"xray_state,omitempty"`
-	Metrics   *metricsIn `json:"metrics,omitempty"`
+	Online bool `json:"online"`
+	// TrafficRate is what a byte here costs the subscriber's quota.
+	TrafficRate float64    `json:"traffic_rate"`
+	XrayState   string     `json:"xray_state,omitempty"`
+	Metrics     *metricsIn `json:"metrics,omitempty"`
 }
 
 type metricsIn struct {
@@ -332,6 +334,7 @@ func (s *Server) view(n store.Node) nodeView {
 		CreatedAt:            n.CreatedAt,
 		RegisteredAt:         n.RegisteredAt.Int64,
 		LastSeenAt:           n.LastSeenAt.Int64,
+		TrafficRate:          n.TrafficRate,
 	}
 	st := s.mgr.State(n.ID)
 	v.Online = st.Online
@@ -397,6 +400,8 @@ func (s *Server) updateNode(w http.ResponseWriter, r *http.Request) {
 		// back to the address the agent's connection came from, which is only
 		// right when nothing translates addresses in between.
 		Address *string `json:"address"`
+		// TrafficRate is what a byte here costs the subscriber's quota.
+		TrafficRate *float64 `json:"traffic_rate"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeErr(w, http.StatusBadRequest, "body must be JSON")
@@ -414,6 +419,16 @@ func (s *Server) updateNode(w http.ResponseWriter, r *http.Request) {
 		n.Address = strings.TrimSpace(*req.Address)
 	}
 
+	if req.TrafficRate != nil {
+		if *req.TrafficRate <= 0 {
+			writeErr(w, http.StatusBadRequest, "倍率必须大于 0")
+			return
+		}
+		if err := s.st.SetNodeTrafficRate(n.ID, *req.TrafficRate); err != nil {
+			s.notFoundOr(w, "set traffic rate", err, "no such node")
+			return
+		}
+	}
 	if err := s.st.UpdateNode(n.ID, n.Name, n.DisplayName, n.Address); err != nil {
 		if isConflict(err) {
 			writeErr(w, http.StatusConflict, "a node with that name already exists")

@@ -46,6 +46,10 @@ type ExternalProxy struct {
 	// SortOrder is this proxy's place in the operator's single list, shared
 	// with the fleet nodes. 0 means never placed; see migration 0022.
 	SortOrder int
+	// TrafficRate is what a byte through this exit costs the quota. Applies
+	// when a node relays it — the bytes really leave through this provider's
+	// line, and that is the line being paid for.
+	TrafficRate float64
 	// RelayExposed puts this proxy in subscriptions as a line of its own even
 	// while a node relays it. Off by default: relaying exists so the
 	// subscriber does not get the provider's address, and handing it to them
@@ -156,12 +160,12 @@ func (s *Store) SaveExternalFetch(id, body, failure string) error {
 	return err
 }
 
-const externalProxyCols = `id, sub_id, name, COALESCE(display_name, ''), type, server, port, config, COALESCE(chain_node_id, ''), COALESCE(chain_proxy_id, ''), enabled, ord, sort_order, relay_exposed`
+const externalProxyCols = `id, sub_id, name, COALESCE(display_name, ''), type, server, port, config, COALESCE(chain_node_id, ''), COALESCE(chain_proxy_id, ''), enabled, ord, sort_order, relay_exposed, traffic_rate`
 
 func scanExternalProxy(row interface{ Scan(...any) error }) (ExternalProxy, error) {
 	var p ExternalProxy
 	err := row.Scan(&p.ID, &p.SubID, &p.Name, &p.DisplayName, &p.Type, &p.Server, &p.Port, &p.Config,
-		&p.ChainNodeID, &p.ChainProxyID, &p.Enabled, &p.Ord, &p.SortOrder, &p.RelayExposed)
+		&p.ChainNodeID, &p.ChainProxyID, &p.Enabled, &p.Ord, &p.SortOrder, &p.RelayExposed, &p.TrafficRate)
 	return p, err
 }
 
@@ -490,6 +494,18 @@ func (s *Store) RenameExternalProxy(id, displayName string) error {
 // choice though — an operator wanting one direct line for themselves.
 func (s *Store) SetExternalProxyExposed(id string, exposed bool) error {
 	res, err := s.db.Exec(`UPDATE external_proxies SET relay_exposed = ? WHERE id = ?`, exposed, id)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
+// SetExternalProxyTrafficRate sets what a byte through this exit costs.
+func (s *Store) SetExternalProxyTrafficRate(id string, rate float64) error {
+	res, err := s.db.Exec(`UPDATE external_proxies SET traffic_rate = ? WHERE id = ?`, rate, id)
 	if err != nil {
 		return err
 	}

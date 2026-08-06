@@ -219,6 +219,15 @@ const EN: Record<string, string> = {
   订阅者: "Subscribers",
   运维: "Operations",
   谁能用: "Who gets it",
+  流量倍率: "Traffic multiplier",
+  按出口用量: "Usage by exit",
+  节点直出: "Node's own exit",
+  "还没有产生流量。": "No traffic yet.",
+  "按 ×{rate} 计入配额": "Billed at ×{rate}",
+  "1 表示按实际用量计入配额。贵的线路可以调高，比如 2 表示用 1 GB 扣 2 GB。":
+    "1 bills what actually moved. Raise it for an expensive line — 2 means a gigabyte costs two.",
+  倍率: "rate",
+  经出口: "via",
   "中继·已隐藏": "Relayed",
   "中继·并直发": "Relayed + direct",
   "中继：订阅者连我们的节点，看不到这个落地地址":

@@ -128,6 +128,9 @@ type Node struct {
 	// Address is what clients are told to dial, when the operator has said.
 	// Empty falls back to PublicIP; see Dialable and migration 0015.
 	Address string
+	// TrafficRate is what a byte through this node costs the subscriber's
+	// quota. 1 bills what moved; see migration 0024.
+	TrafficRate float64
 	// SortOrder is this node's place in the one list the operator arranges,
 	// shared with the external proxies. 0 means never placed — those go last,
 	// so a node that has just been added appears at the end of the list rather
@@ -146,7 +149,7 @@ func (n Node) Dialable() string {
 	return n.PublicIP
 }
 
-const nodeCols = `id, name, hostname, public_ip, agent_version, xray_version, xray_installed_version, platform, created_at, registered_at, last_seen_at, config_skeleton, display_name, address, sort_order`
+const nodeCols = `id, name, hostname, public_ip, agent_version, xray_version, xray_installed_version, platform, created_at, registered_at, last_seen_at, config_skeleton, display_name, address, sort_order, traffic_rate`
 
 // skeletonAAD / configAAD bind a ciphertext to the exact row that holds it.
 func skeletonAAD(nodeID string) string { return "node-skeleton:" + nodeID }
@@ -164,7 +167,7 @@ func probeAAD(nodeID string, version int64) string {
 // carry credentials of its own (an outbound to an upstream proxy, say).
 func (s *Store) scanNode(row interface{ Scan(...any) error }) (Node, error) {
 	var n Node
-	err := row.Scan(&n.ID, &n.Name, &n.Hostname, &n.PublicIP, &n.AgentVersion, &n.XrayVersion, &n.XrayInstalledVersion, &n.Platform, &n.CreatedAt, &n.RegisteredAt, &n.LastSeenAt, &n.ConfigSkeleton, &n.DisplayName, &n.Address, &n.SortOrder)
+	err := row.Scan(&n.ID, &n.Name, &n.Hostname, &n.PublicIP, &n.AgentVersion, &n.XrayVersion, &n.XrayInstalledVersion, &n.Platform, &n.CreatedAt, &n.RegisteredAt, &n.LastSeenAt, &n.ConfigSkeleton, &n.DisplayName, &n.Address, &n.SortOrder, &n.TrafficRate)
 	if err != nil {
 		return n, err
 	}
@@ -579,4 +582,17 @@ func (s *Store) SetProxyOrder(entries []ProxyOrderEntry) error {
 		}
 	}
 	return tx.Commit()
+}
+
+// SetNodeTrafficRate sets what a byte through this node costs the subscriber's
+// quota. 1 is what every node was before rates existed.
+func (s *Store) SetNodeTrafficRate(nodeID string, rate float64) error {
+	res, err := s.db.Exec(`UPDATE nodes SET traffic_rate = ? WHERE id = ?`, rate, nodeID)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
 }

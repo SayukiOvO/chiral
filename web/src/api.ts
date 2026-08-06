@@ -44,6 +44,8 @@ export interface Node {
   last_seen_at?: number;
   online: boolean;
   xray_state?: string;
+  /** What a byte through this node costs the subscriber's quota. */
+  traffic_rate: number;
   metrics?: NodeMetrics;
 }
 
@@ -59,6 +61,11 @@ export interface CreateNodeResult {
 export interface Credential {
   profile_id: string;
   node_id: string;
+  /** The relayed exit this one leaves through; absent for the node's own. */
+  exit_proxy_id?: string;
+  exit_name?: string;
+  /** What a byte on this credential costs the quota. */
+  traffic_rate: number;
   email: string;
   up_bytes: number;
   down_bytes: number;
@@ -331,6 +338,8 @@ export interface ExternalProxy {
   relayed: boolean;
   /** Hand the provider's own address out alongside the relay. */
   relay_exposed: boolean;
+  /** What a byte through this exit costs the quota. */
+  traffic_rate: number;
 }
 
 export interface ExternalSub {
@@ -438,7 +447,10 @@ export const api = {
   listNodes: () => req<{ nodes: Node[] }>("GET", "/api/nodes"),
   createNode: (name: string) =>
     req<CreateNodeResult>("POST", "/api/nodes", { name }),
-  updateNode: (id: string, patch: { name?: string; display_name?: string; address?: string }) =>
+  updateNode: (
+    id: string,
+    patch: { name?: string; display_name?: string; address?: string; traffic_rate?: number },
+  ) =>
     req<Node>("PUT", `/api/nodes/${id}`, patch),
   deleteNode: (id: string) => req<void>("DELETE", `/api/nodes/${id}`),
   resetJoinToken: (id: string) =>
@@ -488,6 +500,7 @@ export const api = {
       enabled?: boolean;
       name?: string;
       relay_exposed?: boolean;
+      traffic_rate?: number;
     },
   ) => req<void>("PUT", `/api/externals/${subId}/proxies/${proxyId}`, patch),
 

@@ -3,6 +3,7 @@ import { api, type Profile, type Ruleset, type User } from "../api";
 import { expiryLabel, periodLabel } from "../format";
 import { cn } from "../lib/cn";
 import { QuotaBar } from "../components/QuotaBar";
+import { ExitUsage } from "../components/ExitUsage";
 import { UserTraffic } from "../components/UserTraffic";
 import { UserDevices } from "../components/UserDevices";
 import { PortalLinkDialog } from "../components/PortalLinkDialog";
@@ -392,6 +393,16 @@ function UserCard({
             <p className="mt-2 text-xs text-faint">
               {t("仅影响 Clash 类客户端；订阅者下次刷新订阅时生效。")}
             </p>
+          </div>
+
+          {/* Above the timeline, because "which line did it go out of" is the
+              question an operator has when the quota looks wrong, and the
+              timeline answers "when" instead. */}
+          <div className="mt-5">
+            <div className="mb-2 text-[11px] font-medium uppercase tracking-[0.07em] text-faint">
+              {t("按出口用量")}
+            </div>
+            <ExitUsage userId={user.id} />
           </div>
 
           <div className="mt-5">
