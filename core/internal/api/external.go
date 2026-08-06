@@ -43,6 +43,12 @@ type externalProxyView struct {
 	ChainNodeID  string `json:"chain_node_id"`
 	ChainProxyID string `json:"chain_proxy_id"`
 	Enabled      bool   `json:"enabled"`
+	// Relayed is true when a node of this fleet carries this proxy's traffic:
+	// the subscriber connects to that node and never learns this address.
+	Relayed bool `json:"relayed"`
+	// RelayExposed hands the provider's own address out alongside the relay.
+	// Off by default — it gives back exactly what relaying is for.
+	RelayExposed bool `json:"relay_exposed"`
 }
 
 type externalView struct {
@@ -70,6 +76,7 @@ func (s *Server) externalView(e store.ExternalSub) externalView {
 			ID: p.ID, Name: p.Label(), ProviderName: p.Name,
 			Type: p.Type, Server: p.Server, Port: p.Port,
 			ChainNodeID: p.ChainNodeID, ChainProxyID: p.ChainProxyID, Enabled: p.Enabled,
+			Relayed: p.Relayed(), RelayExposed: p.RelayExposed,
 		})
 	}
 	return v
@@ -213,7 +220,8 @@ func (s *Server) setExternalProxy(w http.ResponseWriter, r *http.Request) {
 		Enabled      *bool   `json:"enabled"`
 		// Name is the operator's label. Empty restores the provider's, which is
 		// why it is a pointer: "not mentioned" and "cleared" differ.
-		Name *string `json:"name"`
+		Name         *string `json:"name"`
+		RelayExposed *bool   `json:"relay_exposed"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeErr(w, http.StatusBadRequest, "body must be JSON")
@@ -271,6 +279,12 @@ func (s *Server) setExternalProxy(w http.ResponseWriter, r *http.Request) {
 		}
 		if err := s.st.RenameExternalProxy(cur.ID, name); err != nil {
 			s.internalErr(w, "rename proxy", err)
+			return
+		}
+	}
+	if req.RelayExposed != nil {
+		if err := s.st.SetExternalProxyExposed(cur.ID, *req.RelayExposed); err != nil {
+			s.internalErr(w, "set relay exposure", err)
 			return
 		}
 	}

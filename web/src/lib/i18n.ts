@@ -219,6 +219,10 @@ const EN: Record<string, string> = {
   订阅者: "Subscribers",
   运维: "Operations",
   谁能用: "Who gets it",
+  "中继·已隐藏": "Relayed",
+  "中继·并直发": "Relayed + direct",
+  "中继：订阅者连我们的节点，看不到这个落地地址":
+    "Relayed: subscribers connect to our node and never see this address",
   重新解析: "Re-read",
   账号安全: "Account security",
   重置链接: "Replace link",

@@ -327,6 +327,10 @@ export interface ExternalProxy {
   /** Another external node this one dials through; at most one of the two. */
   chain_proxy_id: string;
   enabled: boolean;
+  /** A node of this fleet carries its traffic; subscribers never see it. */
+  relayed: boolean;
+  /** Hand the provider's own address out alongside the relay. */
+  relay_exposed: boolean;
 }
 
 export interface ExternalSub {
@@ -478,7 +482,13 @@ export const api = {
   setExternalProxy: (
     subId: string,
     proxyId: string,
-    patch: { chain_node_id?: string; chain_proxy_id?: string; enabled?: boolean; name?: string },
+    patch: {
+      chain_node_id?: string;
+      chain_proxy_id?: string;
+      enabled?: boolean;
+      name?: string;
+      relay_exposed?: boolean;
+    },
   ) => req<void>("PUT", `/api/externals/${subId}/proxies/${proxyId}`, patch),
 
   listRulesets: () => req<{ rulesets: Ruleset[] }>("GET", "/api/rulesets"),

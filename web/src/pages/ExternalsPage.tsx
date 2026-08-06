@@ -231,7 +231,13 @@ function ProxyRow({
   const [error, setError] = useState("");
   const [whoOpen, setWhoOpen] = useState(false);
 
-  async function patch(p: { chain_node_id?: string; chain_proxy_id?: string; enabled?: boolean; name?: string }) {
+  async function patch(p: {
+    chain_node_id?: string;
+    chain_proxy_id?: string;
+    enabled?: boolean;
+    name?: string;
+    relay_exposed?: boolean;
+  }) {
     setBusy(true);
     setError("");
     try {
@@ -291,6 +297,25 @@ function ProxyRow({
         >
           {t("谁能用")}
         </button>
+        {/* Relayed: a node of ours carries this one's traffic, so subscribers
+            connect to that node and never learn this address. Saying so where
+            the chain is chosen is the difference between a setting and a
+            surprise. */}
+        {proxy.relayed && (
+          <button
+            onClick={() => patch({ relay_exposed: !proxy.relay_exposed })}
+            disabled={busy}
+            title={t("中继：订阅者连我们的节点，看不到这个落地地址")}
+            className={cn(
+              "rounded-md border px-1.5 py-0.5 text-[10px] transition-colors",
+              proxy.relay_exposed
+                ? "border-warn text-warn"
+                : "border-[color-mix(in_srgb,var(--online)_45%,transparent)] text-online",
+            )}
+          >
+            {proxy.relay_exposed ? t("中继·并直发") : t("中继·已隐藏")}
+          </button>
+        )}
         {/* The chain is the reason this page exists: the provider sees another
             node rather than the subscriber. */}
         <select
