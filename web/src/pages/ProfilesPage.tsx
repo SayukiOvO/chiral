@@ -163,6 +163,10 @@ function ProfileEditor({ id, onChanged }: { id: string; onChanged: () => void })
   const [clientEntry, setClientEntry] = useState("");
   const [clientTemplates, setClientTemplates] = useState<Record<string, string>>({});
   const [activeClient, setActiveClient] = useState<string>(CLIENT_KINDS[0]);
+  // Which kinds the server is holding. Needed because clearing an editor has
+  // to mean "remove this one", and telling that apart from "there was never
+  // one here" is the difference between a DELETE and doing nothing.
+  const [stored, setStored] = useState<Set<string>>(new Set());
 
   async function load() {
     try {
@@ -175,6 +179,7 @@ function ProfileEditor({ id, onChanged }: { id: string; onChanged: () => void })
       setInbound(p.inbound_template);
       setClientEntry(p.client_entry);
       setClientTemplates(p.client_templates ?? {});
+      setStored(new Set(Object.keys(p.client_templates ?? {})));
       setVars(v.variables);
       setNodes(n.nodes);
       setError("");
@@ -258,8 +263,23 @@ function ProfileEditor({ id, onChanged }: { id: string; onChanged: () => void })
         inbound_template: inbound,
         client_entry: clientEntry,
       });
-      for (const [kind, tmpl] of Object.entries(clientTemplates)) {
-        if (tmpl.trim()) await api.putClientTemplate(id, kind, tmpl);
+      // An emptied editor means "this profile no longer serves that client",
+      // which is what the tab already says the moment it goes blank (·未填).
+      // Skipping the empty ones instead — which is what this did — made saving
+      // a deletion a no-op that then reloaded the old text over the top: the
+      // operator got a success flash and their change back, with no way at all
+      // to remove a template short of editing the database.
+      //
+      // Every kind is considered, not just the ones the map happens to hold, so
+      // a kind cleared before it was ever stored still resolves to "nothing to
+      // do" rather than being missed.
+      for (const kind of CLIENT_KINDS) {
+        const tmpl = clientTemplates[kind] ?? "";
+        if (tmpl.trim()) {
+          await api.putClientTemplate(id, kind, tmpl);
+        } else if (stored.has(kind)) {
+          await api.deleteClientTemplate(id, kind);
+        }
       }
       setSaved(true);
       setTimeout(() => setSaved(false), 1800);
