@@ -7,7 +7,7 @@ import { NodeHistory } from "./NodeHistory";
 import { Sparkline } from "./Sparkline";
 import { StatusDot } from "./StatusDot";
 import { IconButton } from "./ui";
-import { CheckIcon, PencilIcon, RestartIcon, SlidersIcon, TrashIcon } from "./icons";
+import { CheckIcon, ChevronIcon, PencilIcon, RestartIcon, SlidersIcon, TrashIcon } from "./icons";
 import { NodeNameDialog } from "./NodeNameDialog";
 import { useT } from "../lib/i18n";
 
@@ -95,12 +95,24 @@ function NodeCard({
         <div className="flex items-center gap-3 min-w-0">
           <StatusDot online={node.online} />
           <div className="min-w-0">
+            {/* The name reads as a heading, and headings do not look
+                pressable — the chevron is what says "this opens". Always
+                visible rather than hover-only, because on a phone hover
+                never happens. */}
             <button
               onClick={() => setExpanded((v) => !v)}
-              className="block truncate font-display text-[15px] font-semibold tracking-tight hover:text-signal"
+              className="flex min-w-0 items-center gap-1.5 font-display text-[15px] font-semibold tracking-tight hover:text-signal"
               aria-expanded={expanded}
+              title={t("展开配置历史")}
             >
-              {node.name}
+              <span className="truncate">{node.name}</span>
+              <ChevronIcon
+                size={12}
+                className={cn(
+                  "shrink-0 text-faint transition-transform duration-150",
+                  expanded ? "-rotate-90" : "rotate-90",
+                )}
+              />
             </button>
             <div className="font-mono text-xs text-faint truncate">
               {node.hostname || "—"}

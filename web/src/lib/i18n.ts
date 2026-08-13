@@ -218,7 +218,6 @@ const EN: Record<string, string> = {
   机队: "Fleet",
   订阅者: "Subscribers",
   运维: "Operations",
-  谁能用: "Who gets it",
   流量倍率: "Traffic multiplier",
   按出口用量: "Usage by exit",
   节点直出: "Node's own exit",
@@ -265,6 +264,8 @@ const EN: Record<string, string> = {
     "Somebody else's subscription, or a single link. Each node can be dialled through another — one of this fleet's, or another external node.",
   // per-user node access
   可用节点: "Nodes they may use",
+  可用用户: "Users who may use it",
+  展开配置历史: "Show config history",
   自有节点: "Own nodes",
   该用户的接入配置未覆盖此节点: "No profile this user holds reaches this node",
   "链经「{node}」，而此用户拿不到那个节点":

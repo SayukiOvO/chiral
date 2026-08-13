@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { api, type Node, type Profile, type ProxyUser, type Relay } from "../api";
 import { Button, IconButton } from "./ui";
-import { PlusIcon, TrashIcon, CheckIcon } from "./icons";
+import { PlusIcon, TrashIcon, CheckIcon, UsersIcon } from "./icons";
 import { Field, Modal, inputCls } from "./primitives";
 import { cn } from "../lib/cn";
 import { useT } from "../lib/i18n";
@@ -115,9 +115,16 @@ export function NodeRelays({ nodes, onChanged }: { nodes: Node[]; onChanged?: ()
                 </button>
                 <button
                   onClick={() => setOpen(open === r.id ? null : r.id)}
-                  className="shrink-0 text-[11px] text-muted hover:text-ink"
+                  aria-expanded={open === r.id}
+                  className={cn(
+                    "inline-flex shrink-0 items-center gap-1 rounded-md border px-2 py-0.5 text-[11px] transition-colors",
+                    open === r.id
+                      ? "border-signal text-ink"
+                      : "border-line-strong text-muted hover:border-signal hover:text-ink",
+                  )}
                 >
-                  {t("谁能用")}
+                  <UsersIcon size={11} />
+                  {t("可用用户")}
                 </button>
                 <IconButton label={t("删除")} onClick={() => remove(r)}>
                   <TrashIcon size={14} />

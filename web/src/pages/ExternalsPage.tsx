@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { api, type ExternalProxy, type ExternalSub, type Node, type ProxyUser } from "../api";
 import { Button, IconButton } from "../components/ui";
-import { PlusIcon, TrashIcon } from "../components/icons";
+import { PencilIcon, PlusIcon, TrashIcon, UsersIcon } from "../components/icons";
 import { Empty, ErrorBar, Field, Modal, inputCls } from "../components/primitives";
 import { relativeTime } from "../format";
 import { cn } from "../lib/cn";
@@ -291,12 +291,6 @@ function ProxyRow({
         <span className="min-w-0 basis-full truncate font-mono text-[11px] text-faint sm:basis-auto">
           {proxy.type} · {proxy.server}:{proxy.port}
         </span>
-        <button
-          onClick={() => setWhoOpen((v) => !v)}
-          className="text-[11px] text-faint underline-offset-2 hover:text-ink hover:underline"
-        >
-          {t("谁能用")}
-        </button>
         {/* Relayed: a node of ours carries this one's traffic, so subscribers
             connect to that node and never learn this address. Saying so where
             the chain is chosen is the difference between a setting and a
@@ -321,6 +315,21 @@ function ProxyRow({
             {proxy.relay_exposed ? t("中继·并直发") : t("中继·已隐藏")}
           </button>
         )}
+        {/* Who receives this node, next to the other per-node controls
+            rather than floating mid-row as an unmarked text link. */}
+        <button
+          onClick={() => setWhoOpen((v) => !v)}
+          aria-expanded={whoOpen}
+          className={cn(
+            "inline-flex shrink-0 items-center gap-1 rounded-md border px-2 py-0.5 text-[11px] transition-colors",
+            whoOpen
+              ? "border-signal text-ink"
+              : "border-line-strong text-muted hover:border-signal hover:text-ink",
+          )}
+        >
+          <UsersIcon size={11} />
+          {t("可用用户")}
+        </button>
         {/* The chain is the reason this page exists: the provider sees another
             node rather than the subscriber. */}
         <select
@@ -414,9 +423,13 @@ function ProxyName({
           setEditing(true);
         }}
         title={t("点击改名")}
-        className="min-w-0 truncate text-left text-sm hover:text-signal"
+        className="group/name flex min-w-0 items-center gap-1.5 text-left text-sm hover:text-signal"
       >
-        {proxy.name}
+        <span className="truncate">{proxy.name}</span>
+        <PencilIcon
+          size={11}
+          className="shrink-0 text-faint transition-colors group-hover/name:text-signal"
+        />
       </button>
       {renamed && (
         <button
