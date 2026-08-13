@@ -331,6 +331,21 @@ export interface Relay {
   problem?: string;
 }
 
+/**
+ * A network some nodes reach that most subscribers must not — DN42 being the
+ * motivating case. Stored as ALLOWS, unlike every other permission here:
+ * default-nobody is the only safe resting state for a private network.
+ */
+export interface RestrictedDestination {
+  id: string;
+  name: string;
+  cidrs: string[];
+  domains: string[];
+  /** Where the network exists; relay entries inherit enforcement automatically. */
+  node_ids: string[];
+  allowed_user_ids: string[];
+}
+
 /** One subscriber, seen from an external node's side. */
 export interface ProxyUser {
   id: string;
@@ -520,6 +535,19 @@ export const api = {
   relayUsers: (id: string) => req<{ users: ProxyUser[] }>("GET", `/api/relays/${id}/users`),
   setRelayUsers: (id: string, denied: { denied_users: string[] }) =>
     req<void>("PUT", `/api/relays/${id}/users`, denied),
+
+  // --- restricted destinations: networks only some subscribers may enter ---
+  listRestricted: () =>
+    req<{ destinations: RestrictedDestination[] }>("GET", "/api/restricted"),
+  createRestricted: (d: { name: string; cidrs: string; domains: string }) =>
+    req<RestrictedDestination>("POST", "/api/restricted", d),
+  updateRestricted: (id: string, d: { name: string; cidrs: string; domains: string }) =>
+    req<RestrictedDestination>("PUT", `/api/restricted/${id}`, d),
+  deleteRestricted: (id: string) => req<void>("DELETE", `/api/restricted/${id}`),
+  setRestrictedNodes: (id: string, node_ids: string[]) =>
+    req<void>("PUT", `/api/restricted/${id}/nodes`, { node_ids }),
+  setRestrictedUsers: (id: string, allowed_user_ids: string[]) =>
+    req<void>("PUT", `/api/restricted/${id}/users`, { allowed_user_ids }),
   // Reading the link and replacing it are different requests, because they are
   // very different acts: one shows an operator what a subscriber already has,
   // the other breaks every client that subscriber has configured.

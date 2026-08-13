@@ -9,6 +9,7 @@ import { PlusIcon } from "../components/icons";
 import { ErrorBar } from "../components/primitives";
 import { ProxyOrder } from "../components/ProxyOrder";
 import { NodeRelays } from "../components/NodeRelays";
+import { RestrictedDestinations } from "../components/RestrictedDestinations";
 import { useT } from "../lib/i18n";
 
 const REFRESH_MS = 3000;
@@ -95,6 +96,11 @@ export function NodesPage({ onSignOut }: { onSignOut: () => void }) {
               nodes and then takes its own place in the one ordered list. */}
           <div className="animate-rise" style={{ animationDelay: "100ms" }}>
             <NodeRelays nodes={nodes} onChanged={() => setOrderKey((k) => k + 1)} />
+          </div>
+          {/* Between the relays and the order: a restriction names nodes and
+              relay entries, so it reads best next to the lines it rides on. */}
+          <div className="animate-rise" style={{ animationDelay: "110ms" }}>
+            <RestrictedDestinations nodes={nodes} />
           </div>
           {/* Below the roster, because it is about the fleet as a list rather
               than about any node in it — and it covers the external nodes too,

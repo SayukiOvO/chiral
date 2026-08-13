@@ -294,7 +294,13 @@ func (s *Service) AssembleNode(nodeID string) ([]byte, error) {
 			Tag: ExitTag(ex.ID), Outbound: ob, Emails: exitEmails[ex.ID],
 		})
 	}
-	return template.AssembleNodeWithExits(n.ConfigSkeleton, sources, exits)
+	// Built AFTER the credential loops above: barred users are matched by
+	// their credential emails, and this round may have minted new ones.
+	blocks, err := s.blocksFor(nodeID)
+	if err != nil {
+		return nil, err
+	}
+	return template.AssembleNodeFull(n.ConfigSkeleton, sources, exits, blocks)
 }
 
 // ExitTag names an exit's outbound. Derived from the id rather than the label,

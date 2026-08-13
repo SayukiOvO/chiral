@@ -7,6 +7,45 @@ import (
 	"strings"
 )
 
+// blockAdvisories warns when restricted-destination rules match on IP ranges
+// but routing will not resolve a domain-form destination to check them.
+//
+// The bypass this closes: a public domain whose A record points into the
+// restricted range. With domainStrategy AsIs (the default), the ip rule never
+// sees an address for it, the freedom outbound resolves and connects, and the
+// restriction silently does not apply to anyone who can publish a DNS record.
+func blockAdvisories(configJSON []byte) []string {
+	var cfg struct {
+		Routing struct {
+			DomainStrategy string `json:"domainStrategy"`
+			Rules          []struct {
+				IP          []string `json:"ip"`
+				OutboundTag string   `json:"outboundTag"`
+			} `json:"rules"`
+		} `json:"routing"`
+	}
+	if err := json.Unmarshal(configJSON, &cfg); err != nil {
+		return nil
+	}
+	hasIPBlock := false
+	for _, r := range cfg.Routing.Rules {
+		if r.OutboundTag == BlackholeTag && len(r.IP) > 0 {
+			hasIPBlock = true
+		}
+	}
+	if !hasIPBlock {
+		return nil
+	}
+	switch cfg.Routing.DomainStrategy {
+	case "IPIfNonMatch", "IPOnDemand":
+		return nil
+	}
+	return []string{
+		"受限目的地按 IP 段拦截，但 routing.domainStrategy 未设 IPIfNonMatch/IPOnDemand：" +
+			"经由域名访问这些网段（A 记录指进去）不会被拦。请在节点骨架的 routing 里加上。",
+	}
+}
+
 // realityMinClientDefault is the minimum client version Xray 26.x applies to a
 // REALITY inbound that does not set one. It refuses anything older, and every
 // clash-family client advertises its own version number — mihomo says 1.8.2 —
@@ -49,6 +88,7 @@ func Advisories(configJSON []byte, clientKinds []string) []string {
 	}
 	var out []string
 	out = append(out, sniffingAdvisories(cfg.Inbounds)...)
+	out = append(out, blockAdvisories(configJSON)...)
 	if !servesClashFamily(clientKinds) {
 		return out
 	}

@@ -47,6 +47,28 @@ type ExitSource struct {
 	Emails []string
 }
 
+// BlockSource is one restricted destination applying on this node: traffic
+// from the named credentials to the named destinations goes to a blackhole.
+//
+// The entry of a connection always knows its destination — the proxy target
+// arrives in the protocol — so this needs no sniffing to work. What it does
+// need is ORDER: these rules must precede the relay rules, because a relay
+// rule matches its users' every destination, and a blocked destination that
+// escapes down a line is enforced nowhere after that — the exit sees only the
+// line's machine credential.
+type BlockSource struct {
+	// CIDRs and Domains describe the destination; either may be empty.
+	CIDRs   []string
+	Domains []string
+	// Emails are the credentials NOT allowed there. An empty list means
+	// nobody is barred, and the caller must omit the block entirely — an
+	// empty user list in a rule matches every user, not none.
+	Emails []string
+}
+
+// BlackholeTag names the shared outbound blocked traffic is sent to.
+const BlackholeTag = "chiral-blocked"
+
 // AssembleNode renders each profile's inbound and splices the results into
 // the node's config skeleton.
 //
@@ -54,11 +76,16 @@ type ExitSource struct {
 // ones are appended, so a node can carry both profile-managed access points
 // and one-off manual ones.
 func AssembleNode(skeleton string, sources []InboundSource) ([]byte, error) {
-	return AssembleNodeWithExits(skeleton, sources, nil)
+	return AssembleNodeFull(skeleton, sources, nil, nil)
 }
 
 // AssembleNodeWithExits is the same with relayed exits spliced in.
 func AssembleNodeWithExits(skeleton string, sources []InboundSource, exits []ExitSource) ([]byte, error) {
+	return AssembleNodeFull(skeleton, sources, exits, nil)
+}
+
+// AssembleNodeFull is the same with restricted destinations enforced too.
+func AssembleNodeFull(skeleton string, sources []InboundSource, exits []ExitSource, blocks []BlockSource) ([]byte, error) {
 	if skeleton == "" {
 		skeleton = DefaultSkeleton
 	}
@@ -109,7 +136,7 @@ func AssembleNodeWithExits(skeleton string, sources []InboundSource, exits []Exi
 	}
 	cfg["inbounds"] = merged
 
-	if err := spliceExits(cfg, exits); err != nil {
+	if err := spliceBlocksAndExits(cfg, blocks, exits); err != nil {
 		return nil, err
 	}
 
@@ -195,16 +222,22 @@ func InboundTags(configJSON []byte) ([]string, error) {
 	return out, nil
 }
 
-// spliceExits appends each exit's outbound and the rule that selects it.
+// spliceBlocksAndExits appends each exit's outbound with the rule that selects
+// it, and each block's blackhole rules ahead of those.
 //
-// The rules go FIRST, ahead of whatever the operator wrote. Routing is
+// All of it goes FIRST, ahead of whatever the operator wrote. Routing is
 // first-match, and an operator's own catch-all — "everything to direct", which
 // is the shape of every skeleton in the wild — would otherwise swallow the
 // relayed traffic and send it out of this node instead of through the
 // provider. That failure is silent and looks exactly like the relay working,
 // because the connection succeeds; only the exit address is wrong.
-func spliceExits(cfg map[string]json.RawMessage, exits []ExitSource) error {
-	if len(exits) == 0 {
+//
+// Within the fresh rules, blocks precede exits, and this is load-bearing: a
+// relay rule matches its users' EVERY destination, so a block behind it would
+// let restricted traffic slip down the line — past the last point where users
+// can still be told apart.
+func spliceBlocksAndExits(cfg map[string]json.RawMessage, blocks []BlockSource, exits []ExitSource) error {
+	if len(exits) == 0 && len(blocks) == 0 {
 		return nil
 	}
 	var outbounds []json.RawMessage
@@ -230,6 +263,48 @@ func spliceExits(cfg map[string]json.RawMessage, exits []ExitSource) error {
 	}
 
 	var fresh []json.RawMessage
+	blocked := false
+	for _, b := range blocks {
+		// A block with nobody barred must contribute nothing: an empty user
+		// list matches everyone, and "nobody" and "everybody" must never be
+		// one omission apart in the output.
+		if len(b.Emails) == 0 {
+			continue
+		}
+		emails, err := json.Marshal(b.Emails)
+		if err != nil {
+			return err
+		}
+		// ip and domain live in separate rules because conditions within one
+		// rule are AND-ed: a single rule naming both would match only traffic
+		// that somehow satisfied both at once, which is to say nothing.
+		if len(b.CIDRs) > 0 {
+			cidrs, err := json.Marshal(b.CIDRs)
+			if err != nil {
+				return err
+			}
+			fresh = append(fresh, json.RawMessage(fmt.Sprintf(
+				`{"type":"field","ip":%s,"user":%s,"outboundTag":%q}`, cidrs, emails, BlackholeTag)))
+			blocked = true
+		}
+		if len(b.Domains) > 0 {
+			suffixes := make([]string, 0, len(b.Domains))
+			for _, d := range b.Domains {
+				suffixes = append(suffixes, "domain:"+d)
+			}
+			domains, err := json.Marshal(suffixes)
+			if err != nil {
+				return err
+			}
+			fresh = append(fresh, json.RawMessage(fmt.Sprintf(
+				`{"type":"field","domain":%s,"user":%s,"outboundTag":%q}`, domains, emails, BlackholeTag)))
+			blocked = true
+		}
+	}
+	if blocked {
+		outbounds = append(outbounds, json.RawMessage(
+			fmt.Sprintf(`{"protocol":"blackhole","tag":%q}`, BlackholeTag)))
+	}
 	for _, e := range exits {
 		var ob map[string]json.RawMessage
 		if err := json.Unmarshal([]byte(e.Outbound), &ob); err != nil {

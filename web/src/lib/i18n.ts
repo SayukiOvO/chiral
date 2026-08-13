@@ -269,6 +269,22 @@ const EN: Record<string, string> = {
   "关闭后订阅里不再有这条线，中转拨号和升级探活仍会用它。":
     "Off, subscriptions stop carrying this line; relay dialling and upgrade probes still use it.",
   不下发: "held back",
+  // restricted destinations
+  受限目的地: "Restricted destinations",
+  "节点能到、但默认谁都不许去的网段。规则在勾选的节点上生效；经中转线路借道的入口会自动一并生效。":
+    "Networks a node can reach that nobody may enter by default. Rules apply on the ticked nodes; relay entries that borrow a scoped exit inherit them automatically.",
+  新增目的地: "Add destination",
+  "还没有受限目的地。": "No restricted destinations yet.",
+  "删除这个受限目的地？相关节点会移除拦截规则并重新下发。":
+    "Delete this destination? Affected nodes drop the rules and get a new config.",
+  在哪些节点上生效: "Enforced on which nodes",
+  "谁可以进（其余一律拦截）": "Who may enter (everyone else is blocked)",
+  编辑受限目的地: "Edit restricted destination",
+  新增受限目的地: "New restricted destination",
+  "新建后默认谁都不许去：先描述网段，再到列表里勾选生效节点和获准的用户。":
+    "A new destination admits nobody: describe the network first, then tick the enforcing nodes and the allowed users in the list.",
+  "IP 段（每行一个 CIDR，裸 IP 视为单机）": "IP ranges (one CIDR per line; a bare IP means that one host)",
+  "域名后缀（每行一个）": "Domain suffixes (one per line)",
   展开配置历史: "Show config history",
   自有节点: "Own nodes",
   该用户的接入配置未覆盖此节点: "No profile this user holds reaches this node",

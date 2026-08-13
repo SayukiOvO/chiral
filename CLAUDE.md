@@ -42,7 +42,9 @@ Chiral 是一个 Xray 管理面板，定位类似 Remnawave：采用 **Panel + A
 
 14. **中转线路的凭证不属于任何自然人**（M6）：自有节点经自有节点，入口拨出口是**一条 outbound、一份凭证**——Xray 的 outbound 是静态的，它出示什么不可能取决于正在承载谁的连接。所以这份凭证存 `node_relays.secret` 而不是 `credentials`：后者按 `user_id` 建表，没有 user 可填；更要紧的是**计费必须只发生一次**，在订阅者认证的那个入口上，线路自己的字节再计一遍就是同一个 GB 算两遍（一遍算人、一遍算机器）。出口把它当普通 client 收下，`AddCredentialTraffic` 认不出这个 email 直接跳过，这正是对的。入口拨号用的是**出口那个接入配置的 `xray-json` 客户端模板**——从服务端 inbound 反推客户端 outbound 意味着重新推 REALITY 公钥、镜像每个传输参数，而且是第二份必须同步的实现；复用模板则让「入口怎么拨」和「订阅者怎么拨」是同一件事。线路有**自己的**拒绝表：「能直连出口吗」和「能经入口去出口吗」是两个独立的答案，而跑中转的理由通常正是前者为否。详见 `docs/node-relays.md`。
 
-15. **端用户与管理员是两类主体，边界靠构造而非小心**（M5）：`portal.Identity` **永远不带 Role**，`auth.rank()` **永远不新增 `>= 1` 的值**。一旦有人给 rank 加了「user: 1」，`requireAdmin`（= viewer 档）覆盖的节点列表、用户列表、变量、Profile、流量、审计日志就全部对客户开放。（`config/preview` 不在此列——M5-2 已把它提到 `requireWrite`，正因为它返回含 REALITY 私钥与全部凭证明文的完整 config。）
+15. **受限目的地是全面板唯一存白名单的权限**（M6）：方向由「漏掉一个的代价」决定——漏在拒绝表外的节点是多一个人能用，漏在拒绝表外的**私网**（DN42）是向所有订阅者敞开且没人会发现。两条硬边界：(a) 「全员获准」必须**不发规则**——空 `user` 列表匹配所有人，和中转那个陷阱同款、方向相反；(b) 拦截规则排在 relay 规则**前**，且启用线路的**入口自动继承出口的限制**——流量到出口只剩机器凭证，入口是用户还是他自己的最后位置（变异测试验证：拿掉继承，被拦用户真的能穿线路进网段）。`ip` 规则不解析域名，Advisories 在骨架缺 `domainStrategy: IPIfNonMatch` 时明说。配套：客户端模板的**存在与下发分离**（`serve` 开关）——模板可以只作为中转拨号/探活的机件存在而不进任何订阅。详见 `docs/restricted-destinations.md`。
+
+16. **端用户与管理员是两类主体，边界靠构造而非小心**（M5）：`portal.Identity` **永远不带 Role**，`auth.rank()` **永远不新增 `>= 1` 的值**。一旦有人给 rank 加了「user: 1」，`requireAdmin`（= viewer 档）覆盖的节点列表、用户列表、变量、Profile、流量、审计日志就全部对客户开放。（`config/preview` 不在此列——M5-2 已把它提到 `requireWrite`，正因为它返回含 REALITY 私钥与全部凭证明文的完整 config。）
     编译期能保证的部分要说准：**接错守卫是编译错误**（`portalHandler` 多收一个 `portal.Identity`，两种签名不统一）；**`package portal` 内部够不到 store**，所以越权取数在 `View` 这条路径上不可能。但 `package api` 里的门户 handler 是 `*Server` 的方法，仍持有 `s.st`（`portalLogin`、`portalChangePassword` 就在用它读写自己的账号行）——在那里写 `s.st.ListNodes()` 是能编译过的。**规矩是：凡是要展示机队信息，一律走 `View`。**
 
 ## 5. 搁置 / 待议
