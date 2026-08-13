@@ -316,8 +316,12 @@ func (s *Service) Render(u store.User, client, token string) (Result, error) {
 	return r, nil
 }
 
+// templateFor picks the template a SUBSCRIBER gets, which is the served set,
+// not the stored set. A template can exist purely as machinery — the relay
+// dial leg, the upgrade probe — without every entitled user's subscription
+// growing a line through that access point.
 func (s *Service) templateFor(profileID, client string) (string, error) {
-	templates, err := s.st.ClientTemplates(profileID)
+	templates, err := s.st.ServedClientTemplates(profileID)
 	if err != nil {
 		return "", err
 	}

@@ -1,0 +1,20 @@
+-- Whether a client template is handed to subscribers, separate from whether
+-- it exists.
+--
+-- Until now the two were one fact, and it forced a bad trade: the entry of a
+-- relay line dials its exit with the exit profile's xray-json template, so
+-- making a profile usable as an exit meant adding that template — and the
+-- moment it existed, every entitled v2rayN user's subscription grew a line
+-- through that access point, wanted or not. Deleting the template took the
+-- unwanted line away and the relay's dial artefact with it.
+--
+-- It also decides which access point serves which client when one node
+-- carries several: with two profiles both holding clash templates, every
+-- clash subscriber saw the same box twice. The operator can now say "vision
+-- serves stash, xhttp serves the clash family" and each client gets one line
+-- per box, through the door it speaks.
+--
+-- Only the subscription renderer consults this flag. The relay dial leg and
+-- the upgrade probe read templates directly — they are machinery, not
+-- subscribers, and a template that exists is theirs to use.
+ALTER TABLE profile_client_templates ADD COLUMN serve INTEGER NOT NULL DEFAULT 1;

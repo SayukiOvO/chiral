@@ -317,3 +317,47 @@ func TestARelayReachesAClientThroughTheAccessPointItSpeaks(t *testing.T) {
 		}
 	}
 }
+
+// A template held back from subscribers must vanish from their documents while
+// remaining on the shelf for machinery. The scenario that forced the split:
+// making a profile dialable as a relay exit requires its xray-json template to
+// exist, and before this flag existed, every entitled v2rayN user's
+// subscription grew a line through that access point the moment it did.
+func TestAHeldBackTemplateServesMachineryButNoSubscriber(t *testing.T) {
+	st, svc, u, _, _, _ := relayFixture(t)
+	pids, err := st.UserProfileIDs(u.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetClientTemplateServe(pids[0], ClientXrayJSON, false); err != nil {
+		t.Fatal(err)
+	}
+
+	res, err := svc.Render(u, ClientXrayJSON, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Fragments != 0 {
+		t.Fatalf("a held-back template still rendered %d lines:\n%s", res.Fragments, res.Body)
+	}
+	// The stored set is untouched — the relay dial leg and the upgrade probe
+	// read it directly, and holding a template back must not unbuild them.
+	all, err := st.ClientTemplates(pids[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if all[ClientXrayJSON] == "" {
+		t.Fatal("holding a template back deleted it")
+	}
+
+	if err := st.SetClientTemplateServe(pids[0], ClientXrayJSON, true); err != nil {
+		t.Fatal(err)
+	}
+	res, err = svc.Render(u, ClientXrayJSON, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Fragments == 0 {
+		t.Fatal("re-serving the template did not bring the lines back")
+	}
+}

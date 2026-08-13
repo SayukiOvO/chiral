@@ -307,6 +307,62 @@ func (s *Store) PutClientTemplate(profileID, client, tmpl string) error {
 	return err
 }
 
+// SetClientTemplateServe flips whether one template is handed to subscribers.
+// The template itself is untouched: existing is what the relay dial leg and
+// the upgrade probe care about, serving is what subscribers see, and the two
+// are different decisions (see migration 0026).
+func (s *Store) SetClientTemplateServe(profileID, client string, serve bool) error {
+	res, err := s.db.Exec(`UPDATE profile_client_templates SET serve = ? WHERE profile_id = ? AND client = ?`,
+		serve, profileID, client)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
+// ServedClientTemplates is ClientTemplates filtered to what subscribers get.
+// The subscription renderer calls this and nothing else does.
+func (s *Store) ServedClientTemplates(profileID string) (map[string]string, error) {
+	rows, err := s.db.Query(`SELECT client, template FROM profile_client_templates
+		WHERE profile_id = ? AND serve = 1`, profileID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make(map[string]string)
+	for rows.Next() {
+		var c, t string
+		if err := rows.Scan(&c, &t); err != nil {
+			return nil, err
+		}
+		out[c] = t
+	}
+	return out, rows.Err()
+}
+
+// ClientTemplateServes maps each stored kind to its serve flag, for the
+// console to render the toggles from.
+func (s *Store) ClientTemplateServes(profileID string) (map[string]bool, error) {
+	rows, err := s.db.Query(`SELECT client, serve FROM profile_client_templates WHERE profile_id = ?`, profileID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make(map[string]bool)
+	for rows.Next() {
+		var c string
+		var v bool
+		if err := rows.Scan(&c, &v); err != nil {
+			return nil, err
+		}
+		out[c] = v
+	}
+	return out, rows.Err()
+}
+
 // ClientTemplates returns every client template of a profile, keyed by client.
 // ClientTemplateKinds lists which client kinds a profile has a template for,
 // without loading the template bodies — the profile list only needs to show

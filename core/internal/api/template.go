@@ -25,6 +25,7 @@ func (s *Server) routeTemplates(mux *http.ServeMux) {
 	mux.Handle("PUT /api/profiles/{id}", s.requireWrite(s.updateProfile))
 	mux.Handle("DELETE /api/profiles/{id}", s.requireWrite(s.deleteProfile))
 	mux.Handle("PUT /api/profiles/{id}/clients/{client}", s.requireWrite(s.putClientTemplate))
+	mux.Handle("PUT /api/profiles/{id}/clients/{client}/serve", s.requireWrite(s.setClientTemplateServe))
 	mux.Handle("DELETE /api/profiles/{id}/clients/{client}", s.requireWrite(s.deleteClientTemplate))
 	mux.Handle("POST /api/profiles/{id}/nodes/{nodeId}", s.requireWrite(s.bindNode))
 	mux.Handle("DELETE /api/profiles/{id}/nodes/{nodeId}", s.requireWrite(s.unbindNode))
@@ -222,6 +223,10 @@ type profileView struct {
 	InboundTemplate string            `json:"inbound_template"`
 	ClientEntry     string            `json:"client_entry"`
 	ClientTemplates map[string]string `json:"client_templates,omitempty"`
+	// ClientServe maps each stored kind to whether subscribers receive it.
+	// Absent kinds have no template at all; false here means "exists, held
+	// back" — the machinery-only state relays and probes rely on.
+	ClientServe map[string]bool `json:"client_serve,omitempty"`
 	// ClientKinds lists which clients have a template, so the profile list can
 	// show coverage without shipping every template body.
 	ClientKinds []string `json:"client_kinds"`
@@ -253,6 +258,11 @@ func (s *Server) profileView(p store.Profile, withTemplates bool) (profileView, 
 			return v, err
 		}
 		v.ClientTemplates = t
+		serves, err := s.st.ClientTemplateServes(p.ID)
+		if err != nil {
+			return v, err
+		}
+		v.ClientServe = serves
 	}
 	return v, nil
 }
@@ -619,4 +629,25 @@ func nullIf(s string) sql.NullString {
 		return sql.NullString{}
 	}
 	return sql.NullString{String: s, Valid: true}
+}
+
+// setClientTemplateServe flips whether one client template reaches
+// subscribers. Distinct from writing the template because it changes who is
+// served, not what — and because the natural moment to flip it is not the
+// natural moment to edit.
+func (s *Server) setClientTemplateServe(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Serve bool `json:"serve"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeErr(w, http.StatusBadRequest, "body must be JSON")
+		return
+	}
+	if err := s.st.SetClientTemplateServe(r.PathValue("id"), r.PathValue("client"), req.Serve); err != nil {
+		s.notFoundOr(w, "set template serve", err, "该客户端还没有模板")
+		return
+	}
+	s.audit(r, "profile.template_serve", "profile", r.PathValue("id"), r.PathValue("client"),
+		fmt.Sprintf("serve=%v", req.Serve))
+	w.WriteHeader(http.StatusNoContent)
 }

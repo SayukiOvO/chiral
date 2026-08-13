@@ -265,6 +265,10 @@ const EN: Record<string, string> = {
   // per-user node access
   可用节点: "Nodes they may use",
   可用用户: "Users who may use it",
+  下发给订阅者: "Serve to subscribers",
+  "关闭后订阅里不再有这条线，中转拨号和升级探活仍会用它。":
+    "Off, subscriptions stop carrying this line; relay dialling and upgrade probes still use it.",
+  不下发: "held back",
   展开配置历史: "Show config history",
   自有节点: "Own nodes",
   该用户的接入配置未覆盖此节点: "No profile this user holds reaches this node",

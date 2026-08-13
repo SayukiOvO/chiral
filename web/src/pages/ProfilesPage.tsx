@@ -167,6 +167,10 @@ function ProfileEditor({ id, onChanged }: { id: string; onChanged: () => void })
   // to mean "remove this one", and telling that apart from "there was never
   // one here" is the difference between a DELETE and doing nothing.
   const [stored, setStored] = useState<Set<string>>(new Set());
+  // Stored kind → handed to subscribers. A template can exist purely as
+  // machinery (relay dialling, the upgrade probe); this is the switch that
+  // keeps it out of subscriptions without deleting it.
+  const [serve, setServe] = useState<Record<string, boolean>>({});
 
   async function load() {
     try {
@@ -180,6 +184,7 @@ function ProfileEditor({ id, onChanged }: { id: string; onChanged: () => void })
       setClientEntry(p.client_entry);
       setClientTemplates(p.client_templates ?? {});
       setStored(new Set(Object.keys(p.client_templates ?? {})));
+      setServe(p.client_serve ?? {});
       setVars(v.variables);
       setNodes(n.nodes);
       setError("");
@@ -410,7 +415,11 @@ function ProfileEditor({ id, onChanged }: { id: string; onChanged: () => void })
               )}
             >
               {k}
-              {clientTemplates[k]?.trim() ? "" : " ·" + t("未填")}
+              {clientTemplates[k]?.trim()
+                ? stored.has(k) && serve[k] === false
+                  ? " ·" + t("不下发")
+                  : ""
+                : " ·" + t("未填")}
             </button>
           ))}
         </div>
@@ -424,6 +433,29 @@ function ProfileEditor({ id, onChanged }: { id: string; onChanged: () => void })
           dark={dark}
           height={260}
         />
+        {stored.has(activeClient) && (
+          <label className="mt-2.5 flex cursor-pointer items-center gap-2 text-xs text-muted">
+            <input
+              type="checkbox"
+              checked={serve[activeClient] ?? true}
+              onChange={async (e) => {
+                const next = e.target.checked;
+                setServe((m) => ({ ...m, [activeClient]: next }));
+                try {
+                  await api.setClientTemplateServe(id, activeClient, next);
+                } catch (err) {
+                  setServe((m) => ({ ...m, [activeClient]: !next }));
+                  setError((err as Error).message);
+                }
+              }}
+              className="h-3.5 w-3.5 accent-[var(--signal)]"
+            />
+            {t("下发给订阅者")}
+            <span className="text-faint">
+              {t("关闭后订阅里不再有这条线，中转拨号和升级探活仍会用它。")}
+            </span>
+          </label>
+        )}
       </Section>
 
       <Section title={t("绑定节点")} hint={t("绑定后，下发时将此 inbound 装配进该节点配置。")}>

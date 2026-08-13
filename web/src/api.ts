@@ -403,6 +403,8 @@ export interface Profile {
   inbound_template: string;
   client_entry: string;
   client_templates?: Record<string, string>;
+  /** Stored kind → whether subscribers receive it; false = machinery only. */
+  client_serve?: Record<string, boolean>;
   /** Which clients have a template; present on list responses too. */
   client_kinds: string[];
   node_ids: string[];
@@ -596,6 +598,10 @@ export const api = {
   deleteProfile: (id: string) => req<void>("DELETE", `/api/profiles/${id}`),
   putClientTemplate: (id: string, client: string, template: string) =>
     req<void>("PUT", `/api/profiles/${id}/clients/${client}`, { template }),
+  // Whether subscribers receive this template. Separate from writing it: a
+  // template can exist purely for machinery (relay dialling, upgrade probes).
+  setClientTemplateServe: (id: string, client: string, serve: boolean) =>
+    req<void>("PUT", `/api/profiles/${id}/clients/${client}/serve`, { serve }),
   deleteClientTemplate: (id: string, client: string) =>
     req<void>("DELETE", `/api/profiles/${id}/clients/${client}`),
   bindNode: (profileId: string, nodeId: string) =>
