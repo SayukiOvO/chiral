@@ -436,9 +436,16 @@ func (s *Service) clientKindsOn(nodeID string) []string {
 	seen := map[string]struct{}{}
 	var out []string
 	for _, pid := range profileIDs {
-		kinds, err := s.st.ClientTemplateKinds(pid)
+		// Served, not stored: the question is whether anybody is BEING SERVED
+		// a config the inbound will refuse, and a held-back template serves
+		// nobody.
+		templates, err := s.st.ServedClientTemplates(pid)
 		if err != nil {
 			continue
+		}
+		kinds := make([]string, 0, len(templates))
+		for k := range templates {
+			kinds = append(kinds, k)
 		}
 		for _, k := range kinds {
 			if _, dup := seen[k]; dup {
@@ -519,6 +526,19 @@ func (s *Service) Rollback(ctx context.Context, nodeID string, version int64) (i
 	if err != nil {
 		return 0, err
 	}
+	// Restricted-destination rules are re-derived rather than revived: they
+	// are access policy, not configuration, and the old version's rules bar
+	// whoever was barred THEN — a destination scoped since then is absent, a
+	// user barred since then is free. Same reasoning as the probe below.
+	blocks, err := s.blocksFor(nodeID)
+	if err != nil {
+		return 0, err
+	}
+	restored, err := template.ReplaceBlocks([]byte(old.Config), blocks)
+	if err != nil {
+		return 0, fmt.Errorf("re-deriving restricted rules for version %d: %w", version, err)
+	}
+	old.Config = string(restored)
 	if res := s.kernelFor(nodeID); res.Xray.Available() {
 		if err := res.Xray.TestConfig(ctx, []byte(old.Config)); err != nil {
 			return 0, fmt.Errorf("version %d no longer passes xray -test on %s: %w", version, res.Describe(), err)

@@ -292,3 +292,54 @@ func TestRestrictedTrafficDiesAtTheEntryOfALine(t *testing.T) {
 		}
 	}
 }
+
+// Rollback must re-derive block rules rather than revive the old version's.
+// Access policy is not configuration: a version stored before the destination
+// existed carries no rules, and reviving it would hand every barred user the
+// network until somebody next hits apply.
+func TestRollbackReDerivesTheBlockRules(t *testing.T) {
+	svc, st, _ := newFixture(t)
+	p, n := realityProfile(t, svc, st)
+	alice := entitle(t, st, "alice", p.ID, nil)
+	entitle(t, st, "bob", p.ID, nil)
+
+	// Version 1: no destination exists yet.
+	if _, err := svc.Apply(context.Background(), n.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	// The policy arrives afterwards.
+	d, err := st.CreateRestrictedDestination("dn42", []string{"172.20.0.0/14"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetRestrictedDestinationNodes(d.ID, []string{n.ID}); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetRestrictedDestinationAllows(d.ID, []string{alice.ID}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.Apply(context.Background(), n.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	// Roll back to the pre-policy version. The pushed config must carry the
+	// CURRENT rules anyway.
+	v, err := svc.Rollback(context.Background(), n.ID, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rolled, err := st.ConfigAt(n.ID, v)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rules := restrictedRules(t, []byte(rolled.Config))
+	if len(rules) == 0 {
+		t.Fatal("rolling back to a pre-policy version shed the block rules")
+	}
+	for _, r := range rules {
+		if len(r.User) == 0 {
+			t.Fatal("a revived block rule has an empty user list, which matches everyone")
+		}
+	}
+}

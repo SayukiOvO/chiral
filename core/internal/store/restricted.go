@@ -42,8 +42,10 @@ func ParseCIDRLines(text string) ([]string, error) {
 			if ip == nil {
 				return nil, fmt.Errorf("%q 不是 IP 也不是 CIDR", line)
 			}
-			if ip.To4() != nil {
-				line += "/32"
+			// Canonicalised, so an IPv4-mapped form ("::ffff:1.2.3.4") becomes
+			// the plain v4 it means rather than a /32 on the wrong family.
+			if v4 := ip.To4(); v4 != nil {
+				line = v4.String() + "/32"
 			} else {
 				line += "/128"
 			}
@@ -56,21 +58,52 @@ func ParseCIDRLines(text string) ([]string, error) {
 	return out, nil
 }
 
-// ParseDomainLines validates domain suffixes, one per line. A leading dot is
-// stripped — ".dn42" and "dn42" mean the same suffix to the routing rule.
+// ParseDomainLines validates domain suffixes, one per line. Leading "*." and
+// "." are stripped — "*.dn42", ".dn42" and "dn42" all mean the same suffix to
+// the routing rule.
+//
+// Everything else non-domain-shaped is REFUSED, not passed through. This is
+// an allowlist security feature: a pattern Xray accepts and never matches —
+// a literal "*", a colon, a trailing dot, an IP typed into the wrong box —
+// is a restriction that silently is not one, which is the exact failure the
+// whole table exists to prevent.
 func ParseDomainLines(text string) ([]string, error) {
 	var out []string
-	for _, line := range strings.Split(text, "\n") {
-		line = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(line), "."))
+	for _, raw := range strings.Split(text, "\n") {
+		line := strings.TrimSpace(raw)
+		line = strings.TrimPrefix(line, "*.")
+		line = strings.TrimPrefix(line, ".")
 		if line == "" {
 			continue
 		}
-		if strings.ContainsAny(line, " \t\"'{}[]") {
+		line = strings.ToLower(line)
+		if net.ParseIP(line) != nil {
+			return nil, fmt.Errorf("%q 是 IP——请写进上面的 IP 段一栏", line)
+		}
+		if !domainSuffixShaped(line) {
 			return nil, fmt.Errorf("%q 不是合法的域名后缀", line)
 		}
-		out = append(out, strings.ToLower(line))
+		out = append(out, line)
 	}
 	return out, nil
+}
+
+// domainSuffixShaped reports whether every label is hostname-shaped: letters,
+// digits and hyphens, dot-separated, no empty labels.
+func domainSuffixShaped(s string) bool {
+	for _, label := range strings.Split(s, ".") {
+		if label == "" {
+			return false
+		}
+		for _, r := range label {
+			switch {
+			case r >= 'a' && r <= 'z', r >= '0' && r <= '9', r == '-', r == '_':
+			default:
+				return false
+			}
+		}
+	}
+	return true
 }
 
 func joinLines(v []string) string { return strings.Join(v, "\n") }

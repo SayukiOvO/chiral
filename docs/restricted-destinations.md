@@ -18,9 +18,15 @@
 
 一个推论：被拦用户经这台入口**去往受限网段的流量一律被拦**，即使他走的线路出口并不在那张网里。保守而无害——那个地址段本来只在私网内有意义。
 
-## domainStrategy
+## domainStrategy：必须是 IPOnDemand，IPIfNonMatch 不够
 
-`ip` 规则默认（AsIs）不解析域名。公网域名把 A 记录指进受限网段，就能绕过 IP 拦截。装配后的 Advisories 会在「有 IP 拦截规则、而骨架的 `routing.domainStrategy` 不是 `IPIfNonMatch`/`IPOnDemand`」时明说。域名后缀（`domain:dn42`）单独一条规则——Xray 同一条规则内的条件是 AND，`ip`+`domain` 写在一起等于什么都匹配不上。
+`ip` 规则默认（AsIs）不解析域名。公网域名把 A 记录指进受限网段，就能绕过 IP 拦截。
+
+**而 `IPIfNonMatch` 关不上这个洞**——这是真机测出来的，不是读文档读出来的：它只在第一遍**没有任何规则命中**时才解析域名重查，而恰恰在这个特性触及的节点上，第一遍总会有规则命中——中转规则不带目的地条件、匹配该用户的一切连接；「全部走 direct」是所有骨架的常见形状。实测（Xray 26.3.27）：IPIfNonMatch + 一条无目的地规则，A 记录指进拦截网段的域名直接走了 direct 且字节送达；同样的规则换 IPOnDemand，进了 `chiral-blocked`。所以 Advisories 只认 `IPOnDemand`。
+
+对称的另一个洞：**只填域名后缀的目的地拦不住直接用 IP 访问的人**（`domain:` 匹配器见不到 IP 形式的目标）。Advisories 对这个形状也会明说；给目的地把 CIDR 补上才是解。域名后缀（`domain:dn42`）单独一条规则——Xray 同一条规则内的条件是 AND，`ip`+`domain` 写在一起等于什么都匹配不上。
+
+另外**回滚会重推旧 config**，里面的拦截规则是当时的。所以 `Rollback` 会先剥掉旧的 `chiral-blocked` 规则、按当前策略重新装配再推——和探活凭证同一个待遇：策略是派生态，不跟着版本走。
 
 ## 验过什么
 

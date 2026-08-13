@@ -7,19 +7,31 @@ import (
 	"strings"
 )
 
-// blockAdvisories warns when restricted-destination rules match on IP ranges
-// but routing will not resolve a domain-form destination to check them.
+// blockAdvisories warns when restricted-destination rules exist in shapes
+// that do not enforce what they look like they enforce.
 //
-// The bypass this closes: a public domain whose A record points into the
-// restricted range. With domainStrategy AsIs (the default), the ip rule never
-// sees an address for it, the freedom outbound resolves and connects, and the
-// restriction silently does not apply to anyone who can publish a DNS record.
+// Two bypasses, mirror images of each other. An ip rule never sees an address
+// for a domain-form destination — a public A record pointing into the range
+// walks past it — unless routing resolves domains BEFORE matching. Only
+// IPOnDemand does that. IPIfNonMatch is not enough, and this is measured, not
+// read: it resolves only when NO rule matched the first pass, and on exactly
+// the nodes this feature touches, one always has — a relay rule carries no
+// destination condition and matches its user's every connection, and
+// "everything to direct" is the shape of every skeleton in the wild. Verified
+// against a real kernel: IPIfNonMatch + a destination-less rule routed a
+// domain whose A record sat inside the blocked range straight past the block;
+// IPOnDemand with identical rules blackholed it.
+//
+// And a domain rule never sees a name when the user connects by literal IP —
+// so a destination described only by suffixes bars nobody who knows the
+// address.
 func blockAdvisories(configJSON []byte) []string {
 	var cfg struct {
 		Routing struct {
 			DomainStrategy string `json:"domainStrategy"`
 			Rules          []struct {
 				IP          []string `json:"ip"`
+				Domain      []string `json:"domain"`
 				OutboundTag string   `json:"outboundTag"`
 			} `json:"rules"`
 		} `json:"routing"`
@@ -27,23 +39,32 @@ func blockAdvisories(configJSON []byte) []string {
 	if err := json.Unmarshal(configJSON, &cfg); err != nil {
 		return nil
 	}
-	hasIPBlock := false
+	hasIPBlock, hasDomainBlock := false, false
 	for _, r := range cfg.Routing.Rules {
-		if r.OutboundTag == BlackholeTag && len(r.IP) > 0 {
+		if r.OutboundTag != BlackholeTag {
+			continue
+		}
+		if len(r.IP) > 0 {
 			hasIPBlock = true
 		}
+		if len(r.Domain) > 0 {
+			hasDomainBlock = true
+		}
 	}
-	if !hasIPBlock {
-		return nil
+	var out []string
+	if hasIPBlock && cfg.Routing.DomainStrategy != "IPOnDemand" {
+		out = append(out,
+			"受限目的地按 IP 段拦截，但 routing.domainStrategy 不是 IPOnDemand："+
+				"经由域名访问这些网段（A 记录指进去）不会被拦。IPIfNonMatch 也不够——"+
+				"它只在第一遍没有任何规则命中时才解析，而中转规则和「全部走 direct」都会先命中。"+
+				"请在节点骨架的 routing 里设 domainStrategy: IPOnDemand。")
 	}
-	switch cfg.Routing.DomainStrategy {
-	case "IPIfNonMatch", "IPOnDemand":
-		return nil
+	if hasDomainBlock && !hasIPBlock {
+		out = append(out,
+			"这个节点的受限目的地只按域名后缀拦截：用户直接用 IP 访问这些主机不会被拦。"+
+				"请给目的地补上对应的 CIDR。")
 	}
-	return []string{
-		"受限目的地按 IP 段拦截，但 routing.domainStrategy 未设 IPIfNonMatch/IPOnDemand：" +
-			"经由域名访问这些网段（A 记录指进去）不会被拦。请在节点骨架的 routing 里加上。",
-	}
+	return out
 }
 
 // realityMinClientDefault is the minimum client version Xray 26.x applies to a

@@ -1,6 +1,7 @@
 package template
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -96,5 +97,37 @@ func TestBothAdvisoriesCanFireTogether(t *testing.T) {
 	got := Advisories(cfg, []string{"clash"})
 	if len(got) != 2 {
 		t.Fatalf("expected both, got %v", got)
+	}
+}
+
+// IPIfNonMatch is NOT sufficient for the block rules, and this is measured,
+// not read: it resolves a domain only when no rule matched the first pass,
+// and a relay rule (no destination condition) always matches first. Only
+// IPOnDemand resolves before matching.
+func TestBlockAdvisoryAcceptsOnlyIPOnDemand(t *testing.T) {
+	build := func(strategy string) []byte {
+		cfg := `{"inbounds":[],"routing":{` +
+			`"domainStrategy":` + fmt.Sprintf("%q", strategy) + `,` +
+			`"rules":[{"type":"field","ip":["172.20.0.0/14"],"user":["bob@x"],"outboundTag":"chiral-blocked"}]}}`
+		return []byte(cfg)
+	}
+	for _, insufficient := range []string{"", "AsIs", "IPIfNonMatch"} {
+		if got := Advisories(build(insufficient), nil); len(got) == 0 {
+			t.Errorf("domainStrategy %q passed without an advisory", insufficient)
+		}
+	}
+	if got := Advisories(build("IPOnDemand"), nil); len(got) != 0 {
+		t.Errorf("IPOnDemand still drew an advisory: %v", got)
+	}
+}
+
+// A destination described only by domain suffixes bars nobody who connects by
+// literal IP; the operator has to hear that from somewhere.
+func TestDomainOnlyBlockDrawsAnAdvisory(t *testing.T) {
+	cfg := []byte(`{"inbounds":[],"routing":{"domainStrategy":"IPOnDemand",` +
+		`"rules":[{"type":"field","domain":["domain:dn42"],"user":["bob@x"],"outboundTag":"chiral-blocked"}]}}`)
+	got := Advisories(cfg, nil)
+	if len(got) != 1 {
+		t.Fatalf("want exactly the domain-only advisory, got %v", got)
 	}
 }

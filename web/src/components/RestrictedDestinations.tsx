@@ -106,7 +106,7 @@ export function RestrictedDestinations({ nodes }: { nodes: Node[] }) {
               <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
                 <span className="min-w-0 flex-1 truncate text-sm font-medium">{d.name}</span>
                 <span className="min-w-0 truncate font-mono text-[11px] text-faint">
-                  {[...d.cidrs, ...d.domains.map((x) => "*." + x)].join("  ")}
+                  {[...(d.cidrs ?? []), ...(d.domains ?? []).map((x) => "*." + x)].join("  ")}
                 </span>
                 <IconButton label={t("编辑")} onClick={() => setEditing(d)}>
                   <PencilIcon size={14} />

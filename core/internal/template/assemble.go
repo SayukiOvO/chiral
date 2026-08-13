@@ -343,3 +343,92 @@ func spliceBlocksAndExits(cfg map[string]json.RawMessage, blocks []BlockSource, 
 	cfg["outbounds"] = obRaw
 	return nil
 }
+
+// ReplaceBlocks strips every restricted-destination rule (and the blackhole
+// outbound) from an assembled config and splices the given blocks in fresh.
+//
+// It exists for Rollback. Block rules are derived state, like the probe: a
+// version stored before a destination was scoped carries no rules at all, and
+// one stored under an older allow list bars the wrong people. Reviving a
+// rolled-back config must not revive last month's access policy with it.
+func ReplaceBlocks(configJSON []byte, blocks []BlockSource) ([]byte, error) {
+	var cfg map[string]json.RawMessage
+	if err := json.Unmarshal(configJSON, &cfg); err != nil {
+		return nil, err
+	}
+
+	// Drop the old blackhole outbound; splice re-adds it when needed.
+	var outbounds []json.RawMessage
+	if raw, ok := cfg["outbounds"]; ok && len(raw) > 0 {
+		if err := json.Unmarshal(raw, &outbounds); err != nil {
+			return nil, fmt.Errorf(`config "outbounds" is not an array: %w`, err)
+		}
+	}
+	kept := outbounds[:0]
+	for _, ob := range outbounds {
+		var probe struct {
+			Tag string `json:"tag"`
+		}
+		if json.Unmarshal(ob, &probe) == nil && probe.Tag == BlackholeTag {
+			continue
+		}
+		kept = append(kept, ob)
+	}
+	obRaw, err := json.Marshal(kept)
+	if err != nil {
+		return nil, err
+	}
+	cfg["outbounds"] = obRaw
+
+	// Drop the old block rules, keeping everything else in place.
+	var routing map[string]json.RawMessage
+	if raw, ok := cfg["routing"]; ok && len(raw) > 0 {
+		if err := json.Unmarshal(raw, &routing); err != nil {
+			return nil, fmt.Errorf(`config "routing" is not an object: %w`, err)
+		}
+	}
+	if routing != nil {
+		var rules []json.RawMessage
+		if raw, ok := routing["rules"]; ok && len(raw) > 0 {
+			if err := json.Unmarshal(raw, &rules); err != nil {
+				return nil, fmt.Errorf(`config "routing.rules" is not an array: %w`, err)
+			}
+		}
+		keptRules := rules[:0]
+		for _, r := range rules {
+			var probe struct {
+				OutboundTag string `json:"outboundTag"`
+			}
+			if json.Unmarshal(r, &probe) == nil && probe.OutboundTag == BlackholeTag {
+				continue
+			}
+			keptRules = append(keptRules, r)
+		}
+		rulesRaw, err := json.Marshal(keptRules)
+		if err != nil {
+			return nil, err
+		}
+		routing["rules"] = rulesRaw
+		routingRaw, err := json.Marshal(routing)
+		if err != nil {
+			return nil, err
+		}
+		cfg["routing"] = routingRaw
+	}
+
+	// Fresh blocks go in through the same splice as assembly, which prepends
+	// them ahead of every rule already there — including the config's own
+	// relay rules, which is the order that matters.
+	if err := spliceBlocksAndExits(cfg, blocks, nil); err != nil {
+		return nil, err
+	}
+	out, err := json.Marshal(cfg)
+	if err != nil {
+		return nil, err
+	}
+	var buf bytes.Buffer
+	if err := json.Indent(&buf, out, "", "  "); err != nil {
+		return out, nil
+	}
+	return buf.Bytes(), nil
+}

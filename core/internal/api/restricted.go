@@ -34,9 +34,17 @@ type restrictedView struct {
 }
 
 func restrictedViewOf(d store.RestrictedDestination) restrictedView {
+	// Never null: the console spreads these, and a destination with only one
+	// of cidrs/domains is a legal shape.
+	orEmpty := func(v []string) []string {
+		if v == nil {
+			return []string{}
+		}
+		return v
+	}
 	return restrictedView{
-		ID: d.ID, Name: d.Name, CIDRs: d.CIDRs, Domains: d.Domains,
-		NodeIDs: d.NodeIDs, AllowedUserIDs: d.AllowedUserIDs,
+		ID: d.ID, Name: d.Name, CIDRs: orEmpty(d.CIDRs), Domains: orEmpty(d.Domains),
+		NodeIDs: orEmpty(d.NodeIDs), AllowedUserIDs: orEmpty(d.AllowedUserIDs),
 	}
 }
 
@@ -137,7 +145,11 @@ func (s *Server) deleteRestricted(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// The affected nodes, captured before the rows cascade away.
-	nodes, _ := s.profiles.RestrictedNodeIDs(d.ID)
+	nodes, err := s.profiles.RestrictedNodeIDs(d.ID)
+	if err != nil {
+		s.logger.Warn("restricted destination deleted but affected nodes unknown; rules linger until their next apply",
+			"dest", d.ID, "err", err)
+	}
 	if err := s.st.DeleteRestrictedDestination(d.ID); err != nil {
 		s.notFoundOr(w, "delete restricted destination", err, "no such destination")
 		return
@@ -162,12 +174,19 @@ func (s *Server) setRestrictedNodes(w http.ResponseWriter, r *http.Request) {
 	}
 	// Nodes leaving the scope need their rules removed as much as nodes
 	// entering need them added — affected is the union of before and after.
-	before, _ := s.profiles.RestrictedNodeIDs(d.ID)
+	before, err := s.profiles.RestrictedNodeIDs(d.ID)
+	if err != nil {
+		s.logger.Warn("restricted scope changing but prior nodes unknown; departing nodes keep stale rules until their next apply",
+			"dest", d.ID, "err", err)
+	}
 	if err := s.st.SetRestrictedDestinationNodes(d.ID, req.NodeIDs); err != nil {
 		s.internalErr(w, "set restricted nodes", err)
 		return
 	}
-	after, _ := s.profiles.RestrictedNodeIDs(d.ID)
+	after, err := s.profiles.RestrictedNodeIDs(d.ID)
+	if err != nil {
+		s.logger.Warn("restricted scope changed but new nodes unknown", "dest", d.ID, "err", err)
+	}
 	s.audit(r, "restricted.nodes", "restricted", d.ID, d.Name,
 		fmt.Sprintf("%d nodes", len(req.NodeIDs)))
 	s.applyNodes(r, union(before, after))

@@ -282,6 +282,12 @@ function ProfileEditor({ id, onChanged }: { id: string; onChanged: () => void })
         const tmpl = clientTemplates[kind] ?? "";
         if (tmpl.trim()) {
           await api.putClientTemplate(id, kind, tmpl);
+          // A delete-then-recreate round trip would otherwise resurrect a
+          // held-back template as served: the flag lives on the row, and the
+          // row was gone in between. Re-assert what this page still knows.
+          if (serve[kind] === false) {
+            await api.setClientTemplateServe(id, kind, false);
+          }
         } else if (stored.has(kind)) {
           await api.deleteClientTemplate(id, kind);
         }
