@@ -1,6 +1,7 @@
 package subscription
 
 import (
+	"fmt"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -181,5 +182,138 @@ func TestARelayObeysTheOperatorsOrder(t *testing.T) {
 	}
 	if e := strings.Index(res.Body, `"address":"203.0.113.`); e >= 0 && first > e {
 		t.Errorf("the line was placed first but rendered after a node:\n%s", res.Body)
+	}
+}
+
+// The question this answers: the entry carries an access point some client
+// cannot speak (xhttp — Stash has no such transport), so how does a Stash
+// subscriber take a relay line?
+//
+// By construction, without any special case: a relay line is rendered once per
+// profile the subscriber holds on the entry, through THAT profile's template
+// for the requesting client. A profile with no stash template contributes
+// nothing to a stash document, so the line simply arrives through the access
+// point the client can speak. The dial leg (entry → exit) is not involved at
+// all — that is Xray dialling Xray, and no subscriber client ever speaks it.
+func TestARelayReachesAClientThroughTheAccessPointItSpeaks(t *testing.T) {
+	box, err := secret.NewBox("subscription-test-key-0123456789ab")
+	if err != nil {
+		t.Fatal(err)
+	}
+	st, err := store.Open(filepath.Join(t.TempDir(), "t.db"), box)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { st.Close() })
+
+	entry, err := st.CreateNode("entry", "join-hash-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	exit, err := st.CreateNode("exit", "join-hash-2")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Two access points on the same entry, mirroring production: one every
+	// client speaks (vision) and one only clash-family clients do (xhttp).
+	vision, err := st.CreateProfile("vision")
+	if err != nil {
+		t.Fatal(err)
+	}
+	xh, err := st.CreateProfile("xh")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range []store.Profile{vision, xh} {
+		for _, n := range []store.Node{entry, exit} {
+			if err := st.BindProfileNode(p.ID, n.ID); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	// The suffix lives in the template, exactly as production does it: with
+	// both profiles in one clash document, identical names would make mihomo
+	// reject the whole file, and the label override replaces the variable —
+	// only template-authored distinctness survives it.
+	if err := st.PutClientTemplate(vision.ID, ClientStash,
+		"name: \"{{node.display_name}}\"\ntype: vless\nflow: xtls-rprx-vision\nuuid: {{user.uuid}}"); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.PutClientTemplate(vision.ID, ClientClash,
+		"name: \"{{node.display_name}} · V\"\ntype: vless\nflow: xtls-rprx-vision\nuuid: {{user.uuid}}"); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.PutClientTemplate(xh.ID, ClientClash,
+		"name: \"{{node.display_name}}\"\ntype: vless\nnetwork: xhttp\nuuid: {{user.uuid}}"); err != nil {
+		t.Fatal(err)
+	}
+
+	u, err := st.CreateUser(store.User{Name: "sub", Enabled: true}, "sub-hash")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range []store.Profile{vision, xh} {
+		if err := st.BindUserProfile(u.ID, p.ID); err != nil {
+			t.Fatal(err)
+		}
+	}
+	rl, err := st.CreateNodeRelay(store.NodeRelay{
+		EntryNodeID: entry.ID, ExitNodeID: exit.ID, ProfileID: vision.ID,
+		Label: "中转线", Enabled: true, Secret: "relay-secret",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The credentials assembly would have minted: direct plus relayed, per
+	// profile on the entry.
+	for i, p := range []store.Profile{vision, xh} {
+		if _, err := st.PutCredential(store.Credential{
+			UserID: u.ID, ProfileID: p.ID, NodeID: entry.ID,
+			Email: fmt.Sprintf("sub-direct-%d@entry", i), Secret: fmt.Sprintf("uuid-direct-%d", i),
+		}); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := st.PutCredential(store.Credential{
+			UserID: u.ID, ProfileID: p.ID, NodeID: entry.ID, ExitRelayID: rl.ID,
+			Email: fmt.Sprintf("sub-relay-%d@entry", i), Secret: fmt.Sprintf("uuid-relay-%d", i),
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := st.SetUserNodeAccess(u.ID, nil, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	svc := NewService(st, stubContexts{})
+
+	// A stash client gets the line exactly once, through vision — the only
+	// access point it can speak — carrying the relay credential minted for
+	// that profile, not the direct one.
+	res, err := svc.Render(u, ClientStash, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Counted as a proxy definition, not as a mention: the proxy-group member
+	// lists legitimately name the line again.
+	if n := strings.Count(res.Body, `name: "中转线"`); n != 1 {
+		t.Fatalf("stash defines the relay line %d times, want exactly 1:\n%s", n, res.Body)
+	}
+	if !strings.Contains(res.Body, "uuid-relay-0") {
+		t.Errorf("the stash relay line does not use the vision relay credential:\n%s", res.Body)
+	}
+	if strings.Contains(res.Body, "network: xhttp") {
+		t.Errorf("an xhttp line leaked into a stash document:\n%s", res.Body)
+	}
+
+	// A clash client speaks both access points, so it gets the line through
+	// each — distinctly named, or the whole document dies on a duplicate.
+	res, err = svc.Render(u, ClientClash, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{`name: "中转线"`, `name: "中转线 · V"`} {
+		if !strings.Contains(res.Body, want) {
+			t.Errorf("clash is missing the relay line variant %s:\n%s", want, res.Body)
+		}
 	}
 }
