@@ -40,18 +40,21 @@
 
 ### 变量表
 
-| 变量 | 作用域 | 取值 | 可公开 |
-|---|---|---|---|
-| `{{node.address}}` | 节点 | 公网 IP/域名（元数据，可覆盖） | ✅ |
-| `{{node.region}}` | 节点 | 地区标签 | ✅ |
-| `{{port}}` | Profile | 静态 `443` | ✅ |
-| `{{sni}}` | Profile | 静态 `www.microsoft.com` | ✅ |
-| `{{flow}}` | Profile | 静态 `xtls-rprx-vision` | ✅ |
-| `{{reality.private}}` | Profile | 生成器 X25519 · 私钥分量 | ❌ 仅服务端 |
-| `{{reality.public}}` | Profile | 同一密钥对 · 公钥分量 | ✅ |
-| `{{reality.shortId}}` | Profile | 生成器 shortId | ✅ |
-| `{{user.uuid}}` | 用户 | 生成器 UUID（用户×Profile×节点唯一） | ✅ |
-| `{{user.email}}` | 用户 | 统计键 `用户名@接入标识` | ✅ |
+作用域的判据是**「这个值描述的是谁」**，不是「哪里写着方便」。描述一台机器的，放节点级；描述一种接入方式的，放接入配置级；全局只留真正全员共享的东西。
+
+| 变量 | 作用域 | 取值 | 可公开 | 为什么是这个作用域 |
+|---|---|---|---|---|
+| `{{node.address}}` | 节点（元数据） | 公网 IP/域名，可覆盖 | ✅ | |
+| `{{reality.private}}` / `{{reality.public}}` | **节点** | 生成器 X25519 | ❌ / ✅ | 服务端身份。一台机器的私钥泄露，不该让另一台能被冒充——和「每凭证独立」是同一条原则 |
+| `{{sid}}` | **节点** | 生成器 shortId | ✅ | 与密钥对配套 |
+| `{{mldsa.seed}}` / `{{mldsa.verify}}` | **节点** | 生成器 ML-DSA-65 | ❌ / ✅ | 同上；注意它会让 REALITY 临时证书大 ~3.3 KB，伪装站证书链必须更大，否则所有握手失败（见 §7） |
+| `{{sni}}`、`{{fallback}}` | **节点** | 伪装站域名 / REALITY target | ✅ | 伪装站天然随机器走：turin 的伪装站就架在 turin 自己身上 |
+| `{{entry_port}}` | **节点** | 对外端口 | ✅ | 这台机器露出哪个端口 |
+| `{{port}}` | 接入配置 | inbound 监听端口 | ✅ | 一种接入方式的默认端口，节点可覆盖 |
+| `{{path}}` | 接入配置 | xhttp 路径 | ✅ | 同上；想让各节点不可关联可下沉到节点 |
+| `{{user.uuid}}` / `{{user.email}}` | 用户 | 生成器 UUID / 统计键 | ✅ | 用户 × 接入配置 × 节点唯一 |
+
+**换作用域不换值**：变量页的「移到别的作用域」原地改行、id 不变、密封分量不动，渲染结果逐字节相同，已发出去的订阅不受影响。它就是为「一开始建成全局、后来发现该是节点级」这种事准备的——重新生成一对密钥会让所有客户端里的公钥作废。
 
 ### ① 服务端 inbound 骨架（不含 clients）
 
@@ -160,3 +163,11 @@ vless://{{user.uuid}}@{{node.address}}:{{port}}?security=reality&sni={{sni}}&pbk
 
 - [ ] ML-KEM-768 的 `Hash32` 分量：xray 会打印，但其派生方式未能复现，**暂不产出**（不发无法验证的值）。用到再补。
 - [x] 密钥轮换流程：`chiral-core -rotate-secret-key`，单事务重封八处密文，见 [deployment.md](deployment.md)。
+
+## 7. REALITY 伪装站证书不能比服务端的临时证书小
+
+REALITY 对**合法客户端**的握手是镜像伪装站的：自己签一张临时证书，但 Certificate 记录必须和伪装站的**一样长**，差值靠 padding 填。配了 `mldsa65Seed` 之后临时证书多一个 ~3.3 KB 的 ML-DSA-65 签名，于是伪装站的证书链必须 ≳ 3.6 KB。
+
+2026-08-18 的 22 小时断流就是这么来的：换了 `moonwx.net` 的证书（GTS WE1 的 ECDSA 链，整条 Certificate 记录 2497 字节），nginx reload 那一秒起每次握手 `padding: -1047`，客户端被静默当访客转发。面板全绿、内核在跑、`xray -test` 通过、访问日志空空如也——REALITY 的拒绝是 Info 级，生产 warning 级看不见。
+
+当时没有任何客户端模板配 `mldsa65Verify`，这个签名没人验证、收益为零，所以修法是把 `mldsa65Seed` 从 inbound 里拿掉。真想用 PQ 签名：客户端要加 `mldsa65Verify`，伪装站要换一条足够大的证书链。

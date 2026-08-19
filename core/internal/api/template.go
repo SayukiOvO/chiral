@@ -18,6 +18,8 @@ func (s *Server) routeTemplates(mux *http.ServeMux) {
 	mux.Handle("GET /api/variables", s.requireAdmin(s.listVariables))
 	mux.Handle("POST /api/variables", s.requireWrite(s.createVariable))
 	mux.Handle("DELETE /api/variables/{id}", s.requireWrite(s.deleteVariable))
+	// Re-scoping keeps the value; see store.MoveVariable for why that matters.
+	mux.Handle("POST /api/variables/{id}/move", s.requireWrite(s.moveVariable))
 
 	mux.Handle("GET /api/profiles", s.requireAdmin(s.listProfiles))
 	mux.Handle("POST /api/profiles", s.requireWrite(s.createProfile))
@@ -650,4 +652,63 @@ func (s *Server) setClientTemplateServe(w http.ResponseWriter, r *http.Request) 
 	s.audit(r, "profile.template_serve", "profile", r.PathValue("id"), r.PathValue("client"),
 		fmt.Sprintf("serve=%v", req.Serve))
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// moveVariable re-scopes a variable in place. The common direction is
+// downward — a REALITY keypair or a cover SNI that was created global and is
+// really a property of one machine — and the value must survive the move
+// unchanged, or every subscription carrying it breaks.
+func (s *Server) moveVariable(w http.ResponseWriter, r *http.Request) {
+	v, err := s.st.GetVariable(r.PathValue("id"))
+	if err != nil {
+		s.notFoundOr(w, "load variable", err, "no such variable")
+		return
+	}
+	var req struct {
+		Scope     string `json:"scope"`
+		ProfileID string `json:"profile_id"`
+		NodeID    string `json:"node_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeErr(w, http.StatusBadRequest, "body must be JSON")
+		return
+	}
+	switch req.Scope {
+	case store.ScopeGlobal:
+		req.ProfileID, req.NodeID = "", ""
+	case store.ScopeProfile:
+		if req.ProfileID == "" {
+			writeErr(w, http.StatusBadRequest, `"profile_id" is required for profile scope`)
+			return
+		}
+		req.NodeID = ""
+	case store.ScopeNode:
+		if req.NodeID == "" {
+			writeErr(w, http.StatusBadRequest, `"node_id" is required for node scope`)
+			return
+		}
+		req.ProfileID = ""
+	default:
+		writeErr(w, http.StatusBadRequest, `"scope" must be global, profile or node`)
+		return
+	}
+	if err := s.st.MoveVariable(v.ID, req.Scope, nullIf(req.ProfileID), nullIf(req.NodeID)); err != nil {
+		if store.IsNotFound(err) {
+			writeErr(w, http.StatusNotFound, "no such variable")
+			return
+		}
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	s.audit(r, "variable.move", "variable", v.ID, v.Name,
+		fmt.Sprintf("%s -> %s", v.Scope, req.Scope))
+	// Nothing is re-applied here. A move narrows where the name resolves, and
+	// a node that just lost it should fail loudly at the operator's next
+	// preview or apply, not be silently re-pushed into a broken state.
+	moved, err := s.st.GetVariable(v.ID)
+	if err != nil {
+		s.internalErr(w, "reload variable", err)
+		return
+	}
+	writeJSON(w, http.StatusOK, toVariableView(moved))
 }

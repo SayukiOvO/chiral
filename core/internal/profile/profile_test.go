@@ -374,3 +374,92 @@ func TestUnnamedNodeGetsANumberNotTheInternalName(t *testing.T) {
 		t.Fatalf("display name = %q, want a numbered line", got)
 	}
 }
+
+// Re-scoping a variable must leave every rendered byte where it was.
+//
+// The scenario this guards: an operator creates the REALITY keypair global,
+// later decides (correctly) that it belongs to one node, and moves it. If the
+// move re-generated or re-sealed anything, the rendered public key would
+// differ and every subscription holding the old one would stop handshaking —
+// exactly the outage the move exists to avoid.
+func TestMovingAVariableDoesNotChangeWhatRenders(t *testing.T) {
+	svc, st, _ := newFixture(t)
+	p, n := realityProfile(t, svc, st)
+	entitle(t, st, "alice", p.ID, nil)
+	// realityProfile put `reality` and `shortId` at profile scope; the
+	// server config and the client context both resolve them.
+	if err := st.PutClientTemplate(p.ID, "xray-json",
+		`{"protocol":"vless","settings":{"vnext":[{"address":"{{node.address}}","port":{{port}},"users":[{"id":"{{user.uuid}}"}]}]},`+
+			`"streamSettings":{"security":"reality","realitySettings":{"publicKey":"{{reality.public}}","shortId":"{{shortId}}","serverName":"{{sni}}"}}}`); err != nil {
+		t.Fatal(err)
+	}
+	before, err := svc.AssembleNode(n.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	clientBefore, err := svc.ClientContext(p.ID, n.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pubBefore, err := clientBefore.Render("{{reality.public}}")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Move the keypair and the shortId down to the node.
+	for _, name := range []string{"reality", "shortId"} {
+		id, err := st.FindVariableID(store.ScopeProfile, p.ID, "", name)
+		if err != nil {
+			t.Fatalf("finding %s: %v", name, err)
+		}
+		if err := st.MoveVariable(id, store.ScopeNode, sql.NullString{}, sql.NullString{String: n.ID, Valid: true}); err != nil {
+			t.Fatalf("moving %s: %v", name, err)
+		}
+	}
+
+	after, err := svc.AssembleNode(n.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(before) != string(after) {
+		t.Fatalf("the node config changed across a scope move:\n--- before\n%s\n--- after\n%s", before, after)
+	}
+	clientAfter, err := svc.ClientContext(p.ID, n.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pubAfter, err := clientAfter.Render("{{reality.public}}")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pubBefore == "" || pubBefore != pubAfter {
+		t.Fatalf("the public key clients hold changed across the move: %q -> %q", pubBefore, pubAfter)
+	}
+	// And it is really gone from the profile scope — the move moved, it did
+	// not copy.
+	if _, err := st.FindVariableID(store.ScopeProfile, p.ID, "", "reality"); err == nil {
+		t.Fatal("reality is still at profile scope after the move")
+	}
+}
+
+// The name must stay unique within a scope; a move that would create a twin
+// is refused rather than leaving the render to pick one at random.
+func TestMovingOntoAnExistingNameIsRefused(t *testing.T) {
+	svc, st, _ := newFixture(t)
+	p, n := realityProfile(t, svc, st)
+	nid := sql.NullString{String: n.ID, Valid: true}
+	if _, err := st.PutVariable(store.Variable{
+		Name: "sni", Scope: store.ScopeNode, NodeID: nid,
+		Components: []store.Component{{Value: "node.example"}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	id, err := st.FindVariableID(store.ScopeProfile, p.ID, "", "sni")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.MoveVariable(id, store.ScopeNode, sql.NullString{}, nid); err == nil {
+		t.Fatal("moving sni onto a node that already has one was allowed")
+	}
+	_ = svc
+}

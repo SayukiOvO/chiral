@@ -607,6 +607,9 @@ export const api = {
     value?: string;
   }) => req<Variable>("POST", "/api/variables", v),
   deleteVariable: (id: string) => req<void>("DELETE", `/api/variables/${id}`),
+  // Re-scopes a variable in place, value untouched — see store.MoveVariable.
+  moveVariable: (id: string, to: { scope: Scope; profile_id?: string; node_id?: string }) =>
+    req<Variable>("POST", `/api/variables/${id}/move`, to),
   listGenerators: () =>
     req<{ generators: GeneratorInfo[] }>("GET", "/api/generators"),
 

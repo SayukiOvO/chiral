@@ -9,7 +9,7 @@ import {
 } from "../api";
 import { Button, IconButton } from "../components/ui";
 import { Empty, ErrorBar, Field, Modal, Td, Th, inputCls } from "../components/primitives";
-import { PencilIcon, PlusIcon, TrashIcon } from "../components/icons";
+import { PencilIcon, PlusIcon, TrashIcon, RouteIcon } from "../components/icons";
 import { cn } from "../lib/cn";
 import { useT } from "../lib/i18n";
 
@@ -28,6 +28,7 @@ export function VariablesPage() {
   const [error, setError] = useState("");
   const [adding, setAdding] = useState(false);
   const [editing, setEditing] = useState<Variable | null>(null);
+  const [moving, setMoving] = useState<Variable | null>(null);
 
   async function refresh() {
     try {
@@ -141,6 +142,12 @@ export function VariablesPage() {
                           <PencilIcon size={16} />
                         </IconButton>
                       )}
+                      {/* Re-scoping keeps the value byte for byte: the common
+                          move is downward, a keypair or a cover SNI created
+                          global that really describes one machine. */}
+                      <IconButton label={t("移到别的作用域")} onClick={() => setMoving(v)}>
+                        <RouteIcon size={16} />
+                      </IconButton>
                       <IconButton
                         label={t("删除变量")}
                         className="hover:text-danger"
@@ -165,6 +172,16 @@ export function VariablesPage() {
         <EditVariableDialog
           variable={editing}
           onClose={() => setEditing(null)}
+          onSaved={refresh}
+        />
+      )}
+
+      {moving && (
+        <MoveVariableDialog
+          variable={moving}
+          profiles={profiles}
+          nodes={nodes}
+          onClose={() => setMoving(null)}
           onSaved={refresh}
         />
       )}
@@ -435,6 +452,109 @@ function EditVariableDialog({
           </Button>
         </div>
       </form>
+    </Modal>
+  );
+}
+
+/**
+ * Move a variable to another scope without touching its value.
+ *
+ * Exists because scope is a decision people get wrong the first time and
+ * cannot afford to fix by re-creating: a REALITY keypair re-generated at the
+ * right scope is a different keypair, and every subscription carrying the old
+ * public key stops working. Moving the row keeps the id, and with it the
+ * sealed components, so the rendered value is identical before and after.
+ */
+function MoveVariableDialog({
+  variable,
+  profiles,
+  nodes,
+  onClose,
+  onSaved,
+}: {
+  variable: Variable;
+  profiles: Profile[];
+  nodes: Node[];
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const { t, tf } = useT();
+  const [scope, setScope] = useState<Scope>(variable.scope === "global" ? "node" : variable.scope);
+  const [owner, setOwner] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const owners = scope === "profile" ? profiles : scope === "node" ? nodes : [];
+  const needsOwner = scope !== "global";
+
+  async function submit() {
+    setBusy(true);
+    setError("");
+    try {
+      await api.moveVariable(variable.id, {
+        scope,
+        profile_id: scope === "profile" ? owner : undefined,
+        node_id: scope === "node" ? owner : undefined,
+      });
+      onSaved();
+      onClose();
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Modal onClose={onClose}>
+      <h3 className="font-display text-lg font-semibold tracking-tight">
+        {tf("移动「{name}」", { name: variable.name })}
+      </h3>
+      <p className="mt-1 text-sm text-muted">
+        {t("值原样保留，已发出去的订阅不受影响。移到更窄的作用域后，原来靠它渲染的其他节点会在下次预览/下发时报未定义。")}
+      </p>
+      <Field label={t("移到")}>
+        <div className="flex gap-1.5">
+          {(["global", "profile", "node"] as Scope[]).map((s) => (
+            <button
+              key={s}
+              type="button"
+              onClick={() => {
+                setScope(s);
+                setOwner("");
+              }}
+              className={cn(
+                "rounded-lg border px-2.5 py-1.5 text-[13px] transition-colors",
+                scope === s
+                  ? "border-signal bg-signal-soft text-ink"
+                  : "border-line-strong text-muted hover:border-signal",
+              )}
+            >
+              {t(SCOPE_LABEL[s])}
+            </button>
+          ))}
+        </div>
+      </Field>
+      {needsOwner && (
+        <Field label={t(scope === "profile" ? "属于哪个接入配置" : "属于哪个节点")}>
+          <select value={owner} onChange={(e) => setOwner(e.target.value)} className={inputCls}>
+            <option value="">{t("选择…")}</option>
+            {owners.map((o) => (
+              <option key={o.id} value={o.id}>
+                {"display_name" in o && o.display_name ? `${o.display_name} (${o.name})` : o.name}
+              </option>
+            ))}
+          </select>
+        </Field>
+      )}
+      {error && <p className="mt-3 text-sm text-danger">{error}</p>}
+      <div className="mt-5 flex justify-end gap-2">
+        <Button type="button" variant="ghost" onClick={onClose}>
+          {t("取消")}
+        </Button>
+        <Button variant="primary" onClick={submit} disabled={busy || (needsOwner && !owner)}>
+          {busy ? t("移动中…") : t("移动")}
+        </Button>
+      </div>
     </Modal>
   );
 }

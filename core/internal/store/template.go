@@ -452,3 +452,41 @@ func boolToInt(b bool) int {
 	}
 	return 0
 }
+
+// MoveVariable changes which scope a variable lives in, keeping its id and
+// every component exactly as stored.
+//
+// In place rather than copy-and-delete, and for a reason that matters: the
+// sealed components are bound to the variable's id, so moving the row leaves
+// the ciphertext untouched and the rendered value identical. Re-scoping a
+// REALITY keypair from global to a node must not change a single byte of any
+// subscription already handed out — "the value moved" and "the value
+// changed" are very different events for the people holding the old one.
+//
+// Refused when the name is already taken in the target scope: two variables
+// with one name in one scope would make the render pick one arbitrarily.
+func (s *Store) MoveVariable(id, scope string, profileID, nodeID sql.NullString) error {
+	v, err := s.GetVariable(id)
+	if err != nil {
+		return err
+	}
+	var p, n string
+	if profileID.Valid {
+		p = profileID.String
+	}
+	if nodeID.Valid {
+		n = nodeID.String
+	}
+	if other, err := s.FindVariableID(scope, p, n, v.Name); err == nil && other != id {
+		return fmt.Errorf("目标作用域里已经有一个叫 %q 的变量", v.Name)
+	}
+	res, err := s.db.Exec(`UPDATE variables SET scope = ?, profile_id = ?, node_id = ?, updated_at = ? WHERE id = ?`,
+		scope, profileID, nodeID, time.Now().Unix(), id)
+	if err != nil {
+		return err
+	}
+	if rows, _ := res.RowsAffected(); rows == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}

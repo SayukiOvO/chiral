@@ -269,6 +269,14 @@ const EN: Record<string, string> = {
   "关闭后订阅里不再有这条线，中转拨号和升级探活仍会用它。":
     "Off, subscriptions stop carrying this line; relay dialling and upgrade probes still use it.",
   不下发: "held back",
+  // variable scope moves
+  移到别的作用域: "Move to another scope",
+  "移动「{name}」": "Move \u201c{name}\u201d",
+  "值原样保留，已发出去的订阅不受影响。移到更窄的作用域后，原来靠它渲染的其他节点会在下次预览/下发时报未定义。":
+    "The value is kept as is; subscriptions already handed out are unaffected. After a move to a narrower scope, other nodes that rendered with it report it undefined at their next preview or apply.",
+  移到: "Move to",
+  "移动中…": "Moving…",
+  移动: "Move",
   // restricted destinations
   受限目的地: "Restricted destinations",
   "节点能到、但默认谁都不许去的网段。规则在勾选的节点上生效；经中转线路借道的入口会自动一并生效。":
