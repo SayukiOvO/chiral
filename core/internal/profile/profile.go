@@ -438,7 +438,25 @@ func (s *Service) Preview(ctx context.Context, nodeID string) (Preview, error) {
 			p.TestError = err.Error()
 		}
 	}
-	p.Advisories = template.Advisories(cfg, s.clientKindsOn(nodeID))
+	// The tags this node's egress rules land on, so an advisory can tell our
+	// rules apart from the operator's own — see blockAdvisories.
+	var egressTags []string
+	if rules, err := s.st.EgressRulesOn(nodeID); err == nil {
+		for _, r := range rules {
+			if !r.Enabled {
+				continue
+			}
+			switch r.TargetKind {
+			case store.EgressDirect:
+				egressTags = append(egressTags, "direct")
+			case store.EgressExternal:
+				egressTags = append(egressTags, ExitTag(r.TargetProxyID))
+			case store.EgressNode:
+				egressTags = append(egressTags, EgressTag(r.ID))
+			}
+		}
+	}
+	p.Advisories = template.Advisories(cfg, s.clientKindsOn(nodeID), egressTags)
 	return p, nil
 }
 

@@ -25,7 +25,7 @@ import (
 // And a domain rule never sees a name when the user connects by literal IP —
 // so a destination described only by suffixes bars nobody who knows the
 // address.
-func blockAdvisories(configJSON []byte) []string {
+func blockAdvisories(configJSON []byte, egressTags []string) []string {
 	var cfg struct {
 		Routing struct {
 			DomainStrategy string `json:"domainStrategy"`
@@ -38,6 +38,16 @@ func blockAdvisories(configJSON []byte) []string {
 	}
 	if err := json.Unmarshal(configJSON, &cfg); err != nil {
 		return nil
+	}
+	// Which tags this panel's own egress rules point at. Identified by the
+	// caller rather than by the tag's spelling: a landing may be "direct" or
+	// an exit's tag, and guessing from the name caught only fleet landings —
+	// the operator's own skeleton rules must NOT draw this warning, since
+	// pairing geoip:cn with geosite:cn is the correct idiom and they wrote it
+	// deliberately.
+	fromEgress := make(map[string]bool, len(egressTags))
+	for _, t := range egressTags {
+		fromEgress[t] = true
 	}
 	hasIPBlock, hasDomainBlock := false, false
 	hasIPEgress := false
@@ -56,7 +66,7 @@ func blockAdvisories(configJSON []byte) []string {
 		// for a domain-form destination, so "geoip:netflix goes out through
 		// Japan" quietly does not apply to anything asked for by name — which
 		// is nearly everything.
-		if len(r.IP) > 0 && strings.HasPrefix(r.OutboundTag, "egress-") {
+		if len(r.IP) > 0 && fromEgress[r.OutboundTag] {
 			hasIPEgress = true
 		}
 	}
@@ -102,7 +112,7 @@ const realityMinClientDefault = "26.3.27"
 // serving only Xray clients, and the panel does not get to decide that; it
 // only has to make the consequence visible before somebody debugs it from the
 // wrong end.
-func Advisories(configJSON []byte, clientKinds []string) []string {
+func Advisories(configJSON []byte, clientKinds []string, egressTags []string) []string {
 	var cfg struct {
 		Inbounds []struct {
 			Tag            string `json:"tag"`
@@ -124,7 +134,7 @@ func Advisories(configJSON []byte, clientKinds []string) []string {
 	}
 	var out []string
 	out = append(out, sniffingAdvisories(cfg.Inbounds)...)
-	out = append(out, blockAdvisories(configJSON)...)
+	out = append(out, blockAdvisories(configJSON, egressTags)...)
 	if !servesClashFamily(clientKinds) {
 		return out
 	}
