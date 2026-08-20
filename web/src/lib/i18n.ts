@@ -277,6 +277,24 @@ const EN: Record<string, string> = {
   移到: "Move to",
   "移动中…": "Moving…",
   移动: "Move",
+  // per-node egress
+  出站分流: "Egress routing",
+  "命中的流量从指定的落点出去，其余照常。自上而下匹配，第一条命中的生效。":
+    "Matched traffic leaves by the landing you pick; the rest is unchanged. Matched top to bottom — the first hit wins.",
+  新增规则: "Add rule",
+  "还没有出站分流规则，全部流量直接从这个节点出去。":
+    "No egress rules yet; everything leaves straight from this node.",
+  "删除这条出站分流规则？": "Delete this egress rule?",
+  新增出站分流: "New egress rule",
+  "在这个节点上，命中的流量改从别处出去。域名和 IP 两栏可以只填一栏。":
+    "On this node, matched traffic leaves elsewhere. Filling just one of the two boxes is fine.",
+  "域名 / geosite（每行一个）": "Domains / geosite (one per line)",
+  "IP / geoip（每行一个）": "IPs / geoip (one per line)",
+  从哪出去: "Leaves through",
+  本机队节点: "A node of this fleet",
+  目标节点: "Target node",
+  用目标节点的哪个接入配置拨号: "Which of its access points to dial",
+  目标外部节点: "Target external node",
   // restricted destinations
   受限目的地: "Restricted destinations",
   "节点能到、但默认谁都不许去的网段。规则在勾选的节点上生效；经中转线路借道的入口会自动一并生效。":

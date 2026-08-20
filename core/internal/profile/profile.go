@@ -226,6 +226,12 @@ func (s *Service) AssembleNode(nodeID string) ([]byte, error) {
 			return nil, err
 		}
 		clients = append(clients, machine...)
+		// And the credentials of egress rules on OTHER nodes that land here.
+		egressIn, err := s.egressClientEntries(p, nodeID, ctx)
+		if err != nil {
+			return nil, err
+		}
+		clients = append(clients, egressIn...)
 		// One more credential per relayed exit, rendered into the same inbound.
 		// They are ordinary clients as far as Xray is concerned; what makes
 		// them an exit is the routing rule that matches their email.
@@ -300,7 +306,18 @@ func (s *Service) AssembleNode(nodeID string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	return template.AssembleNodeFull(n.ConfigSkeleton, sources, exits, blocks)
+	// Egress rules may land on an external provider this node already relays
+	// for; the tag set lets them share that one outbound instead of dialling
+	// the same provider twice.
+	built := make(map[string]string, len(exits))
+	for _, e := range exits {
+		built[e.Tag] = e.Outbound
+	}
+	egress, err := s.egressFor(nodeID, built)
+	if err != nil {
+		return nil, err
+	}
+	return template.AssembleNodeWithEgress(n.ConfigSkeleton, sources, exits, blocks, egress)
 }
 
 // ExitTag names an exit's outbound. Derived from the id rather than the label,

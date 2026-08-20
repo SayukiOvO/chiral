@@ -346,6 +346,26 @@ export interface RestrictedDestination {
   allowed_user_ids: string[];
 }
 
+/**
+ * One "this traffic leaves that way" rule on a node. Order is priority:
+ * routing is first-match.
+ */
+export interface EgressRule {
+  id: string;
+  node_id: string;
+  label: string;
+  domains: string[];
+  ips: string[];
+  target_kind: "direct" | "external" | "node";
+  target_proxy_id?: string;
+  target_node_id?: string;
+  target_profile_id?: string;
+  target_name: string;
+  enabled: boolean;
+  /** Why this rule cannot be assembled; absent when it can. */
+  problem?: string;
+}
+
 /** One subscriber, seen from an external node's side. */
 export interface ProxyUser {
   id: string;
@@ -535,6 +555,29 @@ export const api = {
   relayUsers: (id: string) => req<{ users: ProxyUser[] }>("GET", `/api/relays/${id}/users`),
   setRelayUsers: (id: string, denied: { denied_users: string[] }) =>
     req<void>("PUT", `/api/relays/${id}/users`, denied),
+
+  // --- per-node egress: which traffic leaves by which route ---
+  listEgress: (nodeID: string) =>
+    req<{ rules: EgressRule[] }>("GET", `/api/nodes/${nodeID}/egress`),
+  createEgress: (
+    nodeID: string,
+    r: {
+      label: string;
+      domains: string;
+      ips: string;
+      target_kind: string;
+      target_proxy_id?: string;
+      target_node_id?: string;
+      target_profile_id?: string;
+    },
+  ) => req<EgressRule>("POST", `/api/nodes/${nodeID}/egress`, r),
+  updateEgress: (
+    id: string,
+    patch: { label?: string; domains?: string; ips?: string; enabled?: boolean },
+  ) => req<EgressRule>("PUT", `/api/egress/${id}`, patch),
+  deleteEgress: (id: string) => req<void>("DELETE", `/api/egress/${id}`),
+  reorderEgress: (nodeID: string, ids: string[]) =>
+    req<void>("PUT", `/api/nodes/${nodeID}/egress/order`, { ids }),
 
   // --- restricted destinations: networks only some subscribers may enter ---
   listRestricted: () =>

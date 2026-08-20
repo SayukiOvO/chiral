@@ -69,6 +69,23 @@ type BlockSource struct {
 // BlackholeTag names the shared outbound blocked traffic is sent to.
 const BlackholeTag = "chiral-blocked"
 
+// EgressSource is one "this traffic leaves that way" rule on a node.
+//
+// Its outbound may be shared with something else — the same external provider
+// can be a relayed exit AND an egress landing — so Outbound is empty when the
+// tag is already contributed elsewhere, and "direct" needs none at all.
+type EgressSource struct {
+	// Tag is the outbound the matched traffic is sent to.
+	Tag string
+	// Outbound is the rendered Xray outbound, or empty when the tag already
+	// exists in the config (the skeleton's own direct, or an exit's).
+	Outbound string
+	// Domains and IPs render as two rules sharing Tag: conditions inside one
+	// Xray rule are AND-ed, so a rule naming both would match nothing.
+	Domains []string
+	IPs     []string
+}
+
 // AssembleNode renders each profile's inbound and splices the results into
 // the node's config skeleton.
 //
@@ -86,6 +103,11 @@ func AssembleNodeWithExits(skeleton string, sources []InboundSource, exits []Exi
 
 // AssembleNodeFull is the same with restricted destinations enforced too.
 func AssembleNodeFull(skeleton string, sources []InboundSource, exits []ExitSource, blocks []BlockSource) ([]byte, error) {
+	return AssembleNodeWithEgress(skeleton, sources, exits, blocks, nil)
+}
+
+// AssembleNodeWithEgress is the same with per-node egress rules spliced in.
+func AssembleNodeWithEgress(skeleton string, sources []InboundSource, exits []ExitSource, blocks []BlockSource, egress []EgressSource) ([]byte, error) {
 	if skeleton == "" {
 		skeleton = DefaultSkeleton
 	}
@@ -136,7 +158,7 @@ func AssembleNodeFull(skeleton string, sources []InboundSource, exits []ExitSour
 	}
 	cfg["inbounds"] = merged
 
-	if err := spliceBlocksAndExits(cfg, blocks, exits); err != nil {
+	if err := spliceBlocksAndExits(cfg, blocks, exits, egress); err != nil {
 		return nil, err
 	}
 
@@ -236,8 +258,8 @@ func InboundTags(configJSON []byte) ([]string, error) {
 // relay rule matches its users' EVERY destination, so a block behind it would
 // let restricted traffic slip down the line — past the last point where users
 // can still be told apart.
-func spliceBlocksAndExits(cfg map[string]json.RawMessage, blocks []BlockSource, exits []ExitSource) error {
-	if len(exits) == 0 && len(blocks) == 0 {
+func spliceBlocksAndExits(cfg map[string]json.RawMessage, blocks []BlockSource, exits []ExitSource, egress []EgressSource) error {
+	if len(exits) == 0 && len(blocks) == 0 && len(egress) == 0 {
 		return nil
 	}
 	var outbounds []json.RawMessage
@@ -304,6 +326,36 @@ func spliceBlocksAndExits(cfg map[string]json.RawMessage, blocks []BlockSource, 
 	if blocked {
 		outbounds = append(outbounds, json.RawMessage(
 			fmt.Sprintf(`{"protocol":"blackhole","tag":%q}`, BlackholeTag)))
+	}
+	// Egress rules sit AFTER the blocks and BEFORE the exits, and both halves
+	// of that are load-bearing. A block must win, or a barred user reaches the
+	// restricted network by way of an egress landing. And a relay rule carries
+	// no destination condition — it matches its user's every connection — so
+	// an egress rule behind one would never be reached at all.
+	for _, e := range egress {
+		if e.Outbound != "" {
+			var ob map[string]json.RawMessage
+			if err := json.Unmarshal([]byte(e.Outbound), &ob); err != nil {
+				return fmt.Errorf("egress %q: outbound is not a JSON object: %w", e.Tag, err)
+			}
+			outbounds = append(outbounds, json.RawMessage(e.Outbound))
+		}
+		if len(e.Domains) > 0 {
+			domains, err := json.Marshal(e.Domains)
+			if err != nil {
+				return err
+			}
+			fresh = append(fresh, json.RawMessage(fmt.Sprintf(
+				`{"type":"field","domain":%s,"outboundTag":%q}`, domains, e.Tag)))
+		}
+		if len(e.IPs) > 0 {
+			ips, err := json.Marshal(e.IPs)
+			if err != nil {
+				return err
+			}
+			fresh = append(fresh, json.RawMessage(fmt.Sprintf(
+				`{"type":"field","ip":%s,"outboundTag":%q}`, ips, e.Tag)))
+		}
 	}
 	for _, e := range exits {
 		var ob map[string]json.RawMessage
@@ -419,7 +471,7 @@ func ReplaceBlocks(configJSON []byte, blocks []BlockSource) ([]byte, error) {
 	// Fresh blocks go in through the same splice as assembly, which prepends
 	// them ahead of every rule already there — including the config's own
 	// relay rules, which is the order that matters.
-	if err := spliceBlocksAndExits(cfg, blocks, nil); err != nil {
+	if err := spliceBlocksAndExits(cfg, blocks, nil, nil); err != nil {
 		return nil, err
 	}
 	out, err := json.Marshal(cfg)

@@ -240,3 +240,25 @@ func CredentialVars(c store.Credential) map[string]string {
 func UserVarNames() []string {
 	return []string{"user.uuid", "user.password", "user.email"}
 }
+
+// EgressStatsEmail is the key an egress rule's own credential reports under,
+// on the node it dials.
+//
+// Belongs to no subscriber, so it is not in `credentials` and nothing bills
+// it — the bytes were already charged to whoever authenticated at the node
+// the rule lives on. Same reasoning as RelayStatsEmail; a distinct prefix so
+// the two kinds of machine credential can never collide.
+func EgressStatsEmail(ruleID, profileID, nodeID string) string {
+	return fmt.Sprintf("egress.%s@%s.%s", ruleID, profileID, nodeID)
+}
+
+// EgressVars are what a client-entry or client template sees when rendering
+// an egress rule's own credential.
+func EgressVars(r store.EgressRule) map[string]string {
+	email := EgressStatsEmail(r.ID, r.TargetProfileID, r.TargetNodeID)
+	return map[string]string{
+		"user.uuid":     r.Secret,
+		"user.password": r.Secret,
+		"user.email":    email,
+	}
+}

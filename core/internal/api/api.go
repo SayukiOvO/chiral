@@ -179,6 +179,7 @@ func (s *Server) Handler() http.Handler {
 	s.routeExternals(mux)
 	s.routeRelays(mux)
 	s.routeRestricted(mux)
+	s.routeEgress(mux)
 	s.routeSettings(mux)
 
 	mux.Handle("POST /api/users", s.requireWrite(s.createUser))

@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
-import { api, type ConfigPreview, type Node } from "../api";
+import { api, type ConfigPreview, type ExternalSub, type Node, type Profile } from "../api";
 import { Button } from "./ui";
 import { TemplateEditor } from "./TemplateEditor";
 import { ConfigHistory } from "./ConfigHistory";
+import { NodeEgress } from "./NodeEgress";
 import { useIsDark } from "../lib/theme";
 import { Modal } from "./primitives";
 import { cn } from "../lib/cn";
@@ -24,6 +25,11 @@ const DEFAULT_SKELETON = `{
 export function NodeConfigDialog({ node, onClose }: { node: Node; onClose: () => void }) {
   const { t, tf } = useT();
   const dark = useIsDark();
+  // Egress rules pick their landing from the fleet, the profiles and the
+  // external sources, so this dialog loads the three lists it needs.
+  const [nodes, setNodes] = useState<Node[]>([]);
+  const [profiles, setProfiles] = useState<Profile[]>([]);
+  const [externals, setExternals] = useState<ExternalSub[]>([]);
   const [skeleton, setSkeleton] = useState(DEFAULT_SKELETON);
   const [preview, setPreview] = useState<ConfigPreview | null>(null);
   const [error, setError] = useState("");
@@ -54,6 +60,13 @@ export function NodeConfigDialog({ node, onClose }: { node: Node; onClose: () =>
   useEffect(() => {
     loadSkeleton();
     loadPreview();
+    Promise.all([api.listNodes(), api.listProfiles(), api.listExternals()])
+      .then(([n, p, e]) => {
+        setNodes(n.nodes);
+        setProfiles(p.profiles);
+        setExternals(e.externals);
+      })
+      .catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [node.id]);
 
@@ -136,6 +149,11 @@ export function NodeConfigDialog({ node, onClose }: { node: Node; onClose: () =>
           height={180}
         />
       </div>
+
+      {/* Egress rules live with the skeleton because they are the same kind
+          of thing — what this node does with traffic, independent of who is
+          asking. Applying them re-pushes the node (and the one they dial). */}
+      <NodeEgress node={node} nodes={nodes} profiles={profiles} externals={externals} />
 
       {/* Shown above the config rather than beside the badge: these describe
           something the validator cannot see, and a subscriber timing out is

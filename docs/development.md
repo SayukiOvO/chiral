@@ -46,6 +46,7 @@ SQLite（WAL），迁移在 `core/migrations/`，启动时自动应用，只增�
 | [外部节点](external-nodes.md) | 别人的订阅、格式识别、链式代理 |
 | [中转线路](node-relays.md) | 自有节点经自有节点、机器凭证、权限与计费 |
 | [受限目的地](restricted-destinations.md) | 按用户限制目的网段（DN42）、白名单方向、入口继承 |
+| [出站分流](node-egress.md) | 按 geosite/geoip 指定落点、规则次序、拨号凭证 |
 | [分流规则](routing-rules.md) | ACL4SSR 预设、解析、空组丢弃、provider 下发 |
 | [用户 / 流量 / 订阅](user-management.md) | 凭证隔离、配额、订阅渲染 |
 | [端用户门户](user-portal.md) | 第二个信任域、在线地址记录 |
