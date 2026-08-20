@@ -63,7 +63,7 @@ func (s *Server) egressView(r store.EgressRule) egressView {
 		if p, err := s.st.GetExternalProxy(r.TargetProxyID); err == nil {
 			v.TargetName = p.Label()
 		} else {
-			v.Problem = "这个外部节点已经不存在了"
+			v.Problem = "该外部节点已不存在"
 		}
 	case store.EgressNode:
 		if n, err := s.st.GetNode(r.TargetNodeID); err == nil {
@@ -86,7 +86,7 @@ func (s *Server) egressProblem(r store.EgressRule) string {
 		}
 	}
 	if !bound {
-		return "目标节点已经不再绑定这个接入配置，拨不通"
+		return "目标节点已不再绑定该接入配置，无法建立连接"
 	}
 	kinds, err := s.st.ClientTemplateKinds(r.TargetProfileID)
 	if err != nil {
@@ -97,7 +97,7 @@ func (s *Server) egressProblem(r store.EgressRule) string {
 			return ""
 		}
 	}
-	return "这个接入配置没有 xray-json 客户端模板，节点无从拨号"
+	return "该接入配置没有 xray-json 客户端模板，节点无法据此建立连接"
 }
 
 func (s *Server) listEgress(w http.ResponseWriter, r *http.Request) {
@@ -151,65 +151,30 @@ func (s *Server) createEgress(w http.ResponseWriter, r *http.Request) {
 	// destination condition, which matches EVERYTHING and silently takes the
 	// whole node with it.
 	if len(domains) == 0 && len(ips) == 0 {
-		writeErr(w, http.StatusBadRequest, "至少要有一条匹配（geosite / geoip / 域名后缀 / CIDR）")
+		writeErr(w, http.StatusBadRequest, "至少需要一条匹配条件（geosite / geoip / 域名后缀 / CIDR）")
 		return
 	}
 
-	rule := store.EgressRule{
-		NodeID: nodeID, Label: req.Label, Domains: domains, IPs: ips,
-		TargetKind: req.TargetKind, Enabled: true,
+	target, errMsg := s.resolveEgressTarget(nodeID, req.TargetKind,
+		req.TargetProxyID, req.TargetNodeID, req.TargetProfileID)
+	if errMsg != "" {
+		writeErr(w, http.StatusBadRequest, errMsg)
+		return
 	}
-	switch req.TargetKind {
-	case store.EgressDirect:
-	case store.EgressExternal:
-		if _, err := s.st.GetExternalProxy(req.TargetProxyID); err != nil {
-			writeErr(w, http.StatusBadRequest, "没有这个外部节点")
-			return
-		}
-		rule.TargetProxyID = req.TargetProxyID
-	case store.EgressNode:
-		if req.TargetNodeID == nodeID {
-			writeErr(w, http.StatusBadRequest, "落点不能是这个节点自己——那就是直连")
-			return
-		}
-		if _, err := s.st.GetNode(req.TargetNodeID); err != nil {
-			writeErr(w, http.StatusBadRequest, "没有这个节点")
-			return
-		}
-		// Refused at write time, not at render: a loop between two kernels
-		// costs both of them, and the operator can see the cause here while
-		// they cannot see it in a config that assembles perfectly well.
-		if s.egressReaches(req.TargetNodeID, nodeID, map[string]bool{}) {
-			writeErr(w, http.StatusConflict, "会绕成环：目标节点的出站分流又指回了这个节点")
-			return
-		}
-		ids, err := s.st.ProfileNodeIDs(req.TargetProfileID)
-		if err != nil {
-			s.internalErr(w, "load profile nodes", err)
-			return
-		}
-		bound := false
-		for _, id := range ids {
-			if id == req.TargetNodeID {
-				bound = true
-			}
-		}
-		if !bound {
-			writeErr(w, http.StatusBadRequest, "目标节点没有绑定这个接入配置")
-			return
-		}
+	if target.Kind == store.EgressNode {
 		secret, err := template.Generate(template.GenUUID)
 		if err != nil {
 			s.internalErr(w, "generate egress credential", err)
 			return
 		}
-		rule.TargetNodeID, rule.TargetProfileID = req.TargetNodeID, req.TargetProfileID
-		rule.Secret = secret.Components[""]
-	default:
-		writeErr(w, http.StatusBadRequest, `"target_kind" must be direct, external or node`)
-		return
+		target.Secret = secret.Components[""]
 	}
-
+	rule := store.EgressRule{
+		NodeID: nodeID, Label: req.Label, Domains: domains, IPs: ips,
+		TargetKind: target.Kind, TargetProxyID: target.ProxyID,
+		TargetNodeID: target.NodeID, TargetProfileID: target.ProfileID,
+		Secret: target.Secret, Enabled: true,
+	}
 	created, err := s.st.CreateEgressRule(rule)
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
@@ -232,6 +197,13 @@ func (s *Server) updateEgress(w http.ResponseWriter, r *http.Request) {
 		Domains *string `json:"domains"`
 		IPs     *string `json:"ips"`
 		Enabled *bool   `json:"enabled"`
+		// The landing may be changed too. Omitting target_kind leaves it
+		// alone, so a caller that only edits the match cannot move a rule by
+		// accident.
+		TargetKind      *string `json:"target_kind"`
+		TargetProxyID   string  `json:"target_proxy_id"`
+		TargetNodeID    string  `json:"target_node_id"`
+		TargetProfileID string  `json:"target_profile_id"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeErr(w, http.StatusBadRequest, "body must be JSON")
@@ -257,7 +229,7 @@ func (s *Server) updateEgress(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if len(domains) == 0 && len(ips) == 0 {
-		writeErr(w, http.StatusBadRequest, "至少要有一条匹配（geosite / geoip / 域名后缀 / CIDR）")
+		writeErr(w, http.StatusBadRequest, "至少需要一条匹配条件（geosite / geoip / 域名后缀 / CIDR）")
 		return
 	}
 	if req.Enabled != nil {
@@ -267,10 +239,98 @@ func (s *Server) updateEgress(w http.ResponseWriter, r *http.Request) {
 		s.notFoundOr(w, "update egress rule", err, "no such rule")
 		return
 	}
-	rule.Label, rule.Domains, rule.IPs, rule.Enabled = label, domains, ips, enabled
-	s.audit(r, "egress.update", "node", rule.NodeID, rule.Label, "")
-	s.applyEgressEnds(r, rule)
-	writeJSON(w, http.StatusOK, s.egressView(rule))
+	// Remember where it used to land: a rule that stops dialling a node
+	// leaves a machine credential on that node until it is re-assembled.
+	previous := rule
+	if req.TargetKind != nil && *req.TargetKind != "" {
+		target, errMsg := s.resolveEgressTarget(rule.NodeID, *req.TargetKind,
+			req.TargetProxyID, req.TargetNodeID, req.TargetProfileID)
+		if errMsg != "" {
+			writeErr(w, http.StatusBadRequest, errMsg)
+			return
+		}
+		// The dial credential is minted per rule and per landing. Moving to a
+		// different node means a different credential; moving away from a
+		// fleet landing means none at all.
+		if target.Kind == store.EgressNode &&
+			(previous.TargetKind != store.EgressNode || previous.TargetNodeID != target.NodeID ||
+				previous.TargetProfileID != target.ProfileID) {
+			secret, err := template.Generate(template.GenUUID)
+			if err != nil {
+				s.internalErr(w, "generate egress credential", err)
+				return
+			}
+			target.Secret = secret.Components[""]
+		} else if target.Kind == store.EgressNode {
+			target.Secret = previous.Secret
+		}
+		if err := s.st.SetEgressTarget(rule.ID, target.Kind, target.ProxyID,
+			target.NodeID, target.ProfileID, target.Secret); err != nil {
+			s.internalErr(w, "set egress target", err)
+			return
+		}
+	}
+	updated, err := s.st.GetEgressRule(rule.ID)
+	if err != nil {
+		s.internalErr(w, "reload egress rule", err)
+		return
+	}
+	s.audit(r, "egress.update", "node", updated.NodeID, updated.Label, "")
+	s.applyEgressEnds(r, updated)
+	// The node it used to dial has to drop the credential it no longer needs.
+	if previous.TargetKind == store.EgressNode && previous.TargetNodeID != "" &&
+		previous.TargetNodeID != updated.TargetNodeID {
+		s.applyNodes(r, []string{previous.TargetNodeID})
+	}
+	writeJSON(w, http.StatusOK, s.egressView(updated))
+}
+
+// egressTarget is a validated landing for an egress rule.
+type egressTarget struct {
+	Kind      string
+	ProxyID   string
+	NodeID    string
+	ProfileID string
+	Secret    string
+}
+
+// resolveEgressTarget validates a landing, returning an operator-facing
+// message rather than an error so create and update phrase refusals alike.
+func (s *Server) resolveEgressTarget(onNode, kind, proxyID, nodeID, profileID string) (egressTarget, string) {
+	switch kind {
+	case store.EgressDirect:
+		return egressTarget{Kind: kind}, ""
+	case store.EgressExternal:
+		if _, err := s.st.GetExternalProxy(proxyID); err != nil {
+			return egressTarget{}, "指定的外部节点不存在"
+		}
+		return egressTarget{Kind: kind, ProxyID: proxyID}, ""
+	case store.EgressNode:
+		if nodeID == onNode {
+			return egressTarget{}, "出口不能是本节点，该情形等同于直接出站"
+		}
+		if _, err := s.st.GetNode(nodeID); err != nil {
+			return egressTarget{}, "指定的节点不存在"
+		}
+		ids, err := s.st.ProfileNodeIDs(profileID)
+		if err != nil {
+			return egressTarget{}, "无法读取该接入配置绑定的节点"
+		}
+		bound := false
+		for _, id := range ids {
+			if id == nodeID {
+				bound = true
+			}
+		}
+		if !bound {
+			return egressTarget{}, "目标节点未绑定该接入配置"
+		}
+		if s.egressReaches(nodeID, onNode, map[string]bool{}) {
+			return egressTarget{}, "该配置将形成环路：目标节点的出站规则最终指回本节点"
+		}
+		return egressTarget{Kind: kind, NodeID: nodeID, ProfileID: profileID}, ""
+	}
+	return egressTarget{}, `"target_kind" 必须是 direct、external 或 node`
 }
 
 func (s *Server) deleteEgress(w http.ResponseWriter, r *http.Request) {

@@ -86,7 +86,7 @@ func ParseEgressDomains(text string) ([]string, error) {
 		}
 		if kind, ok := isGeoCategory(line); ok {
 			if kind == "geoip" {
-				return nil, fmt.Errorf("%q 是 IP 类别——请写进下面的 IP / geoip 一栏", line)
+				return nil, fmt.Errorf("%q 属于 IP 类别，请填入下方的「IP 段 / geoip 类别」一栏", line)
 			}
 			if !validGeoTag(line) {
 				return nil, fmt.Errorf("%q 不是合法的 geosite 类别", line)
@@ -117,7 +117,7 @@ func ParseEgressIPs(text string) ([]string, error) {
 		}
 		if kind, ok := isGeoCategory(line); ok {
 			if kind == "geosite" {
-				return nil, fmt.Errorf("%q 是域名类别——请写进上面的域名 / geosite 一栏", line)
+				return nil, fmt.Errorf("%q 属于域名类别，请填入上方的「域名 / geosite 类别」一栏", line)
 			}
 			// A leading "!" negates: geoip:!cn is "everything except China",
 			// which is the most common rule anyone writes. Xray takes it on
@@ -286,4 +286,32 @@ func (s *Store) EgressSourceNodesFor(nodeIDs []string) ([]string, error) {
 		args = append(args, id)
 	}
 	return s.stringColumn(q, args...)
+}
+
+// SetEgressTarget moves a rule's landing, sealing the dial credential when
+// the new landing is another node of this fleet.
+//
+// Separate from UpdateEgressRule because a landing change has consequences a
+// label change does not: a new credential, and a node elsewhere that must be
+// re-assembled to stop accepting the old one.
+func (s *Store) SetEgressTarget(id, kind, proxyID, nodeID, profileID, secret string) error {
+	sealed := ""
+	if secret != "" {
+		var err error
+		if sealed, err = s.box.Seal(egressAAD(id), secret); err != nil {
+			return err
+		}
+	}
+	res, err := s.db.Exec(`UPDATE node_egress_rules
+		SET target_kind = ?, target_proxy_id = ?, target_node_id = ?,
+		    target_profile_id = ?, secret = ?
+		WHERE id = ?`,
+		kind, nullIfEmpty(proxyID), nullIfEmpty(nodeID), nullIfEmpty(profileID), sealed, id)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
 }

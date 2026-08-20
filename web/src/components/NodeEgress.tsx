@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { api, type EgressRule, type ExternalSub, type Node, type Profile } from "../api";
 import { Button, IconButton } from "./ui";
-import { PlusIcon, TrashIcon, ArrowUpIcon, ArrowDownIcon } from "./icons";
+import { PlusIcon, TrashIcon, ArrowUpIcon, ArrowDownIcon, PencilIcon } from "./icons";
 import { Field, Modal, inputCls } from "./primitives";
 import { cn } from "../lib/cn";
 import { useT } from "../lib/i18n";
@@ -30,6 +30,7 @@ export function NodeEgress({
   const { t } = useT();
   const [rules, setRules] = useState<EgressRule[]>([]);
   const [adding, setAdding] = useState(false);
+  const [editing, setEditing] = useState<EgressRule | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
@@ -73,7 +74,7 @@ export function NodeEgress({
         <div>
           <div className="text-[13px] font-medium">{t("出站分流")}</div>
           <p className="mt-0.5 text-xs text-muted">
-            {t("命中的流量从指定的落点出去，其余照常。自上而下匹配，第一条命中的生效。")}
+            {t("匹配的流量将从指定出口发出，其余流量维持原有路径。规则自上而下匹配，以首条命中的规则为准。")}
           </p>
         </div>
         <Button size="sm" onClick={() => setAdding(true)}>
@@ -85,7 +86,7 @@ export function NodeEgress({
       {error && <p className="mb-2 text-sm text-danger">{error}</p>}
 
       {rules.length === 0 ? (
-        <p className="text-xs text-muted">{t("还没有出站分流规则，全部流量直接从这个节点出去。")}</p>
+        <p className="text-xs text-muted">{t("暂无出站分流规则，全部流量从本节点直接出站。")}</p>
       ) : (
         <ol className="overflow-hidden rounded-xl border border-line">
           {rules.map((r, i) => (
@@ -99,6 +100,9 @@ export function NodeEgress({
                   {[...(r.domains ?? []), ...(r.ips ?? [])].join("  ")}
                 </span>
                 <span className="shrink-0 text-[11px] text-muted">{"→ "}{r.target_name}</span>
+                <IconButton label={t("编辑")} onClick={() => setEditing(r)}>
+                  <PencilIcon size={13} />
+                </IconButton>
                 <button
                   disabled={busy}
                   onClick={() => mutate(() => api.updateEgress(r.id, { enabled: !r.enabled }))}
@@ -122,7 +126,7 @@ export function NodeEgress({
                     label={t("删除")}
                     onClick={() =>
                       mutate(async () => {
-                        if (!window.confirm(t("删除这条出站分流规则？"))) return;
+                        if (!window.confirm(t("确认删除此出站分流规则？"))) return;
                         await api.deleteEgress(r.id);
                       })
                     }
@@ -137,13 +141,17 @@ export function NodeEgress({
         </ol>
       )}
 
-      {adding && (
+      {(adding || editing) && (
         <EgressDialog
+          rule={editing}
           node={node}
           nodes={nodes}
           profiles={profiles}
           externals={externals}
-          onClose={() => setAdding(false)}
+          onClose={() => {
+            setAdding(false);
+            setEditing(null);
+          }}
           onSaved={refresh}
         />
       )}
@@ -152,6 +160,7 @@ export function NodeEgress({
 }
 
 function EgressDialog({
+  rule,
   node,
   nodes,
   profiles,
@@ -159,6 +168,8 @@ function EgressDialog({
   onClose,
   onSaved,
 }: {
+  /** The rule being corrected, or null when creating one. */
+  rule: EgressRule | null;
   node: Node;
   nodes: Node[];
   profiles: Profile[];
@@ -167,13 +178,14 @@ function EgressDialog({
   onSaved: () => void;
 }) {
   const { t } = useT();
-  const [label, setLabel] = useState("");
-  const [domains, setDomains] = useState("");
-  const [ips, setIps] = useState("");
-  const [kind, setKind] = useState<"direct" | "external" | "node">("node");
-  const [proxyID, setProxyID] = useState("");
-  const [nodeID, setNodeID] = useState("");
-  const [profileID, setProfileID] = useState("");
+  const [label, setLabel] = useState(rule?.label ?? "");
+  // Stored one per line, which is also how they are entered.
+  const [domains, setDomains] = useState((rule?.domains ?? []).join("\n"));
+  const [ips, setIps] = useState((rule?.ips ?? []).join("\n"));
+  const [kind, setKind] = useState<"direct" | "external" | "node">(rule?.target_kind ?? "node");
+  const [proxyID, setProxyID] = useState(rule?.target_proxy_id ?? "");
+  const [nodeID, setNodeID] = useState(rule?.target_node_id ?? "");
+  const [profileID, setProfileID] = useState(rule?.target_profile_id ?? "");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
@@ -185,7 +197,7 @@ function EgressDialog({
     setBusy(true);
     setError("");
     try {
-      await api.createEgress(node.id, {
+      const body = {
         label: label.trim(),
         domains,
         ips,
@@ -193,7 +205,9 @@ function EgressDialog({
         target_proxy_id: kind === "external" ? proxyID : undefined,
         target_node_id: kind === "node" ? nodeID : undefined,
         target_profile_id: kind === "node" ? profileID : undefined,
-      });
+      };
+      if (rule) await api.updateEgress(rule.id, body);
+      else await api.createEgress(node.id, body);
       onSaved();
       onClose();
     } catch (e) {
@@ -212,9 +226,11 @@ function EgressDialog({
 
   return (
     <Modal onClose={onClose}>
-      <h2 className="font-display text-lg font-semibold tracking-tight">{t("新增出站分流")}</h2>
+      <h2 className="font-display text-lg font-semibold tracking-tight">
+        {rule ? t("编辑出站分流规则") : t("新增出站分流规则")}
+      </h2>
       <p className="mt-1 text-sm text-muted">
-        {t("在这个节点上，命中的流量改从别处出去。域名和 IP 两栏可以只填一栏。")}
+        {t("在本节点上，匹配的流量将改由指定出口发出。域名与 IP 两栏可任填其一。")}
       </p>
 
       <Field label={t("名字")}>
@@ -226,7 +242,7 @@ function EgressDialog({
           placeholder="Netflix"
         />
       </Field>
-      <Field label={t("域名 / geosite（每行一个）")}>
+      <Field label={t("域名 / geosite 类别（每行一个）")}>
         <textarea
           className={cn(inputCls, "h-20 resize-y font-mono text-xs")}
           value={domains}
@@ -234,7 +250,7 @@ function EgressDialog({
           placeholder={"geosite:netflix\nnflxvideo.net"}
         />
       </Field>
-      <Field label={t("IP / geoip（每行一个）")}>
+      <Field label={t("IP 段 / geoip 类别（每行一个）")}>
         <textarea
           className={cn(inputCls, "h-16 resize-y font-mono text-xs")}
           value={ips}
@@ -290,7 +306,7 @@ function EgressDialog({
                 ))}
             </select>
           </Field>
-          <Field label={t("用目标节点的哪个接入配置拨号")}>
+          <Field label={t("用于连接目标节点的接入配置")}>
             <select
               className={inputCls}
               value={profileID}
@@ -329,7 +345,7 @@ function EgressDialog({
           {t("取消")}
         </Button>
         <Button variant="primary" onClick={submit} disabled={busy || !ready}>
-          {busy ? t("创建中…") : t("创建")}
+          {busy ? t("保存中…") : rule ? t("保存") : t("创建")}
         </Button>
       </div>
     </Modal>

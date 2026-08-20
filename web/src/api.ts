@@ -573,7 +573,18 @@ export const api = {
   ) => req<EgressRule>("POST", `/api/nodes/${nodeID}/egress`, r),
   updateEgress: (
     id: string,
-    patch: { label?: string; domains?: string; ips?: string; enabled?: boolean },
+    patch: {
+      label?: string;
+      domains?: string;
+      ips?: string;
+      enabled?: boolean;
+      // Omitting target_kind leaves the landing untouched, so editing the
+      // match cannot move a rule by accident.
+      target_kind?: string;
+      target_proxy_id?: string;
+      target_node_id?: string;
+      target_profile_id?: string;
+    },
   ) => req<EgressRule>("PUT", `/api/egress/${id}`, patch),
   deleteEgress: (id: string) => req<void>("DELETE", `/api/egress/${id}`),
   reorderEgress: (nodeID: string, ids: string[]) =>

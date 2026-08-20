@@ -568,3 +568,93 @@ func TestADanglingOutboundTagIsRefusedAtAssembly(t *testing.T) {
 		t.Errorf("the error does not name the missing tag: %v", err)
 	}
 }
+
+// A rule must be correctable in place. Without an edit path a mistyped geo
+// category means deleting and recreating, which for a fleet landing also
+// discards the dial credential and forces the far node to be re-assembled
+// twice — a heavy price for a typo.
+func TestAnEgressRuleCanBeCorrectedInPlace(t *testing.T) {
+	svc, st, _ := newFixture(t)
+	_, n := realityProfile(t, svc, st)
+	r, err := st.CreateEgressRule(store.EgressRule{
+		NodeID: n.ID, Label: "netflix", Enabled: true,
+		Domains: []string{"geosite:netflx"}, TargetKind: store.EgressDirect,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.UpdateEgressRule(r.ID, "Netflix",
+		[]string{"geosite:netflix"}, []string{"geoip:netflix"}, true); err != nil {
+		t.Fatal(err)
+	}
+	got, err := st.GetEgressRule(r.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Label != "Netflix" || len(got.Domains) != 1 || got.Domains[0] != "geosite:netflix" {
+		t.Fatalf("the edit did not take: %+v", got)
+	}
+	if len(got.IPs) != 1 || got.IPs[0] != "geoip:netflix" {
+		t.Fatalf("the ip side did not take: %+v", got)
+	}
+	cfg, err := svc.AssembleNode(n.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	d, ips := egressRules(t, cfg, "direct")
+	if len(d) != 1 || d[0] != "geosite:netflix" || len(ips) != 1 {
+		t.Fatalf("the corrected rule did not reach the config: domains=%v ips=%v", d, ips)
+	}
+}
+
+// Moving a rule to a different fleet landing mints a new credential and the
+// old landing must stop accepting the previous one; keeping the same landing
+// must keep the credential, or every edit would invalidate the far node's
+// client entry for no reason.
+func TestMovingAnEgressLandingRotatesOnlyWhenItMoves(t *testing.T) {
+	svc, st, _ := newFixture(t)
+	p, src, dst, _ := twoNodeRelay(t, svc, st)
+	entitle(t, st, "alice", p.ID, nil)
+	secret, err := template.Generate(template.GenUUID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r, err := st.CreateEgressRule(store.EgressRule{
+		NodeID: src.ID, Label: "jp", Enabled: true,
+		Domains: []string{"geosite:netflix"}, TargetKind: store.EgressNode,
+		TargetNodeID: dst.ID, TargetProfileID: p.ID, Secret: secret.Components[""],
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Same landing, different match: the credential must survive.
+	if err := st.SetEgressTarget(r.ID, store.EgressNode, "", dst.ID, p.ID, r.Secret); err != nil {
+		t.Fatal(err)
+	}
+	same, err := st.GetEgressRule(r.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if same.Secret != r.Secret {
+		t.Error("an edit that did not move the landing rotated the credential")
+	}
+	// Moving to direct drops it entirely, and the far node stops carrying it.
+	if err := st.SetEgressTarget(r.ID, store.EgressDirect, "", "", "", ""); err != nil {
+		t.Fatal(err)
+	}
+	moved, err := st.GetEgressRule(r.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if moved.TargetKind != store.EgressDirect || moved.Secret != "" {
+		t.Fatalf("moving to direct left a landing behind: %+v", moved)
+	}
+	dstCfg, err := svc.AssembleNode(dst.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stale := user.EgressStatsEmail(r.ID, p.ID, dst.ID)
+	if contains(clientEmails(t, dstCfg), stale) {
+		t.Error("the former landing still accepts the credential of a rule that no longer dials it")
+	}
+}
