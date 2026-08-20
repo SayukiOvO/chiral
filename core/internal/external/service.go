@@ -71,7 +71,7 @@ func (s *Service) Refresh(ctx context.Context, id string) error {
 		})
 	}
 	if len(rows) == 0 {
-		msg := "解析后没有可用节点"
+		msg := "解析后未得到可用节点"
 		_ = s.st.SaveExternalFetch(id, "", msg)
 		return fmt.Errorf("%s", msg)
 	}

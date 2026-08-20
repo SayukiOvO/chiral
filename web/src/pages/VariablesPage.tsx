@@ -510,7 +510,7 @@ function MoveVariableDialog({
         {tf("移动「{name}」", { name: variable.name })}
       </h3>
       <p className="mt-1 text-sm text-muted">
-        {t("值原样保留，已发出去的订阅不受影响。移到更窄的作用域后，原来靠它渲染的其他节点会在下次预览/下发时报未定义。")}
+        {t("变量取值保持不变，已下发的订阅不受影响。移至更窄的作用域后，原先依赖该变量的其他节点将在下次预览或下发时报告变量未定义。")}
       </p>
       <Field label={t("移到")}>
         <div className="flex gap-1.5">

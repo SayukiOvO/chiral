@@ -234,7 +234,7 @@ function RulesCard({
         {t("分流规则")}
       </h2>
       <p className="mb-3 text-xs text-muted">
-        {t("决定哪些网站走代理、哪些直连。仅对 Clash 类客户端生效，改动后请在客户端更新订阅。")}
+        {t("用于决定哪些网站经代理访问、哪些直接连接。仅对 Clash 类客户端生效；变更后请在客户端更新订阅。")}
       </p>
       <div className="flex flex-wrap gap-1.5">
         {[{ id: "", name: t("全部走代理") }, ...rules.choices].map((c) => {

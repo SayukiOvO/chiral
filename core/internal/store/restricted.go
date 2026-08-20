@@ -78,7 +78,7 @@ func ParseDomainLines(text string) ([]string, error) {
 		}
 		line = strings.ToLower(line)
 		if net.ParseIP(line) != nil {
-			return nil, fmt.Errorf("%q 是 IP——请写进上面的 IP 段一栏", line)
+			return nil, fmt.Errorf("%q 是 IP 地址，请填入上方的「IP 段」一栏", line)
 		}
 		if !domainSuffixShaped(line) {
 			return nil, fmt.Errorf("%q 不是合法的域名后缀", line)

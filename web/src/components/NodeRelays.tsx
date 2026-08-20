@@ -53,7 +53,7 @@ export function NodeRelays({ nodes, onChanged }: { nodes: Node[]; onChanged?: ()
   }
 
   async function remove(r: Relay) {
-    if (!window.confirm(t("删除这条中转线路？订阅者会失去这条线，两端节点会重新下发配置。"))) return;
+    if (!window.confirm(t("确认删除此中转线路？订阅者将失去该线路，两端节点将重新下发配置。"))) return;
     try {
       await api.deleteRelay(r.id);
       refresh(true);
@@ -71,7 +71,7 @@ export function NodeRelays({ nodes, onChanged }: { nodes: Node[]; onChanged?: ()
         <div>
           <h2 className="font-display text-[15px] font-semibold tracking-tight">{t("中转线路")}</h2>
           <p className="mt-0.5 text-xs text-muted">
-            {t("订阅者连入口节点，流量从出口节点出去。两端都是自有节点，落地对订阅者不可见。")}
+            {t("订阅者连接入口节点，流量由出口节点发出。两端均为自有节点，出口地址对订阅者不可见。")}
           </p>
         </div>
         <Button onClick={() => setAdding(true)}>
@@ -84,7 +84,7 @@ export function NodeRelays({ nodes, onChanged }: { nodes: Node[]; onChanged?: ()
 
       {relays.length === 0 ? (
         <div className="rounded-2xl border border-dashed border-line-strong bg-surface px-6 py-8 text-center text-sm text-muted">
-          {t("还没有中转线路。")}
+          {t("暂无中转线路。")}
         </div>
       ) : (
         <ul className="overflow-hidden rounded-2xl border border-line bg-surface">
@@ -200,10 +200,10 @@ function AddRelayDialog({
     <Modal onClose={onClose}>
       <h2 className="font-display text-lg font-semibold tracking-tight">{t("新增中转线路")}</h2>
       <p className="mt-1 text-sm text-muted">
-        {t("入口节点会用一份线路自己的凭证拨号出口节点。这份凭证不属于任何订阅者，流量只在入口计一次费。")}
+        {t("入口节点使用该线路独立的凭证连接出口节点。该凭证不归属于任何订阅者，流量仅在入口节点计费一次。")}
       </p>
 
-      <Field label={t("入口节点（订阅者连这里）")}>
+      <Field label={t("入口节点（订阅者的接入点）")}>
         <select className={inputCls} value={entry} onChange={(e) => setEntry(e.target.value)}>
           <option value="">{t("请选择")}</option>
           {nodes.map((n) => (
@@ -213,7 +213,7 @@ function AddRelayDialog({
           ))}
         </select>
       </Field>
-      <Field label={t("出口节点（流量从这里出去）")}>
+      <Field label={t("出口节点（流量的发出位置）")}>
         <select className={inputCls} value={exit} onChange={(e) => setExit(e.target.value)}>
           <option value="">{t("请选择")}</option>
           {nodes
@@ -238,12 +238,12 @@ function AddRelayDialog({
           ))}
         </select>
       </Field>
-      <Field label={t("线路名称（订阅者看到的）")}>
+      <Field label={t("线路名称（订阅者可见）")}>
         <input
           className={inputCls}
           value={label}
           onChange={(e) => setLabel(e.target.value)}
-          placeholder={t("例如：香港中转 · 东京落地")}
+          placeholder={t("例如：香港中转 · 东京出口")}
         />
       </Field>
       <Field label={t("流量倍率")}>
@@ -314,7 +314,7 @@ function RelayAccess({ relayId }: { relayId: string }) {
     <div className="mt-2 rounded-lg border border-line px-3 py-2">
       {error && <p className="mb-1.5 text-xs text-danger">{error}</p>}
       {users.length === 0 ? (
-        <p className="text-xs text-muted">{t("还没有订阅者。")}</p>
+        <p className="text-xs text-muted">{t("暂无订阅者。")}</p>
       ) : (
         <div className="flex flex-wrap gap-1.5">
           {users.map((u) => (
@@ -325,7 +325,7 @@ function RelayAccess({ relayId }: { relayId: string }) {
               // Entitled here means their access configuration reaches the
               // ENTRY node, because that is where they would connect. Ticking
               // someone who cannot get to the entry changes nothing.
-              title={u.entitled ? undefined : t("此用户的接入配置没有覆盖这条线路的入口节点")}
+              title={u.entitled ? undefined : t("此用户的接入配置未覆盖该线路的入口节点，因此无法选择")}
               className={cn(
                 "inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs transition-colors disabled:opacity-50",
                 u.allowed
@@ -341,7 +341,7 @@ function RelayAccess({ relayId }: { relayId: string }) {
         </div>
       )}
       <p className="mt-1.5 text-[11px] text-faint">
-        {t("改动会立刻重新下发入口节点的配置。")}
+        {t("变更将立即重新下发入口节点的配置。")}
       </p>
     </div>
   );

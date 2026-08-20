@@ -50,7 +50,7 @@ export function RulesPage() {
   }
 
   async function remove(r: Ruleset) {
-    if (!confirm(tf("删除「{name}」？使用它的订阅者将回到无分流规则。", { name: r.name }))) return;
+    if (!confirm(tf("确认删除「{name}」？使用该规则集的订阅者将不再获得分流规则。", { name: r.name }))) return;
     try {
       await api.deleteRuleset(r.id);
       await refresh();
@@ -65,7 +65,7 @@ export function RulesPage() {
         <div>
           <h1 className="font-display text-[26px] font-semibold tracking-tight">{t("分流规则")}</h1>
           <p className="mt-1 text-sm text-muted">
-            {t("决定 Clash 类客户端把哪些流量走代理、哪些直连或拦截。在用户页指派给订阅者。")}
+            {t("用于决定 Clash 类客户端将哪些流量经代理发送、哪些直接连接或拦截。可在用户页指派给订阅者。")}
           </p>
         </div>
         <Button variant="primary" onClick={() => setAdding(true)}>
@@ -77,7 +77,7 @@ export function RulesPage() {
       {error && <ErrorBar text={error} />}
 
       {rulesets.length === 0 ? (
-        <Empty>{t("还没有规则集。新增后在用户页指派，订阅即带上分流规则。")}</Empty>
+        <Empty>{t("暂无规则集。新增后可在用户页指派，订阅将随之包含分流规则。")}</Empty>
       ) : (
         <div className="flex flex-col gap-2.5">
           {rulesets.map((r) => (
@@ -156,7 +156,7 @@ function RulesetRow({
             </span>
           </>
         ) : (
-          <span className="text-warn">{t("尚未获取到内容，订阅暂不会带上分流规则")}</span>
+          <span className="text-warn">{t("尚未获取到内容，订阅暂不包含分流规则")}</span>
         )}
       </div>
 
@@ -224,7 +224,7 @@ function AddDialog({
       <form onSubmit={save}>
         <h3 className="font-display text-lg font-semibold tracking-tight">{t("新增分流规则")}</h3>
         <p className="mt-1 text-sm text-muted">
-          {t("内置的是 ACL4SSR 各档预设；自定义可指向任意 subconverter 格式的 .ini。")}
+          {t("内置项为 ACL4SSR 的各档预设；自定义项可指向任意 subconverter 格式的 .ini 文件。")}
         </p>
 
         <div className="mt-4 flex gap-1.5">

@@ -285,7 +285,7 @@ func (s *Service) AssembleNode(nodeID string) ([]byte, error) {
 	for _, rl := range relays {
 		ob, err := s.relayOutbound(rl)
 		if err != nil {
-			return nil, fmt.Errorf("中转线路 %q 无法拨号：%w", rl.Label, err)
+			return nil, fmt.Errorf("中转线路 %q 无法建立连接：%w", rl.Label, err)
 		}
 		exits = append(exits, template.ExitSource{
 			Tag: RelayTag(rl.ID), Outbound: ob, Emails: relayEmails[rl.ID],

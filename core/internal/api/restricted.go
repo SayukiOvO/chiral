@@ -77,7 +77,7 @@ func parseRestrictedBody(name, cidrs, domains string) (string, []string, []strin
 		return "", nil, nil, err
 	}
 	if len(cs) == 0 && len(ds) == 0 {
-		return "", nil, nil, fmt.Errorf("至少要有一个 IP 段或域名后缀")
+		return "", nil, nil, fmt.Errorf("至少需要一个 IP 段或域名后缀")
 	}
 	return name, cs, ds, nil
 }

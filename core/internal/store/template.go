@@ -478,7 +478,7 @@ func (s *Store) MoveVariable(id, scope string, profileID, nodeID sql.NullString)
 		n = nodeID.String
 	}
 	if other, err := s.FindVariableID(scope, p, n, v.Name); err == nil && other != id {
-		return fmt.Errorf("目标作用域里已经有一个叫 %q 的变量", v.Name)
+		return fmt.Errorf("目标作用域中已存在名为 %q 的变量", v.Name)
 	}
 	res, err := s.db.Exec(`UPDATE variables SET scope = ?, profile_id = ?, node_id = ?, updated_at = ? WHERE id = ?`,
 		scope, profileID, nodeID, time.Now().Unix(), id)

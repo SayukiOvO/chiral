@@ -73,21 +73,21 @@ func blockAdvisories(configJSON []byte, egressTags []string) []string {
 	var out []string
 	if hasIPEgress && !hasIPBlock && cfg.Routing.DomainStrategy != "IPOnDemand" {
 		out = append(out,
-			"出站分流按 IP / geoip 匹配，但 routing.domainStrategy 不是 IPOnDemand："+
-				"用域名访问这些目标时规则不会命中（第一遍没有地址可比），流量照常直出。"+
-				"请在节点骨架的 routing 里设 domainStrategy: IPOnDemand。")
+			"出站分流规则按 IP / geoip 匹配，但 routing.domainStrategy 不是 IPOnDemand："+
+				"以域名形式访问这些目标时规则不会命中（首轮匹配没有地址可供比对），流量将直接出站。"+
+				"请在节点骨架的 routing 中设置 domainStrategy: IPOnDemand。")
 	}
 	if hasIPBlock && cfg.Routing.DomainStrategy != "IPOnDemand" {
 		out = append(out,
 			"受限目的地按 IP 段拦截，但 routing.domainStrategy 不是 IPOnDemand："+
-				"经由域名访问这些网段（A 记录指进去）不会被拦。IPIfNonMatch 也不够——"+
-				"它只在第一遍没有任何规则命中时才解析，而中转规则和「全部走 direct」都会先命中。"+
-				"请在节点骨架的 routing 里设 domainStrategy: IPOnDemand。")
+				"以域名形式访问这些网段（A 记录指向其中）将不会被拦截。IPIfNonMatch 亦不足以覆盖此情形："+
+				"该策略仅在首轮匹配无任何规则命中时才解析域名，而中转规则与「全部直连」的骨架规则均会先行命中。"+
+				"请在节点骨架的 routing 中设置 domainStrategy: IPOnDemand。")
 	}
 	if hasDomainBlock && !hasIPBlock {
 		out = append(out,
-			"这个节点的受限目的地只按域名后缀拦截：用户直接用 IP 访问这些主机不会被拦。"+
-				"请给目的地补上对应的 CIDR。")
+			"本节点的受限目的地仅按域名后缀拦截：订阅者直接以 IP 访问这些主机时不会被拦截。"+
+				"请为该目的地补充对应的 CIDR。")
 	}
 	return out
 }
@@ -155,8 +155,8 @@ func Advisories(configJSON []byte, clientKinds []string, egressTags []string) []
 		}
 		out = append(out, fmt.Sprintf(
 			"%s：REALITY 的 minClientVer 为 %s，会拒绝全部 Clash 类客户端"+
-				"（它们自报的版本号是 1.x）。握手会回落到 fallback，客户端只看到 TLS 失败。"+
-				"要服务 Clash 客户端，请在 realitySettings 里设 \"minClientVer\": \"1.8.0\"。",
+				"（此类客户端自报的版本号为 1.x）。握手将回落至 fallback，客户端仅能观察到 TLS 失败。"+
+				"如需服务 Clash 类客户端，请在 realitySettings 中设置 \"minClientVer\": \"1.8.0\"。",
 			tag, min))
 	}
 	return out
@@ -201,10 +201,10 @@ func sniffingAdvisories(inbounds []struct {
 			tag = "(未命名 inbound)"
 		}
 		out = append(out, fmt.Sprintf(
-			"%s：sniffing 开了 destOverride 但没有 routeOnly。"+
-				"这个节点给别的代理做前置（链式出站）时，被中转的那条连接会被嗅探到的 SNI "+
-				"改写目的地址，连到别处去，报错里不会提到这里。"+
-				"若要用它做前置，请在 sniffing 里加 \"routeOnly\": true。", tag))
+			"%s：sniffing 启用了 destOverride，但未设置 routeOnly。"+
+				"本节点作为其他代理的前置（链式出站）时，被中转的连接会被嗅探到的 SNI "+
+				"改写目的地址，从而连接至错误的目标，且错误信息不会指向此处。"+
+				"如需将其用作前置，请在 sniffing 中加入 \"routeOnly\": true。", tag))
 	}
 	return out
 }

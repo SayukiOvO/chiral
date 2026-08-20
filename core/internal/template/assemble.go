@@ -533,7 +533,7 @@ func checkRuleTargets(cfg map[string]json.RawMessage) error {
 	}
 	for _, r := range routing.Rules {
 		if r.OutboundTag != "" && !have[r.OutboundTag] {
-			return fmt.Errorf("路由规则指向了不存在的 outbound %q——检查节点骨架里 outbounds 的 tag", r.OutboundTag)
+			return fmt.Errorf("路由规则指向不存在的 outbound %q，请检查节点骨架中 outbounds 的 tag", r.OutboundTag)
 		}
 	}
 	return nil

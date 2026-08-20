@@ -180,7 +180,7 @@ function UserCard({
         // Created before the token was stored recoverably, or sealed under a
         // key this panel no longer holds. A reset is the only way forward, and
         // it is the operator's call rather than a silent consequence.
-        alert(t("这个用户的链接无法找回（早于可恢复存储，或密钥已更换）。只能重置成新链接。"));
+        alert(t("此用户的订阅链接无法恢复（其创建时间早于可恢复存储，或密钥已更换），只能重置为新链接。"));
         return;
       }
       onSubscription(r.subscription_url, false);
@@ -365,7 +365,7 @@ function UserCard({
             </div>
             {rulesets.length === 0 ? (
               <p className="text-sm text-muted">
-                {t("还没有规则集，订阅不带分流规则。可在「分流规则」页添加。")}
+                {t("暂无规则集，订阅不包含分流规则。可在「分流规则」页新增。")}
               </p>
             ) : (
               <div className="flex flex-wrap gap-1.5">

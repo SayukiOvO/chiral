@@ -57,8 +57,8 @@ export function SubscriptionDialog({
         </h3>
         <p className="mt-1 text-sm text-muted">
           {fresh
-            ? t("这是一条新链接，之前的已失效。客户端将自动获取对应格式。")
-            : t("随时可以回来看，链接不会因为查看而改变。客户端将自动获取对应格式。")}
+            ? t("已生成新的订阅链接，此前的链接立即失效。客户端将自动获取对应格式。")
+            : t("该链接可随时查看，查看行为不会使其变更。客户端将自动获取对应格式。")}
         </p>
 
         <div className="relative mt-4">
@@ -90,7 +90,7 @@ export function SubscriptionDialog({
           {onReset ? (
             confirming ? (
               <div className="flex items-center gap-2 text-xs">
-                <span className="text-warn">{t("换成新链接？该用户已配置的客户端全部需要重新导入。")}</span>
+                <span className="text-warn">{t("确认更换订阅链接？此用户已配置的所有客户端均需重新导入。")}</span>
                 <button
                   onClick={() => setConfirming(false)}
                   className="shrink-0 rounded-lg px-2 py-1 text-muted hover:text-ink"

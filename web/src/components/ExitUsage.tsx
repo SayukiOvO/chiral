@@ -29,7 +29,7 @@ export function ExitUsage({ userId }: { userId: string }) {
   if (creds === null) return <p className="text-xs text-muted">{t("加载中…")}</p>;
   const used = creds.filter((c) => c.up_bytes + c.down_bytes > 0);
   if (used.length === 0) {
-    return <p className="text-xs text-muted">{t("还没有产生流量。")}</p>;
+    return <p className="text-xs text-muted">{t("暂无流量记录。")}</p>;
   }
   used.sort((a, b) => b.up_bytes + b.down_bytes - (a.up_bytes + a.down_bytes));
 

@@ -83,7 +83,7 @@ export function ProxyOrder({ reloadKey }: { reloadKey?: number }) {
         <div>
           <h2 className="font-display text-[15px] font-semibold tracking-tight">{t("订阅顺序")}</h2>
           <p className="mt-0.5 text-xs text-muted">
-            {t("订阅者看到的节点顺序，也决定每个策略组内的顺序；组的第一个节点是客户端的默认选中项。")}
+            {t("订阅者看到的节点顺序，同时决定各策略组内的排列顺序；每组的首个节点为客户端的默认选中项。")}
           </p>
         </div>
         <div className="flex items-center gap-2">

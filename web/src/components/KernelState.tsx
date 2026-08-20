@@ -55,7 +55,7 @@ export function KernelState({
       {installed && !version && (
         <span
           className="rounded px-1 font-mono text-[10px] text-muted"
-          title={t("内核已装好，但还没有配置可跑——给这个节点绑定一个接入配置后就会启动")}
+          title={t("内核已安装，但尚无可运行的配置；为该节点绑定接入配置后即会启动")}
         >
           {installed}
         </span>

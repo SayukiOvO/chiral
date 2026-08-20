@@ -458,7 +458,7 @@ function ProfileEditor({ id, onChanged }: { id: string; onChanged: () => void })
             />
             {t("下发给订阅者")}
             <span className="text-faint">
-              {t("关闭后订阅里不再有这条线，中转拨号和升级探活仍会用它。")}
+              {t("关闭后订阅中将不再包含该线路；中转拨号与升级探活仍会使用此模板。")}
             </span>
           </label>
         )}

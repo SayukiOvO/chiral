@@ -187,7 +187,7 @@ func streamSettings(p map[string]any) (map[string]any, error) {
 		// server with. Rewriting it as xhttp would produce something that
 		// builds and cannot speak to the provider, which is the failure this
 		// whole file exists to refuse. Found by `xray -test`, not by reading.
-		return nil, fmt.Errorf("h2 传输：Xray 26.x 已移除该传输，无法用它做中继出口")
+		return nil, fmt.Errorf("h2 传输：Xray 26.x 已移除该传输，无法作为中继出口使用")
 	case "http":
 		// Obfuscation over TCP, not HTTP/2 — see above.
 		hdr := map[string]any{"type": "http"}

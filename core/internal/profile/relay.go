@@ -46,7 +46,7 @@ func (s *Service) relayOutbound(r store.NodeRelay) (string, error) {
 		if err == nil {
 			name = p.Name
 		}
-		return "", fmt.Errorf("接入配置 %q 没有 xray-json 客户端模板，节点无法用它拨号", name)
+		return "", fmt.Errorf("接入配置 %q 没有 xray-json 客户端模板，节点无法据此建立连接", name)
 	}
 	ctx, err := s.ClientContext(r.ProfileID, r.ExitNodeID)
 	if err != nil {
@@ -61,7 +61,7 @@ func (s *Service) relayOutbound(r store.NodeRelay) (string, error) {
 	}
 	var ob map[string]any
 	if err := json.Unmarshal([]byte(body), &ob); err != nil {
-		return "", fmt.Errorf("xray-json 模板没有渲染出单个 JSON 对象：%w", err)
+		return "", fmt.Errorf("xray-json 模板未渲染出单个 JSON 对象：%w", err)
 	}
 	// Pin the tag: the routing rule points at it by name, and a template that
 	// names itself something else would leave the rule dangling.

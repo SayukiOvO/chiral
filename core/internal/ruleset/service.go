@@ -86,7 +86,7 @@ func (s *Service) Refresh(ctx context.Context, id string) error {
 		}
 	}
 	if len(failed) > 0 {
-		msg := fmt.Sprintf("%d 个规则列表未能更新，沿用上次内容", len(failed))
+		msg := fmt.Sprintf("%d 个规则列表未能更新，沿用上一次的内容", len(failed))
 		_ = s.st.SaveRulesetFetch(id, ini.body, msg)
 	}
 	return nil

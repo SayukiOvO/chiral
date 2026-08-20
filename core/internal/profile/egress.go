@@ -50,13 +50,13 @@ func (s *Service) egressFor(nodeID string, existing map[string]string) ([]templa
 		case store.EgressExternal:
 			p, err := s.st.GetExternalProxy(r.TargetProxyID)
 			if err != nil {
-				return nil, fmt.Errorf("出站分流 %q 的外部节点不存在了：%w", r.Label, err)
+				return nil, fmt.Errorf("出站分流规则 %q 指定的外部节点已不存在：%w", r.Label, err)
 			}
 			src.Tag = ExitTag(p.ID)
 			if _, dup := existing[src.Tag]; !dup {
 				ob, err := external.XrayOutbound(p.Config, src.Tag)
 				if err != nil {
-					return nil, fmt.Errorf("出站分流 %q 无法用这个外部节点：%w", r.Label, err)
+					return nil, fmt.Errorf("出站分流规则 %q 无法使用该外部节点：%w", r.Label, err)
 				}
 				src.Outbound = ob
 				existing[src.Tag] = ob
@@ -65,12 +65,12 @@ func (s *Service) egressFor(nodeID string, existing map[string]string) ([]templa
 			src.Tag = EgressTag(r.ID)
 			ob, err := s.egressOutbound(r)
 			if err != nil {
-				return nil, fmt.Errorf("出站分流 %q 无法拨号：%w", r.Label, err)
+				return nil, fmt.Errorf("出站分流规则 %q 无法建立连接：%w", r.Label, err)
 			}
 			src.Outbound = ob
 			existing[src.Tag] = ob
 		default:
-			return nil, fmt.Errorf("出站分流 %q 的落点类型未知：%s", r.Label, r.TargetKind)
+			return nil, fmt.Errorf("出站分流规则 %q 的出口类型未知：%s", r.Label, r.TargetKind)
 		}
 		out = append(out, src)
 	}
@@ -93,7 +93,7 @@ func (s *Service) egressOutbound(r store.EgressRule) (string, error) {
 		if p, err := s.st.GetProfile(r.TargetProfileID); err == nil {
 			name = p.Name
 		}
-		return "", fmt.Errorf("接入配置 %q 没有 xray-json 客户端模板，节点无从拨号", name)
+		return "", fmt.Errorf("接入配置 %q 没有 xray-json 客户端模板，节点无法据此建立连接", name)
 	}
 	ctx, err := s.ClientContext(r.TargetProfileID, r.TargetNodeID)
 	if err != nil {
@@ -105,7 +105,7 @@ func (s *Service) egressOutbound(r store.EgressRule) (string, error) {
 	}
 	var ob map[string]any
 	if err := json.Unmarshal([]byte(body), &ob); err != nil {
-		return "", fmt.Errorf("xray-json 模板没有渲染出单个 JSON 对象：%w", err)
+		return "", fmt.Errorf("xray-json 模板未渲染出单个 JSON 对象：%w", err)
 	}
 	ob["tag"] = EgressTag(r.ID)
 	pinned, err := json.Marshal(ob)

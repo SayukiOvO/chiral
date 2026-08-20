@@ -79,7 +79,7 @@ func (s *Server) relayProblem(r store.NodeRelay) string {
 		}
 	}
 	if !bound {
-		return "出口节点已经不再绑定这个接入配置，这条线路拨不通"
+		return "出口节点已不再绑定该接入配置，该线路无法建立连接"
 	}
 	kinds, err := s.st.ClientTemplateKinds(r.ProfileID)
 	if err != nil {
@@ -93,7 +93,7 @@ func (s *Server) relayProblem(r store.NodeRelay) string {
 	// The entry dials the exit with the same artefact a customer's Xray client
 	// would use, which is the only way to avoid a second, drifting copy of
 	// "how to dial this inbound". Without it there is nothing to dial with.
-	return "这个接入配置没有 xray-json 客户端模板，入口节点无从拨号"
+	return "该接入配置没有 xray-json 客户端模板，入口节点无法据此建立连接"
 }
 
 func nodeLabel(n store.Node) string {
@@ -137,7 +137,7 @@ func (s *Server) createRelay(w http.ResponseWriter, r *http.Request) {
 	// node would dial its own inbound, which either loops or fails depending
 	// on the transport — neither of which is what anyone meant.
 	if req.EntryNodeID == req.ExitNodeID {
-		writeErr(w, http.StatusBadRequest, "入口和出口不能是同一个节点")
+		writeErr(w, http.StatusBadRequest, "入口节点与出口节点不能相同")
 		return
 	}
 	if req.Label == "" {
@@ -160,7 +160,7 @@ func (s *Server) createRelay(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if !bound {
-		writeErr(w, http.StatusBadRequest, "出口节点没有绑定这个接入配置")
+		writeErr(w, http.StatusBadRequest, "出口节点未绑定该接入配置")
 		return
 	}
 	secret, err := template.Generate(template.GenUUID)
@@ -175,7 +175,7 @@ func (s *Server) createRelay(w http.ResponseWriter, r *http.Request) {
 	})
 	if err != nil {
 		if isConflict(err) {
-			writeErr(w, http.StatusConflict, "这两个节点之间已经有一条走这个接入配置的线路了")
+			writeErr(w, http.StatusConflict, "这两个节点之间已存在一条使用该接入配置的线路")
 			return
 		}
 		s.internalErr(w, "create relay", err)

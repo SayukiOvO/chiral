@@ -61,7 +61,7 @@ export function ExternalsPage() {
   }
 
   async function remove(sub: ExternalSub) {
-    if (!confirm(tf("删除「{name}」？其节点将从所有订阅中移除。", { name: sub.name }))) return;
+    if (!confirm(tf("确认删除「{name}」？其提供的节点将从所有订阅中移除。", { name: sub.name }))) return;
     try {
       await api.deleteExternal(sub.id);
       await refresh();
@@ -76,7 +76,7 @@ export function ExternalsPage() {
         <div>
           <h1 className="font-display text-[26px] font-semibold tracking-tight">{t("外部节点")}</h1>
           <p className="mt-1 text-sm text-muted">
-            {t("别人提供的订阅或单条链接。每个节点可指定前置——本机队节点或另一个外部节点——链式出站。")}
+            {t("由第三方提供的订阅或单条分享链接。可为每个节点指定前置节点（本机队节点或另一个外部节点），以实现链式出站。")}
           </p>
         </div>
         <Button variant="primary" onClick={() => setAdding(true)}>
@@ -88,7 +88,7 @@ export function ExternalsPage() {
       {error && <ErrorBar text={error} />}
 
       {subs.length === 0 ? (
-        <Empty>{t("还没有外部节点。添加后它们会出现在所有订阅者的 Clash 订阅里。")}</Empty>
+        <Empty>{t("暂无外部节点。添加后将出现在所有订阅者的 Clash 订阅中。")}</Empty>
       ) : (
         <div className="flex flex-col gap-2.5">
           {subs.map((s) => (
@@ -192,7 +192,7 @@ function SubCard({
       {open && (
         <div className="mt-4 border-t border-line pt-4">
           {sub.proxies.length === 0 ? (
-            <p className="text-sm text-muted">{t("这个来源里没有解析出节点。")}</p>
+            <p className="text-sm text-muted">{t("未能从该来源解析出任何节点。")}</p>
           ) : (
             <div className="flex flex-col gap-2">
               {sub.proxies.map((p) => (
@@ -248,7 +248,7 @@ function ProxyRow({
       // The one server error an operator reaches by trying rather than by
       // misusing the API, so it is worth saying in their language. The rest of
       // the console shows server text as it comes.
-      setError(msg.includes("loop back on itself") ? t("这样会让链路绕回自己。") : msg);
+      setError(msg.includes("loop back on itself") ? t("该配置将使链路绕回自身。") : msg);
     } finally {
       setBusy(false);
     }
@@ -304,7 +304,7 @@ function ProxyRow({
           <button
             onClick={() => patch({ relay_exposed: !proxy.relay_exposed })}
             disabled={busy}
-            title={t("中继：订阅者连我们的节点，看不到这个落地地址")}
+            title={t("中继：订阅者连接本机队节点，出口地址对其不可见")}
             className={cn(
               "rounded-md border px-1.5 py-0.5 text-[10px] transition-colors",
               proxy.relay_exposed
@@ -434,7 +434,7 @@ function ProxyName({
       {renamed && (
         <button
           onClick={() => onRename("")}
-          title={t("恢复对方给的名字")}
+          title={t("恢复来源提供的名称")}
           className="shrink-0 truncate text-[11px] text-faint hover:text-ink"
         >
           {proxy.provider_name}
@@ -490,7 +490,7 @@ function ProxyAccess({ subId, proxyId }: { subId: string; proxyId: string }) {
     <div className="mt-2 rounded-lg border border-line px-3 py-2">
       {error && <p className="mb-1.5 text-xs text-danger">{error}</p>}
       {users.length === 0 ? (
-        <p className="text-xs text-muted">{t("还没有订阅者。")}</p>
+        <p className="text-xs text-muted">{t("暂无订阅者。")}</p>
       ) : (
         <div className="flex flex-wrap gap-1.5">
           {users.map((u) => (
@@ -511,7 +511,7 @@ function ProxyAccess({ subId, proxyId }: { subId: string; proxyId: string }) {
         </div>
       )}
       <p className="mt-1.5 text-[11px] text-faint">
-        {t("取消后此节点不再出现在该订阅者的订阅里，下次刷新订阅时生效。")}
+        {t("取消勾选后，该节点将不再出现在此订阅者的订阅中，变更于其下次刷新时生效。")}
       </p>
     </div>
   );
@@ -556,7 +556,7 @@ function AddDialog({ onClose, onAdded }: { onClose: () => void; onAdded: () => v
             the differences are not things that get fixed later. */}
         <div className="mt-3 rounded-xl px-3 py-2 text-xs text-warn"
           style={{ background: "color-mix(in srgb, var(--warn) 10%, transparent)" }}>
-          {t("外部节点由对方运营：所有订阅者共用同一份凭证，没有按用户隔离、没有流量统计，停用某个用户也不会让他连不上。")}
+          {t("外部节点由第三方运营：所有订阅者共用同一份凭证，不具备按用户隔离与流量统计的能力，停用某个订阅者亦无法阻止其继续使用。")}
         </div>
 
         <div className="mt-4 flex gap-1.5">
@@ -607,7 +607,7 @@ function AddDialog({ onClose, onAdded }: { onClose: () => void; onAdded: () => v
               className={cn(inputCls, "font-mono text-xs")}
             />
             <span className="mt-1 block text-xs text-faint">
-              {t("粘贴 Clash 配置片段或若干条分享链接。不会自动更新。")}
+              {t("粘贴 Clash 配置片段或若干条分享链接。此类来源不会自动更新。")}
             </span>
           </Field>
         )}

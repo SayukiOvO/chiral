@@ -84,7 +84,7 @@ export function UserDialog({
           {user ? t("编辑用户") : t("新增用户")}
         </h3>
         <p className="mt-1 text-sm text-muted">
-          {user ? t("改动立即下发至节点。") : t("创建后会给出订阅链接，之后随时可以回来查看。")}
+          {user ? t("改动立即下发至节点。") : t("创建完成后将生成订阅链接，此后可随时查看。")}
         </p>
 
         <label className="mt-4 block">

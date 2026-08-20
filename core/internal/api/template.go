@@ -646,7 +646,7 @@ func (s *Server) setClientTemplateServe(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	if err := s.st.SetClientTemplateServe(r.PathValue("id"), r.PathValue("client"), req.Serve); err != nil {
-		s.notFoundOr(w, "set template serve", err, "该客户端还没有模板")
+		s.notFoundOr(w, "set template serve", err, "该客户端尚无模板")
 		return
 	}
 	s.audit(r, "profile.template_serve", "profile", r.PathValue("id"), r.PathValue("client"),

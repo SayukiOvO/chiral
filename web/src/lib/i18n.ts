@@ -172,8 +172,8 @@ const EN: Record<string, string> = {
   "到期顺延一个周期，并清零已用流量":
     "On expiry, roll forward one period and reset usage",
   "改动立即下发至节点。": "Changes reach the nodes immediately.",
-  "创建后会给出订阅链接，之后随时可以回来查看。":
-    "The subscription link is shown on creation, and can be read again any time.",
+  "创建完成后将生成订阅链接，此后可随时查看。":
+    "The subscription link is generated on creation and can be viewed again at any time.",
   "流量配额须为 0 或正数（0 表示不限）":
     "Quota must be 0 or more (0 means unlimited)",
   "每 30 天": "Every 30 days",
@@ -203,14 +203,14 @@ const EN: Record<string, string> = {
   全局: "Global",
   "私钥变量不能用在客户端模板里": "Secret variables cannot be used in a client template",
   节点设置: "Node settings",
-  "内部名用于运维，对客名称展示给订阅者，连接地址写进订阅。": "The internal name is for operations, the customer-facing one is shown to subscribers, and the address goes into subscriptions.",
+  "内部名称用于运维标识，对客名称向订阅者展示，连接地址写入订阅。": "The internal name identifies the node in operations, the customer-facing name is shown to subscribers, and the address is written into subscriptions.",
   客户端连接地址: "Address clients dial",
   "订阅与模板中的 {{node.address}} 用这个值。": "Subscriptions and templates resolve {{node.address}} to this.",
-  "留空则用探测到的 {ip}，它取自 Agent 连接的对端地址；中间有 NAT 时并不可靠。": "Left empty, the detected {ip} is used — the peer address of the agent's connection, which is unreliable when a NAT sits in between.",
+  "留空时使用探测到的 {ip}。该地址取自 Agent 连接的对端地址，若链路中存在 NAT 则并不可靠。": "When left empty, the detected {ip} is used. It is taken from the peer address of the agent's connection, and is unreliable when a NAT sits in between.",
   "（尚未探测到）": "(not detected yet)",
   全部走代理: "Everything via proxy",
-  "决定哪些网站走代理、哪些直连。仅对 Clash 类客户端生效，改动后请在客户端更新订阅。":
-    "Decides which sites go through the proxy and which go direct. Clash-family clients only; update your subscription in the client after changing it.",
+  "用于决定哪些网站经代理访问、哪些直接连接。仅对 Clash 类客户端生效；变更后请在客户端更新订阅。":
+    "Determines which sites are reached through the proxy and which are connected to directly. Applies to clash-family clients only; update the subscription in the client after making changes.",
   // navigation
   菜单: "Menu",
   收起侧栏: "Collapse sidebar",
@@ -221,33 +221,33 @@ const EN: Record<string, string> = {
   流量倍率: "Traffic multiplier",
   按出口用量: "Usage by exit",
   节点直出: "Node's own exit",
-  "还没有产生流量。": "No traffic yet.",
+  "暂无流量记录。": "No traffic has been recorded.",
   "按 ×{rate} 计入配额": "Billed at ×{rate}",
-  "1 表示按实际用量计入配额。贵的线路可以调高，比如 2 表示用 1 GB 扣 2 GB。":
-    "1 bills what actually moved. Raise it for an expensive line — 2 means a gigabyte costs two.",
+  "1 表示按实际用量计入配额。成本较高的线路可调高此值，例如 2 表示每传输 1 GB 计入 2 GB。":
+    "A value of 1 charges the quota by actual usage. Raise it for a costlier line: 2 charges two gigabytes for every gigabyte transferred.",
   倍率: "rate",
   经出口: "via",
   "中继·已隐藏": "Relayed",
   "中继·并直发": "Relayed + direct",
-  "中继：订阅者连我们的节点，看不到这个落地地址":
-    "Relayed: subscribers connect to our node and never see this address",
+  "中继：订阅者连接本机队节点，出口地址对其不可见":
+    "Relayed: subscribers connect to a node of this fleet and do not see this address",
   重新解析: "Re-read",
   账号安全: "Account security",
   重置链接: "Replace link",
   确认重置: "Replace it",
   "重置中…": "Replacing…",
-  "换成新链接？该用户已配置的客户端全部需要重新导入。":
-    "Replace with a new link? Every client this subscriber has configured must be re-imported by hand.",
-  "这是一条新链接，之前的已失效。客户端将自动获取对应格式。":
-    "This is a new link; the previous one no longer works. Clients pick their own format automatically.",
-  "随时可以回来看，链接不会因为查看而改变。客户端将自动获取对应格式。":
-    "Come back to it any time — looking does not change it. Clients pick their own format automatically.",
-  "这个用户的链接无法找回（早于可恢复存储，或密钥已更换）。只能重置成新链接。":
-    "This subscriber's link cannot be recovered (it predates recoverable storage, or the key has changed). A new one is the only option.",
+  "确认更换订阅链接？此用户已配置的所有客户端均需重新导入。":
+    "Replace the subscription link? Every client this subscriber has configured must be re-imported.",
+  "已生成新的订阅链接，此前的链接立即失效。客户端将自动获取对应格式。":
+    "A new subscription link has been issued, and the previous one is no longer valid. Clients select the appropriate format automatically.",
+  "该链接可随时查看，查看行为不会使其变更。客户端将自动获取对应格式。":
+    "The link can be viewed at any time, and viewing it does not change it. Clients select the appropriate format automatically.",
+  "此用户的订阅链接无法恢复（其创建时间早于可恢复存储，或密钥已更换），只能重置为新链接。":
+    "This subscriber's link cannot be recovered: it predates recoverable storage, or the key has been changed. Resetting it to a new link is the only option.",
   "获取订阅链接失败：": "Could not read the subscription link: ",
   订阅顺序: "Order subscribers see",
-  "订阅者看到的节点顺序，也决定每个策略组内的顺序；组的第一个节点是客户端的默认选中项。":
-    "The order nodes appear in, which is also the order inside every proxy group. A group opens on its first member, so that is what a client picks by default.",
+  "订阅者看到的节点顺序，同时决定各策略组内的排列顺序；每组的首个节点为客户端的默认选中项。":
+    "The order in which subscribers see the nodes, which also determines the order within each policy group. The first node in a group is what a client selects by default.",
   保存顺序: "Save order",
   撤销: "Undo",
   上移: "Move up",
@@ -255,119 +255,120 @@ const EN: Record<string, string> = {
   自有: "Fleet",
   "订阅者下次刷新订阅时生效。": "Applies on each subscriber's next refresh.",
   点击改名: "Click to rename",
-  恢复对方给的名字: "Restore the provider's name",
-  "这样会让链路绕回自己。": "That would make the chain loop back on itself.",
-  "还没有订阅者。": "No subscribers yet.",
-  "取消后此节点不再出现在该订阅者的订阅里，下次刷新订阅时生效。":
-    "Unticked, this node stops appearing in that subscriber's subscription, from their next refresh.",
-  "别人提供的订阅或单条链接。每个节点可指定前置——本机队节点或另一个外部节点——链式出站。":
-    "Somebody else's subscription, or a single link. Each node can be dialled through another — one of this fleet's, or another external node.",
+  "恢复来源提供的名称": "Restore the name from the source",
+  "该配置将使链路绕回自身。": "This configuration would make the chain loop back on itself.",
+  "暂无订阅者。": "No subscribers have been created.",
+  "取消勾选后，该节点将不再出现在此订阅者的订阅中，变更于其下次刷新时生效。":
+    "Once unselected, the node no longer appears in this subscriber's subscription; the change takes effect at their next refresh.",
+  "由第三方提供的订阅或单条分享链接。可为每个节点指定前置节点（本机队节点或另一个外部节点），以实现链式出站。":
+    "Subscriptions or individual share links provided by a third party. Each node may be given a preceding hop — a node of this fleet, or another external node — to form an outbound chain.",
   // per-user node access
   可用节点: "Nodes they may use",
   可用用户: "Users who may use it",
   下发给订阅者: "Serve to subscribers",
-  "关闭后订阅里不再有这条线，中转拨号和升级探活仍会用它。":
-    "Off, subscriptions stop carrying this line; relay dialling and upgrade probes still use it.",
+  "关闭后订阅中将不再包含该线路；中转拨号与升级探活仍会使用此模板。":
+    "When disabled, subscriptions no longer carry this line; relay dialling and upgrade probes continue to use the template.",
   不下发: "held back",
   // variable scope moves
   移到别的作用域: "Move to another scope",
   "移动「{name}」": "Move \u201c{name}\u201d",
-  "值原样保留，已发出去的订阅不受影响。移到更窄的作用域后，原来靠它渲染的其他节点会在下次预览/下发时报未定义。":
-    "The value is kept as is; subscriptions already handed out are unaffected. After a move to a narrower scope, other nodes that rendered with it report it undefined at their next preview or apply.",
+  "变量取值保持不变，已下发的订阅不受影响。移至更窄的作用域后，原先依赖该变量的其他节点将在下次预览或下发时报告变量未定义。":
+    "The value is preserved, and subscriptions already issued are unaffected. After a move to a narrower scope, other nodes that relied on the variable will report it undefined at their next preview or apply.",
   移到: "Move to",
   "移动中…": "Moving…",
   移动: "Move",
-  "内核已装好，但还没有配置可跑——给这个节点绑定一个接入配置后就会启动":
-    "The kernel is installed but has no config to run — bind an access configuration to this node and it will start.",
+  "内核已安装，但尚无可运行的配置；为该节点绑定接入配置后即会启动":
+    "The kernel is installed but has no configuration to run; it will start once an access configuration is bound to this node",
   // per-node egress
   出站分流: "Egress routing",
-  "命中的流量从指定的落点出去，其余照常。自上而下匹配，第一条命中的生效。":
-    "Matched traffic leaves by the landing you pick; the rest is unchanged. Matched top to bottom — the first hit wins.",
+  "匹配的流量将从指定出口发出，其余流量维持原有路径。规则自上而下匹配，以首条命中的规则为准。":
+    "Matched traffic leaves through the selected exit; all other traffic keeps its existing path. Rules are matched from top to bottom, and the first match applies.",
   新增规则: "Add rule",
-  "还没有出站分流规则，全部流量直接从这个节点出去。":
-    "No egress rules yet; everything leaves straight from this node.",
-  "删除这条出站分流规则？": "Delete this egress rule?",
-  新增出站分流: "New egress rule",
-  "在这个节点上，命中的流量改从别处出去。域名和 IP 两栏可以只填一栏。":
-    "On this node, matched traffic leaves elsewhere. Filling just one of the two boxes is fine.",
-  "域名 / geosite（每行一个）": "Domains / geosite (one per line)",
-  "IP / geoip（每行一个）": "IPs / geoip (one per line)",
+  "暂无出站分流规则，全部流量从本节点直接出站。":
+    "No egress rules have been configured; all traffic leaves directly from this node.",
+  "确认删除此出站分流规则？": "Delete this egress rule?",
+  "新增出站分流规则": "New egress rule",
+  "编辑出站分流规则": "Edit egress rule",
+  "在本节点上，匹配的流量将改由指定出口发出。域名与 IP 两栏可任填其一。":
+    "On this node, matched traffic is redirected to the selected exit. Either the domain field or the IP field may be left empty.",
+  "域名 / geosite 类别（每行一个）": "Domains / geosite categories (one per line)",
+  "IP 段 / geoip 类别（每行一个）": "IP ranges / geoip categories (one per line)",
   从哪出去: "Leaves through",
   本机队节点: "A node of this fleet",
   目标节点: "Target node",
-  用目标节点的哪个接入配置拨号: "Which of its access points to dial",
+  "用于连接目标节点的接入配置": "Access configuration used to reach the target node",
   目标外部节点: "Target external node",
   // restricted destinations
   受限目的地: "Restricted destinations",
-  "节点能到、但默认谁都不许去的网段。规则在勾选的节点上生效；经中转线路借道的入口会自动一并生效。":
-    "Networks a node can reach that nobody may enter by default. Rules apply on the ticked nodes; relay entries that borrow a scoped exit inherit them automatically.",
+  "节点可达、但默认不对任何订阅者开放的网段。规则在所选节点上生效；经中转线路借道的入口节点将自动继承该规则。":
+    "Networks a node can reach that are closed to every subscriber by default. Rules take effect on the selected nodes, and the entry node of any relay line landing there inherits them automatically.",
   新增目的地: "Add destination",
-  "还没有受限目的地。": "No restricted destinations yet.",
-  "删除这个受限目的地？相关节点会移除拦截规则并重新下发。":
-    "Delete this destination? Affected nodes drop the rules and get a new config.",
+  "暂无受限目的地。": "No restricted destinations have been configured.",
+  "确认删除此受限目的地？相关节点将移除对应拦截规则并重新下发配置。":
+    "Delete this restricted destination? The affected nodes will drop the corresponding rules and receive a new configuration.",
   在哪些节点上生效: "Enforced on which nodes",
-  "谁可以进（其余一律拦截）": "Who may enter (everyone else is blocked)",
+  "允许访问的用户（其余用户将被拦截）": "Subscribers permitted access (all others are blocked)",
   编辑受限目的地: "Edit restricted destination",
   新增受限目的地: "New restricted destination",
-  "新建后默认谁都不许去：先描述网段，再到列表里勾选生效节点和获准的用户。":
-    "A new destination admits nobody: describe the network first, then tick the enforcing nodes and the allowed users in the list.",
-  "IP 段（每行一个 CIDR，裸 IP 视为单机）": "IP ranges (one CIDR per line; a bare IP means that one host)",
+  "新建的目的地默认不对任何人开放：请先定义网段，再在列表中选择生效节点与获准用户。":
+    "A new destination is closed to everyone: define the network first, then select the enforcing nodes and the permitted subscribers in the list.",
+  "IP 段（每行一个 CIDR；单个 IP 视为 /32 或 /128）": "IP ranges (one CIDR per line; a bare address is treated as /32 or /128)",
   "域名后缀（每行一个）": "Domain suffixes (one per line)",
   展开配置历史: "Show config history",
   自有节点: "Own nodes",
-  该用户的接入配置未覆盖此节点: "No profile this user holds reaches this node",
-  "链经「{node}」，而此用户拿不到那个节点":
-    "Chained through “{node}”, which this user does not get",
-  "取消后该节点不再出现在此用户的订阅里。凭证仍在节点上，订阅者下次刷新订阅时生效。":
-    "Unticked, the node stops appearing in this subscriber's subscription. The credential stays on the node; it applies on their next refresh.",
+  "此用户的接入配置未覆盖该节点，因此无法选择": "No access configuration held by this subscriber covers this node, so it cannot be selected",
+  "经由「{node}」接入，而此用户无法使用该节点":
+    "Reached by way of “{node}”, which this subscriber cannot use",
+  "取消勾选后，该节点将不再出现在此用户的订阅中。节点上的凭证予以保留，变更于订阅者下次刷新时生效。":
+    "Once unselected, the node no longer appears in this subscriber's subscription. The credential on the node is retained, and the change takes effect at their next refresh.",
   // relay lines: one of our nodes leaving through another
   中转线路: "Relay lines",
-  "订阅者连入口节点，流量从出口节点出去。两端都是自有节点，落地对订阅者不可见。":
-    "Subscribers connect to the entry node; their traffic leaves at the exit node. Both ends are your own, and the landing is invisible to subscribers.",
+  "订阅者连接入口节点，流量由出口节点发出。两端均为自有节点，出口地址对订阅者不可见。":
+    "Subscribers connect to the entry node, and their traffic leaves from the exit node. Both ends belong to this fleet, and the exit address is not disclosed to subscribers.",
   新增线路: "Add line",
-  "还没有中转线路。": "No relay lines yet.",
-  "删除这条中转线路？订阅者会失去这条线，两端节点会重新下发配置。":
-    "Delete this relay line? Subscribers lose it, and both nodes get a new config.",
+  "暂无中转线路。": "No relay lines have been configured.",
+  "确认删除此中转线路？订阅者将失去该线路，两端节点将重新下发配置。":
+    "Delete this relay line? Subscribers will lose it, and both nodes will receive a new configuration.",
   新增中转线路: "New relay line",
-  "入口节点会用一份线路自己的凭证拨号出口节点。这份凭证不属于任何订阅者，流量只在入口计一次费。":
-    "The entry node dials the exit with a credential belonging to the line itself. It belongs to no subscriber, and traffic is billed once, at the entry.",
-  "入口节点（订阅者连这里）": "Entry node (subscribers connect here)",
-  "出口节点（流量从这里出去）": "Exit node (traffic leaves here)",
+  "入口节点使用该线路独立的凭证连接出口节点。该凭证不归属于任何订阅者，流量仅在入口节点计费一次。":
+    "The entry node reaches the exit node with a credential belonging to the line itself. That credential belongs to no subscriber, and traffic is charged once, at the entry node.",
+  "入口节点（订阅者的接入点）": "Entry node (where subscribers connect)",
+  "出口节点（流量的发出位置）": "Exit node (where traffic leaves)",
   出口节点的接入配置: "The exit's access configuration",
-  "线路名称（订阅者看到的）": "Line name (what subscribers see)",
-  "例如：香港中转 · 东京落地": "e.g. HK relay · Tokyo exit",
+  "线路名称（订阅者可见）": "Line name (visible to subscribers)",
+  "例如：香港中转 · 东京出口": "e.g. HK relay · Tokyo exit",
   请选择: "Choose one",
-  此用户的接入配置没有覆盖这条线路的入口节点:
-    "This subscriber's access configuration does not reach the line's entry node",
-  "改动会立刻重新下发入口节点的配置。": "Changes are pushed to the entry node immediately.",
+  "此用户的接入配置未覆盖该线路的入口节点，因此无法选择":
+    "No access configuration held by this subscriber covers the line's entry node, so it cannot be selected",
+  "变更将立即重新下发入口节点的配置。": "Changes are applied to the entry node immediately.",
   // panel settings
   设置: "Settings",
-  "面板产出物的一些选项。": "Choices about what the panel produces.",
+  "面板产出内容的相关选项。": "Options governing what the panel produces.",
   订阅: "Subscription",
   订阅名称: "Subscription name",
   客户端里显示为: "Shown in the client as",
   "订阅者在客户端里看到的配置名。留空则为 chiral。":
     "The profile name subscribers see in their client. Defaults to chiral.",
   已保存: "Saved",
-  "改动对之后每次拉取订阅生效；已导入的客户端需要重新导入才会改名。":
-    "Applies to every subscription fetched from now on; a client that already imported one keeps the old name until it re-imports.",
+  "变更对此后每次订阅拉取生效；已导入的客户端需重新导入方可更新名称。":
+    "Applies to every subscription fetched from now on. A client that has already imported one keeps the previous name until it re-imports.",
   // external nodes
   外部节点: "External nodes",
-  "别人提供的订阅或单条链接。可为每个节点指定一台本机队节点作为前置，链式出站。":
-    "Subscriptions and links from other providers. Each node can be dialled through one of your own, as a chain.",
-  "还没有外部节点。添加后它们会出现在所有订阅者的 Clash 订阅里。":
-    "No external nodes yet. Once added they appear in every subscriber's Clash subscription.",
+  "由第三方提供的订阅或单条分享链接。可为每个节点指定一台本机队节点作为前置，以实现链式出站。":
+    "Subscriptions or individual share links provided by a third party. Each node may be given a node of this fleet as its preceding hop, to form an outbound chain.",
+  "暂无外部节点。添加后将出现在所有订阅者的 Clash 订阅中。":
+    "No external nodes have been added. Once added, they appear in every subscriber's Clash subscription.",
   新增外部节点: "Add external nodes",
-  "外部节点由对方运营：所有订阅者共用同一份凭证，没有按用户隔离、没有流量统计，停用某个用户也不会让他连不上。":
-    "External nodes are run by someone else: every subscriber shares one credential, there is no per-user isolation, no traffic accounting, and disabling a user does not stop them using it.",
+  "外部节点由第三方运营：所有订阅者共用同一份凭证，不具备按用户隔离与流量统计的能力，停用某个订阅者亦无法阻止其继续使用。":
+    "External nodes are operated by a third party: all subscribers share a single credential, there is no per-subscriber isolation or traffic accounting, and disabling a subscriber does not prevent them from continuing to use it.",
   直接粘贴: "Paste directly",
   "例如 机场 A": "e.g. Provider A",
   订阅地址: "Subscription address",
   "Clash YAML 或分享链接列表均可，自动识别。每天自动更新一次。":
     "Clash YAML or a list of share links, detected automatically. Refreshed once a day.",
   内容: "Content",
-  "粘贴 Clash 配置片段或若干条分享链接。不会自动更新。":
-    "Paste a Clash fragment or some share links. Not refreshed automatically.",
+  "粘贴 Clash 配置片段或若干条分享链接。此类来源不会自动更新。":
+    "Paste a Clash configuration fragment or a number of share links. Sources added this way are not refreshed automatically.",
   "解析中…": "Parsing…",
   添加: "Add",
   展开节点: "Show nodes",
@@ -375,18 +376,18 @@ const EN: Record<string, string> = {
   直连: "Direct",
   经由: "via",
   "（手动粘贴，不自动更新）": "(pasted; not refreshed)",
-  "这个来源里没有解析出节点。": "No nodes were parsed from this source.",
-  "删除「{name}」？其节点将从所有订阅中移除。":
-    "Delete “{name}”? Its nodes leave every subscription.",
+  "未能从该来源解析出任何节点。": "No nodes could be parsed from this source.",
+  "确认删除「{name}」？其提供的节点将从所有订阅中移除。":
+    "Delete “{name}”? The nodes it provides will be removed from every subscription.",
   // routing rules
   分流规则: "Routing rules",
-  "决定 Clash 类客户端把哪些流量走代理、哪些直连或拦截。在用户页指派给订阅者。":
-    "Decides what clash-family clients send through the proxy, direct, or reject. Assigned to subscribers on the users page.",
-  "还没有规则集。新增后在用户页指派，订阅即带上分流规则。":
-    "No rule sets yet. Add one and assign it on the users page; subscriptions then carry routing rules.",
+  "用于决定 Clash 类客户端将哪些流量经代理发送、哪些直接连接或拦截。可在用户页指派给订阅者。":
+    "Determines which traffic clash-family clients send through the proxy, connect to directly, or reject. Assigned to subscribers on the users page.",
+  "暂无规则集。新增后可在用户页指派，订阅将随之包含分流规则。":
+    "No rule sets have been created. Once created, assign one on the users page and subscriptions will carry its routing rules.",
   新增分流规则: "Add routing rules",
-  "内置的是 ACL4SSR 各档预设；自定义可指向任意 subconverter 格式的 .ini。":
-    "The built-ins are ACL4SSR's presets; a custom one can point at any subconverter-format .ini.",
+  "内置项为 ACL4SSR 的各档预设；自定义项可指向任意 subconverter 格式的 .ini 文件。":
+    "The built-in entries are ACL4SSR's presets; a custom entry may point at any subconverter-format .ini file.",
   内置预设: "Built-in preset",
   "自定义 ini": "Custom .ini",
   内置: "Built-in",
@@ -410,13 +411,13 @@ const EN: Record<string, string> = {
   "{g} 组 · {l} 列表": "{g} groups · {l} lists",
   "更新于 {when}": "updated {when}",
   尚未获取: "never fetched",
-  "尚未获取到内容，订阅暂不会带上分流规则":
-    "Nothing fetched yet; subscriptions will not carry routing rules",
-  "删除「{name}」？使用它的订阅者将回到无分流规则。":
-    "Delete “{name}”? Subscribers using it fall back to no routing rules.",
+  "尚未获取到内容，订阅暂不包含分流规则":
+    "No content has been fetched yet, so subscriptions do not carry routing rules",
+  "确认删除「{name}」？使用该规则集的订阅者将不再获得分流规则。":
+    "Delete “{name}”? Subscribers using it will no longer receive routing rules.",
   不分流: "No rules",
-  "还没有规则集，订阅不带分流规则。可在「分流规则」页添加。":
-    "No rule sets yet, so subscriptions carry no routing rules. Add one on the routing rules page.",
+  "暂无规则集，订阅不包含分流规则。可在「分流规则」页新增。":
+    "No rule sets exist, so subscriptions carry no routing rules. They can be added on the routing rules page.",
   "仅影响 Clash 类客户端；订阅者下次刷新订阅时生效。":
     "Affects clash-family clients only; applies on the subscriber's next refresh.",
   "修改分流规则失败：": "Could not change the routing rules: ",

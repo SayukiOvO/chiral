@@ -55,7 +55,7 @@ export function RestrictedDestinations({ nodes }: { nodes: Node[] }) {
   }
 
   async function remove(d: RestrictedDestination) {
-    if (!window.confirm(t("删除这个受限目的地？相关节点会移除拦截规则并重新下发。"))) return;
+    if (!window.confirm(t("确认删除此受限目的地？相关节点将移除对应拦截规则并重新下发配置。"))) return;
     await mutate(() => api.deleteRestricted(d.id));
   }
 
@@ -81,7 +81,7 @@ export function RestrictedDestinations({ nodes }: { nodes: Node[] }) {
             {t("受限目的地")}
           </h2>
           <p className="mt-0.5 text-xs text-muted">
-            {t("节点能到、但默认谁都不许去的网段。规则在勾选的节点上生效；经中转线路借道的入口会自动一并生效。")}
+            {t("节点可达、但默认不对任何订阅者开放的网段。规则在所选节点上生效；经中转线路借道的入口节点将自动继承该规则。")}
           </p>
         </div>
         <Button onClick={() => setAdding(true)}>
@@ -94,7 +94,7 @@ export function RestrictedDestinations({ nodes }: { nodes: Node[] }) {
 
       {dests.length === 0 ? (
         <div className="rounded-2xl border border-dashed border-line-strong bg-surface px-6 py-8 text-center text-sm text-muted">
-          {t("还没有受限目的地。")}
+          {t("暂无受限目的地。")}
         </div>
       ) : (
         <ul className="flex flex-col gap-2.5">
@@ -143,11 +143,11 @@ export function RestrictedDestinations({ nodes }: { nodes: Node[] }) {
                 </div>
                 <div>
                   <div className="mb-1.5 text-[11px] text-faint">
-                    {t("谁可以进（其余一律拦截）")}
+                    {t("允许访问的用户（其余用户将被拦截）")}
                   </div>
                   <div className="flex flex-wrap gap-1.5">
                     {users.length === 0 ? (
-                      <span className="text-xs text-muted">{t("还没有订阅者。")}</span>
+                      <span className="text-xs text-muted">{t("暂无订阅者。")}</span>
                     ) : (
                       users.map((u) => {
                         const on = d.allowed_user_ids.includes(u.id);
@@ -229,7 +229,7 @@ function DestinationDialog({
         {dest ? t("编辑受限目的地") : t("新增受限目的地")}
       </h2>
       <p className="mt-1 text-sm text-muted">
-        {t("新建后默认谁都不许去：先描述网段，再到列表里勾选生效节点和获准的用户。")}
+        {t("新建的目的地默认不对任何人开放：请先定义网段，再在列表中选择生效节点与获准用户。")}
       </p>
       <Field label={t("名字")}>
         <input
@@ -240,7 +240,7 @@ function DestinationDialog({
           placeholder="DN42"
         />
       </Field>
-      <Field label={t("IP 段（每行一个 CIDR，裸 IP 视为单机）")}>
+      <Field label={t("IP 段（每行一个 CIDR；单个 IP 视为 /32 或 /128）")}>
         <textarea
           className={cn(inputCls, "h-20 resize-y font-mono text-xs")}
           value={cidrs}

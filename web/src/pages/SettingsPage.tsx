@@ -57,7 +57,7 @@ export function SettingsPage() {
     <div>
       <div className="mb-6">
         <h1 className="font-display text-[26px] font-semibold tracking-tight">{t("设置")}</h1>
-        <p className="mt-1 text-sm text-muted">{t("面板产出物的一些选项。")}</p>
+        <p className="mt-1 text-sm text-muted">{t("面板产出内容的相关选项。")}</p>
       </div>
 
       {error && <ErrorBar text={error} />}
@@ -97,7 +97,7 @@ export function SettingsPage() {
       </form>
 
       <p className="mt-3 max-w-xl text-xs text-faint">
-        {t("改动对之后每次拉取订阅生效；已导入的客户端需要重新导入才会改名。")}
+        {t("变更对此后每次订阅拉取生效；已导入的客户端需重新导入方可更新名称。")}
       </p>
     </div>
   );

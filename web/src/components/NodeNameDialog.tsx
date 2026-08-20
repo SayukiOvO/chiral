@@ -56,7 +56,7 @@ export function NodeNameDialog({
       <form onSubmit={save}>
         <h3 className="font-display text-lg font-semibold tracking-tight">{t("节点设置")}</h3>
         <p className="mt-1 text-sm text-muted">
-          {t("内部名用于运维，对客名称展示给订阅者，连接地址写进订阅。")}
+          {t("内部名称用于运维标识，对客名称向订阅者展示，连接地址写入订阅。")}
         </p>
 
         <Field label={t("内部名")}>
@@ -98,7 +98,7 @@ export function NodeNameDialog({
           <span className="mt-1 block text-xs text-faint">
             {address.trim()
               ? t("订阅与模板中的 {{node.address}} 用这个值。")
-              : tf("留空则用探测到的 {ip}，它取自 Agent 连接的对端地址；中间有 NAT 时并不可靠。", {
+              : tf("留空时使用探测到的 {ip}。该地址取自 Agent 连接的对端地址，若链路中存在 NAT 则并不可靠。", {
                   ip: node.public_ip || t("（尚未探测到）"),
                 })}
           </span>
@@ -117,7 +117,7 @@ export function NodeNameDialog({
             className={inputCls}
           />
           <span className="mt-1 block text-xs text-faint">
-            {t("1 表示按实际用量计入配额。贵的线路可以调高，比如 2 表示用 1 GB 扣 2 GB。")}
+            {t("1 表示按实际用量计入配额。成本较高的线路可调高此值，例如 2 表示每传输 1 GB 计入 2 GB。")}
           </span>
         </Field>
 
