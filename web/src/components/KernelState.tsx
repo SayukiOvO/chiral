@@ -52,7 +52,15 @@ export function KernelState({
         {t(LABEL[state] ?? state)}
       </span>
       {version && <span className="font-mono text-xs text-faint">{version}</span>}
-      {installed && installed !== version && (
+      {installed && !version && (
+        <span
+          className="rounded px-1 font-mono text-[10px] text-muted"
+          title={t("内核已装好，但还没有配置可跑——给这个节点绑定一个接入配置后就会启动")}
+        >
+          {installed}
+        </span>
+      )}
+      {installed && version && installed !== version && (
         <span
           className="font-mono text-xs text-muted"
           title={t("磁盘上为 {v}，运行中的进程仍是旧版本，重启内核后生效").replace("{v}", installed)}

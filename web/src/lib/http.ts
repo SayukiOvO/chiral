@@ -42,7 +42,13 @@ export function makeRequest(getToken: () => string) {
         (detail as { error?: string }).error ?? `HTTP ${res.status}`,
       );
     }
-    if (res.status === 204) return undefined as T;
-    return res.json() as Promise<T>;
+    // Emptiness is a property of the body, not of the status code. 204 is
+    // merely the most common way to say it — 202 Accepted with nothing to
+    // report is another, and reading THAT as JSON is how "restart the kernel"
+    // came back as "Unexpected end of JSON input" for a command that had in
+    // fact been delivered.
+    const text = await res.text();
+    if (text === "") return undefined as T;
+    return JSON.parse(text) as T;
   };
 }

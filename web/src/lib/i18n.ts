@@ -277,6 +277,8 @@ const EN: Record<string, string> = {
   移到: "Move to",
   "移动中…": "Moving…",
   移动: "Move",
+  "内核已装好，但还没有配置可跑——给这个节点绑定一个接入配置后就会启动":
+    "The kernel is installed but has no config to run — bind an access configuration to this node and it will start.",
   // per-node egress
   出站分流: "Egress routing",
   "命中的流量从指定的落点出去，其余照常。自上而下匹配，第一条命中的生效。":
