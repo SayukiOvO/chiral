@@ -40,18 +40,33 @@ func blockAdvisories(configJSON []byte) []string {
 		return nil
 	}
 	hasIPBlock, hasDomainBlock := false, false
+	hasIPEgress := false
 	for _, r := range cfg.Routing.Rules {
-		if r.OutboundTag != BlackholeTag {
+		if r.OutboundTag == BlackholeTag {
+			if len(r.IP) > 0 {
+				hasIPBlock = true
+			}
+			if len(r.Domain) > 0 {
+				hasDomainBlock = true
+			}
 			continue
 		}
-		if len(r.IP) > 0 {
-			hasIPBlock = true
-		}
-		if len(r.Domain) > 0 {
-			hasDomainBlock = true
+		// An egress rule matching on IPs has the same DNS-timing problem as a
+		// block: with the wrong domainStrategy the rule never sees an address
+		// for a domain-form destination, so "geoip:netflix goes out through
+		// Japan" quietly does not apply to anything asked for by name — which
+		// is nearly everything.
+		if len(r.IP) > 0 && strings.HasPrefix(r.OutboundTag, "egress-") {
+			hasIPEgress = true
 		}
 	}
 	var out []string
+	if hasIPEgress && !hasIPBlock && cfg.Routing.DomainStrategy != "IPOnDemand" {
+		out = append(out,
+			"出站分流按 IP / geoip 匹配，但 routing.domainStrategy 不是 IPOnDemand："+
+				"用域名访问这些目标时规则不会命中（第一遍没有地址可比），流量照常直出。"+
+				"请在节点骨架的 routing 里设 domainStrategy: IPOnDemand。")
+	}
 	if hasIPBlock && cfg.Routing.DomainStrategy != "IPOnDemand" {
 		out = append(out,
 			"受限目的地按 IP 段拦截，但 routing.domainStrategy 不是 IPOnDemand："+

@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/SayukiOvO/chiral/core/internal/store"
@@ -391,4 +392,179 @@ func portOf(t *testing.T, rawURL string) string {
 		t.Fatal(err)
 	}
 	return u.Port()
+}
+
+// A fleet egress landing is a second way for one node's traffic to leave
+// through another, so it must inherit the landing node's restricted
+// destinations exactly as a relay entry does.
+//
+// The bypass this closes was real and needed no relay row at all: an egress
+// rule creates none, so the inheritance built from RelaysFromEntry saw
+// nothing, the source node carried no block, the rule matched every user, and
+// at the landing the traffic arrives under a machine credential that no block
+// list contains.
+func TestAnEgressLandingInheritsTheTargetsRestrictions(t *testing.T) {
+	svc, st, _ := newFixture(t)
+	p, src, dst, rl := twoNodeRelay(t, svc, st)
+	// No relay line in play: this must work on the egress rule alone.
+	if err := st.UpdateNodeRelay(rl.ID, rl.Label, false, 1); err != nil {
+		t.Fatal(err)
+	}
+	alice := entitle(t, st, "alice", p.ID, nil)
+	bob := entitle(t, st, "bob", p.ID, nil)
+
+	d, err := st.CreateRestrictedDestination("dn42", []string{"172.20.0.0/14"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Scoped to the LANDING node only.
+	if err := st.SetRestrictedDestinationNodes(d.ID, []string{dst.ID}); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetRestrictedDestinationAllows(d.ID, []string{alice.ID}); err != nil {
+		t.Fatal(err)
+	}
+	secret, err := template.Generate(template.GenUUID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.CreateEgressRule(store.EgressRule{
+		NodeID: src.ID, Label: "to-dst", Enabled: true,
+		IPs:        []string{"172.20.0.0/14"},
+		TargetKind: store.EgressNode, TargetNodeID: dst.ID,
+		TargetProfileID: p.ID, Secret: secret.Components[""],
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := svc.AssembleNode(src.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rules := restrictedRules(t, cfg)
+	if len(rules) == 0 {
+		t.Fatal("the source node carries no block rule; a barred user reaches the restricted network through the landing")
+	}
+	bobEmail := user.StatsEmail(bob.Name, bob.ID, p.ID, src.ID)
+	aliceEmail := user.StatsEmail(alice.Name, alice.ID, p.ID, src.ID)
+	barred := false
+	for _, r := range rules {
+		for _, u := range r.User {
+			if u == bobEmail {
+				barred = true
+			}
+			if u == aliceEmail {
+				t.Error("alice is allowed and still barred on the source node")
+			}
+		}
+	}
+	if !barred {
+		t.Errorf("the block does not bar bob on the source node: %+v", rules)
+	}
+	// And the block must outrank the egress rule, or it never fires.
+	tags := routingTags(t, cfg)
+	block, egress := -1, -1
+	for i, tag := range tags {
+		if tag == template.BlackholeTag && block < 0 {
+			block = i
+		}
+		if tag == EgressTag(mustEgressID(t, st, src.ID)) && egress < 0 {
+			egress = i
+		}
+	}
+	if block < 0 || egress < 0 || block > egress {
+		t.Fatalf("block=%d egress=%d in %v; the egress rule outranks the block", block, egress, tags)
+	}
+
+	// A policy change must re-push the source node, not just the scoped one.
+	affected, err := svc.RestrictedNodeIDs(d.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !contains(affected, src.ID) {
+		t.Errorf("changing the policy would not re-apply the source node: %v", affected)
+	}
+}
+
+// A new rule goes to the BOTTOM. Order is priority, so a rule that arrived at
+// the top would change what the node does the moment it was created — and the
+// operator's own arrangement would be silently overruled by their next edit.
+func TestANewRuleLandsBelowTheOnesAlreadyOrdered(t *testing.T) {
+	svc, st, _ := newFixture(t)
+	_, n := realityProfile(t, svc, st)
+	mk := func(label string) string {
+		r, err := st.CreateEgressRule(store.EgressRule{
+			NodeID: n.ID, Label: label, Enabled: true,
+			Domains: []string{"domain:" + label + ".test"}, TargetKind: store.EgressDirect,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return r.ID
+	}
+	a, b := mk("a"), mk("b")
+	if err := st.ReorderEgressRules(n.ID, []string{b, a}); err != nil {
+		t.Fatal(err)
+	}
+	c := mk("c")
+	rules, err := st.EgressRulesOn(n.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := make([]string, 0, len(rules))
+	for _, r := range rules {
+		got = append(got, r.ID)
+	}
+	want := []string{b, a, c}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("order is %v, want %v (the new rule jumped the queue)", got, want)
+		}
+	}
+}
+
+// geoip supports negation, and "everything except China leaves that way" is
+// the single most common rule anyone writes.
+func TestGeoipNegationIsAccepted(t *testing.T) {
+	got, err := store.ParseEgressIPs("geoip:!cn\ngeoip:jp")
+	if err != nil {
+		t.Fatalf("geoip:!cn refused: %v", err)
+	}
+	if len(got) != 2 || got[0] != "geoip:!cn" {
+		t.Fatalf("got %v", got)
+	}
+	// geosite has no such form, and accepting it would store a category that
+	// matches nothing.
+	if _, err := store.ParseEgressDomains("geosite:!cn"); err == nil {
+		t.Error("geosite:!cn was accepted; Xray has no such form")
+	}
+}
+
+// A rule pointing at an outbound nothing defines loads cleanly in Xray and
+// silently falls through to the node's own egress — the exact opposite of
+// what the rule exists to do. `xray -test` does not catch it, so assembly must.
+func TestADanglingOutboundTagIsRefusedAtAssembly(t *testing.T) {
+	svc, st, _ := newFixture(t)
+	_, n := realityProfile(t, svc, st)
+	// A skeleton whose outbound is named something else entirely.
+	if err := st.SetConfigSkeleton(n.ID, `{
+	  "log": { "loglevel": "warning" },
+	  "inbounds": [],
+	  "outbounds": [ { "protocol": "freedom", "tag": "out" } ]
+	}`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.CreateEgressRule(store.EgressRule{
+		NodeID: n.ID, Label: "netflix", Enabled: true,
+		Domains: []string{"geosite:netflix"}, TargetKind: store.EgressDirect,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	_, err := svc.AssembleNode(n.ID)
+	if err == nil {
+		t.Fatal("assembly accepted a rule pointing at an outbound that does not exist")
+	}
+	if !strings.Contains(err.Error(), "direct") {
+		t.Errorf("the error does not name the missing tag: %v", err)
+	}
 }

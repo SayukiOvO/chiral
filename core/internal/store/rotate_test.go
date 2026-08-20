@@ -1,7 +1,9 @@
 package store
 
 import (
+	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -205,30 +207,64 @@ func TestRotateIsRepeatable(t *testing.T) {
 // Every sealed column must be listed in sealedColumns(). This catches the
 // failure mode that matters: adding a new encrypted column and forgetting the
 // rotation, so a key change quietly orphans it.
+// Every sealed value in this package is bound by an AAD function, and every
+// AAD function must have a matching entry in sealedColumns() — or a key
+// rotation re-seals everything else and leaves that one unopenable forever.
+//
+// Derived from the source rather than a hand-kept list, because the hand-kept
+// version is what let node_relays.secret ship unrotatable: adding a Seal call
+// and forgetting the list is exactly the mistake, and a list you must also
+// remember to update cannot catch it.
 func TestEverySealedColumnIsRotated(t *testing.T) {
+	// AAD function name -> the table.column it protects.
+	owner := map[string]string{
+		"aad":           "variable_components.value",
+		"configAAD":     "node_configs.config",
+		"probeAAD":      "node_configs.probe_outbound",
+		"skeletonAAD":   "nodes.config_skeleton",
+		"credentialAAD": "credentials.secret",
+		"alertAAD":      "alert_targets.config",
+		"mfaAAD":        "mfa_credentials.secret",
+		"deviceAAD":     "user_devices.ip_enc",
+		"subTokenAAD":   "users.sub_token_enc",
+		"relayAAD":      "node_relays.secret",
+		"egressAAD":     "node_egress_rules.secret",
+	}
 	known := map[string]bool{}
 	for _, c := range sealedColumns() {
 		known[c.table+"."+c.column] = true
 	}
-	// Every call to box.Seal in this package writes to one of these.
-	for _, want := range []string{
-		"variable_components.value",
-		"node_configs.config",
-		"nodes.config_skeleton",
-		"credentials.secret",
-		"alert_targets.config",
-		"mfa_credentials.secret",
-		"user_devices.ip_enc",
-		"users.sub_token_enc",
-		"node_configs.probe_outbound",
-	} {
-		if !known[want] {
-			t.Errorf("%s is sealed but not in sealedColumns(); a key rotation would orphan it", want)
+
+	files, err := filepath.Glob("*.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defined := map[string]bool{}
+	re := regexp.MustCompile(`(?m)^func ([A-Za-z]*[aA]AD)\(`)
+	for _, f := range files {
+		if strings.HasSuffix(f, "_test.go") {
+			continue
+		}
+		src, err := os.ReadFile(f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, m := range re.FindAllStringSubmatch(string(src), -1) {
+			defined[m[1]] = true
 		}
 	}
-	if len(known) != 9 {
-		t.Errorf("sealedColumns() has %d entries; if you added one, extend this test too "+
-			"(%v)", len(known), strings.Join(keysOf(known), ", "))
+	if len(defined) == 0 {
+		t.Fatal("found no AAD functions; the detection broke rather than the code")
+	}
+	for fn := range defined {
+		table, mapped := owner[fn]
+		if !mapped {
+			t.Errorf("%s() seals something this test does not know about; add it to owner and to sealedColumns()", fn)
+			continue
+		}
+		if !known[table] {
+			t.Errorf("%s protects %s, which is not in sealedColumns(); a key rotation would orphan it", fn, table)
+		}
 	}
 }
 

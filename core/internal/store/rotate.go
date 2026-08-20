@@ -77,6 +77,18 @@ func sealedColumns() []sealedColumn {
 			table: "users", column: "sub_token_enc", keyCols: []string{"id"},
 			aad: func(k []any) string { return subTokenAAD(asString(k[0])) },
 		},
+		{
+			table: "node_relays", column: "secret", keyCols: []string{"id"},
+			aad: func(k []any) string { return relayAAD(asString(k[0])) },
+		},
+		{
+			// Only fleet landings carry one; the column is "" otherwise, and
+			// re-sealing an empty string would turn it into ciphertext the
+			// read path never opens.
+			table: "node_egress_rules", column: "secret", keyCols: []string{"id"},
+			where: "secret != ''",
+			aad:   func(k []any) string { return egressAAD(asString(k[0])) },
+		},
 	}
 }
 

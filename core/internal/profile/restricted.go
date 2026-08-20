@@ -1,6 +1,7 @@
 package profile
 
 import (
+	"github.com/SayukiOvO/chiral/core/internal/store"
 	"github.com/SayukiOvO/chiral/core/internal/template"
 )
 
@@ -25,7 +26,13 @@ func (s *Service) blocksFor(nodeID string) ([]template.BlockSource, error) {
 	if len(dests) == 0 {
 		return nil, nil
 	}
-	// The exits this node's relay lines land on, for the scope check.
+	// The nodes this one can push traffic to, for the scope check: relay line
+	// exits AND egress-rule landings. Both are ways for this node's traffic
+	// to leave through another, and both arrive there under a machine
+	// credential that no longer says who was asking — so a destination scoped
+	// to the far end has to be enforced HERE, the last place a user is still
+	// themselves. Missing the egress half was a real bypass: an egress rule
+	// needs no relay row, so RelaysFromEntry alone saw nothing at all.
 	relays, err := s.st.RelaysFromEntry(nodeID)
 	if err != nil {
 		return nil, err
@@ -33,6 +40,15 @@ func (s *Service) blocksFor(nodeID string) ([]template.BlockSource, error) {
 	exitOf := map[string]bool{}
 	for _, rl := range relays {
 		exitOf[rl.ExitNodeID] = true
+	}
+	egress, err := s.st.EgressRulesOn(nodeID)
+	if err != nil {
+		return nil, err
+	}
+	for _, r := range egress {
+		if r.Enabled && r.TargetKind == store.EgressNode && r.TargetNodeID != "" {
+			exitOf[r.TargetNodeID] = true
+		}
 	}
 
 	// Every credential on this node, by owner. Assembly has already minted
@@ -121,6 +137,15 @@ func (s *Service) RestrictedNodeIDs(destID string) ([]string, error) {
 				add(rl.EntryNodeID)
 			}
 		}
+	}
+	// And the nodes whose egress rules land on a scoped node: they carry the
+	// inherited block rules, so a policy change has to re-push them too.
+	sources, err := s.st.EgressSourceNodesFor(d.NodeIDs)
+	if err != nil {
+		return nil, err
+	}
+	for _, id := range sources {
+		add(id)
 	}
 	return out, nil
 }

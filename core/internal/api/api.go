@@ -521,6 +521,13 @@ func (s *Server) listNodes(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) deleteNode(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
+	// The nodes on the other end of anything this one participates in,
+	// collected BEFORE the row cascades away. A deleted node takes its relay
+	// lines and egress rules with it, but the machine credentials those put
+	// on the OTHER nodes are ordinary client entries that only disappear when
+	// those nodes are re-assembled — otherwise a credential outlives the rule
+	// that justified it, indefinitely.
+	others := s.peerNodesOf(id)
 	if err := s.st.DeleteNode(id); err != nil {
 		if store.IsNotFound(err) {
 			writeErr(w, http.StatusNotFound, "no such node")
@@ -532,7 +539,42 @@ func (s *Server) deleteNode(w http.ResponseWriter, r *http.Request) {
 	// Deleting the node also revokes its credential (row gone); drop the live
 	// session so the agent is cut off immediately rather than at next auth.
 	s.mgr.CloseSession(id)
+	s.applyNodes(r, others)
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// peerNodesOf lists the other nodes whose configs mention this one: the exits
+// and entries of its relay lines, and both ends of its egress rules.
+func (s *Server) peerNodesOf(id string) []string {
+	seen := map[string]bool{id: true}
+	var out []string
+	add := func(n string) {
+		if n != "" && !seen[n] {
+			seen[n] = true
+			out = append(out, n)
+		}
+	}
+	if relays, err := s.st.ListNodeRelays(); err == nil {
+		for _, rl := range relays {
+			if rl.EntryNodeID == id {
+				add(rl.ExitNodeID)
+			}
+			if rl.ExitNodeID == id {
+				add(rl.EntryNodeID)
+			}
+		}
+	}
+	if rules, err := s.st.EgressRulesOn(id); err == nil {
+		for _, r := range rules {
+			add(r.TargetNodeID)
+		}
+	}
+	if rules, err := s.st.EgressRulesLandingOn(id); err == nil {
+		for _, r := range rules {
+			add(r.NodeID)
+		}
+	}
+	return out
 }
 
 // resetJoinToken issues a fresh join token, e.g. to recover an agent that

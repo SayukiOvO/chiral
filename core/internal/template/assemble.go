@@ -168,6 +168,16 @@ func AssembleNodeWithEgress(skeleton string, sources []InboundSource, exits []Ex
 		return nil, err
 	}
 
+	// Every rule must name an outbound that exists. `xray -test` does NOT
+	// check this — a rule pointing at a tag nothing defines loads cleanly and
+	// the traffic falls through to the default outbound, which is the node's
+	// own egress: the matched traffic goes exactly where the rule existed to
+	// stop it going, silently. The egress "direct" landing names a tag from
+	// the operator's skeleton, so a renamed outbound is one keystroke away.
+	if err := checkRuleTargets(cfg); err != nil {
+		return nil, err
+	}
+
 	out, err := json.Marshal(cfg)
 	if err != nil {
 		return nil, err
@@ -483,4 +493,48 @@ func ReplaceBlocks(configJSON []byte, blocks []BlockSource) ([]byte, error) {
 		return out, nil
 	}
 	return buf.Bytes(), nil
+}
+
+// checkRuleTargets refuses a config whose routing rules point at outbounds
+// that do not exist. See the call site for why `xray -test` cannot do this.
+func checkRuleTargets(cfg map[string]json.RawMessage) error {
+	var outbounds []struct {
+		Tag string `json:"tag"`
+	}
+	if raw, ok := cfg["outbounds"]; ok && len(raw) > 0 {
+		if err := json.Unmarshal(raw, &outbounds); err != nil {
+			return nil // shape errors are reported by the splices themselves
+		}
+	}
+	have := make(map[string]bool, len(outbounds))
+	for _, ob := range outbounds {
+		have[ob.Tag] = true
+	}
+	var routing struct {
+		Rules []struct {
+			OutboundTag string `json:"outboundTag"`
+		} `json:"rules"`
+	}
+	if raw, ok := cfg["routing"]; ok && len(raw) > 0 {
+		if err := json.Unmarshal(raw, &routing); err != nil {
+			return nil
+		}
+	}
+	// The api handler is not an outbound: routing to it is how Xray reaches
+	// the API service, and its tag is declared under cfg["api"]. Whatever the
+	// operator named theirs counts as resolvable.
+	if raw, ok := cfg["api"]; ok && len(raw) > 0 {
+		var api struct {
+			Tag string `json:"tag"`
+		}
+		if json.Unmarshal(raw, &api) == nil && api.Tag != "" {
+			have[api.Tag] = true
+		}
+	}
+	for _, r := range routing.Rules {
+		if r.OutboundTag != "" && !have[r.OutboundTag] {
+			return fmt.Errorf("路由规则指向了不存在的 outbound %q——检查节点骨架里 outbounds 的 tag", r.OutboundTag)
+		}
+	}
+	return nil
 }

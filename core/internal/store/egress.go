@@ -119,7 +119,10 @@ func ParseEgressIPs(text string) ([]string, error) {
 			if kind == "geosite" {
 				return nil, fmt.Errorf("%q 是域名类别——请写进上面的域名 / geosite 一栏", line)
 			}
-			if !validGeoTag(line) {
+			// A leading "!" negates: geoip:!cn is "everything except China",
+			// which is the most common rule anyone writes. Xray takes it on
+			// ip conditions; geosite has no such form.
+			if !validGeoTag(strings.Replace(line, ":!", ":", 1)) {
 				return nil, fmt.Errorf("%q 不是合法的 geoip 类别", line)
 			}
 			out = append(out, line)
@@ -171,13 +174,17 @@ func (s *Store) CreateEgressRule(r EgressRule) (EgressRule, error) {
 			return EgressRule{}, err
 		}
 	}
+	// Placed last, not first. Order is priority, and a rule that silently
+	// outranked everything the operator had already arranged would change
+	// what the node does the moment it was created.
 	_, err := s.db.Exec(`INSERT INTO node_egress_rules
 		(id, node_id, label, domains, ips, target_kind, target_proxy_id, target_node_id,
 		 target_profile_id, secret, enabled, sort_order, created_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?)`,
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+		        (SELECT COALESCE(MAX(sort_order), 0) + 1 FROM node_egress_rules WHERE node_id = ?), ?)`,
 		r.ID, r.NodeID, r.Label, joinLines(r.Domains), joinLines(r.IPs), r.TargetKind,
 		nullIfEmpty(r.TargetProxyID), nullIfEmpty(r.TargetNodeID),
-		nullIfEmpty(r.TargetProfileID), sealed, r.Enabled, r.CreatedAt)
+		nullIfEmpty(r.TargetProfileID), sealed, r.Enabled, r.NodeID, r.CreatedAt)
 	return r, err
 }
 
@@ -258,4 +265,25 @@ func (s *Store) ReorderEgressRules(nodeID string, ids []string) error {
 		}
 	}
 	return tx.Commit()
+}
+
+// EgressSourceNodesFor lists the nodes that send traffic to any of the given
+// nodes through an enabled fleet landing.
+//
+// The mirror of EgressRulesLandingOn, needed because a restricted destination
+// scoped to a landing node has to be enforced on the SOURCE node too — that
+// is the last place the user is still identifiable, exactly as with a relay
+// line's entry.
+func (s *Store) EgressSourceNodesFor(nodeIDs []string) ([]string, error) {
+	if len(nodeIDs) == 0 {
+		return nil, nil
+	}
+	q := `SELECT DISTINCT node_id FROM node_egress_rules
+		WHERE target_kind = 'node' AND enabled = 1 AND target_node_id IN (?` +
+		strings.Repeat(",?", len(nodeIDs)-1) + `)`
+	args := make([]any, 0, len(nodeIDs))
+	for _, id := range nodeIDs {
+		args = append(args, id)
+	}
+	return s.stringColumn(q, args...)
 }

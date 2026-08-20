@@ -176,6 +176,13 @@ func (s *Server) createEgress(w http.ResponseWriter, r *http.Request) {
 			writeErr(w, http.StatusBadRequest, "没有这个节点")
 			return
 		}
+		// Refused at write time, not at render: a loop between two kernels
+		// costs both of them, and the operator can see the cause here while
+		// they cannot see it in a config that assembles perfectly well.
+		if s.egressReaches(req.TargetNodeID, nodeID, map[string]bool{}) {
+			writeErr(w, http.StatusConflict, "会绕成环：目标节点的出站分流又指回了这个节点")
+			return
+		}
 		ids, err := s.st.ProfileNodeIDs(req.TargetProfileID)
 		if err != nil {
 			s.internalErr(w, "load profile nodes", err)
@@ -309,4 +316,29 @@ func (s *Server) applyEgressEnds(r *http.Request, rule store.EgressRule) {
 		nodes = append(nodes, rule.TargetNodeID)
 	}
 	s.applyNodes(r, nodes)
+}
+
+// egressReaches reports whether traffic entering `from` can arrive at `to`
+// by following enabled fleet landings.
+func (s *Server) egressReaches(from, to string, seen map[string]bool) bool {
+	if from == to {
+		return true
+	}
+	if seen[from] {
+		return false
+	}
+	seen[from] = true
+	rules, err := s.st.EgressRulesOn(from)
+	if err != nil {
+		// Unknown means unproven, and an unproven loop is not a reason to
+		// refuse: the render would still be valid, and xray on both ends
+		// survives a rule that never fires.
+		return false
+	}
+	for _, r := range rules {
+		if r.Enabled && r.TargetKind == store.EgressNode && s.egressReaches(r.TargetNodeID, to, seen) {
+			return true
+		}
+	}
+	return false
 }
