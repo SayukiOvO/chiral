@@ -95,9 +95,43 @@ export interface User {
    */
   online_devices?: number;
   profile_ids: string[];
-  /** Routing configuration their clash subscription uses; empty for none. */
+  /**
+   * The rule set this subscriber chose for themselves, empty when they chose
+   * nothing. effective_ruleset_id is what their subscription is rendered
+   * against — their own choice, else their group's — so the console edits the
+   * first and displays the second.
+   */
   ruleset_id: string;
+  effective_ruleset_id: string;
+  /**
+   * own_profile_ids are the grants written against this subscriber and
+   * denied_profile_ids the ones withheld from them despite their group;
+   * profile_ids is what they hold by whatever route. The console needs all
+   * three to tell "granted here" from "granted by the group".
+   */
+  own_profile_ids: string[];
+  denied_profile_ids: string[];
+  /** "No routing rules, whatever the group says." */
+  ruleset_none: boolean;
+  /** The group deciding for them, absent when they are in none. */
+  group_id?: string;
+  group_name?: string;
   credentials?: Credential[];
+  created_at: number;
+}
+
+/**
+ * A class of subscriber. Membership is single — one group per person — and a
+ * group withholds everything that exists when it is created, so putting people
+ * into one is safe before deciding what it gets.
+ */
+export interface SubscriberGroup {
+  id: string;
+  name: string;
+  note: string;
+  ruleset_id: string;
+  members: number;
+  profile_ids: string[];
   created_at: number;
 }
 
@@ -292,6 +326,12 @@ export interface NodeAccessEntry {
    * this is what says so instead of leaving the toggle looking on.
    */
   chained_via?: string;
+  /**
+   * Set when this decision is the group's and the subscriber has no row of
+   * their own. Clearing an exception and setting one are different actions,
+   * so the console has to be able to tell them apart.
+   */
+  from_group?: boolean;
 }
 
 /**
@@ -648,8 +688,37 @@ export const api = {
     req<Ruleset>("PUT", `/api/rulesets/${id}`, patch),
   deleteRuleset: (id: string) => req<void>("DELETE", `/api/rulesets/${id}`),
   refreshRuleset: (id: string) => req<Ruleset>("POST", `/api/rulesets/${id}/refresh`),
-  setUserRuleset: (userID: string, rulesetID: string) =>
-    req<void>("PUT", `/api/users/${userID}/ruleset`, { ruleset_id: rulesetID }),
+  // An empty ruleset_id now means "inherit from the group", so refusing rules
+  // outright is a separate flag rather than the absence of a choice.
+  setUserRuleset: (userID: string, rulesetID: string, none = false) =>
+    req<void>("PUT", `/api/users/${userID}/ruleset`, { ruleset_id: rulesetID, none }),
+
+  // --- subscriber groups ---
+  listGroups: () => req<{ groups: SubscriberGroup[] }>("GET", "/api/groups"),
+  createGroup: (g: { name: string; note?: string }) =>
+    req<SubscriberGroup>("POST", "/api/groups", g),
+  updateGroup: (id: string, g: { name: string; note?: string }) =>
+    req<SubscriberGroup>("PUT", `/api/groups/${id}`, g),
+  deleteGroup: (id: string) => req<void>("DELETE", `/api/groups/${id}`),
+  bindGroupProfile: (id: string, profileID: string) =>
+    req<void>("POST", `/api/groups/${id}/profiles/${profileID}`),
+  unbindGroupProfile: (id: string, profileID: string) =>
+    req<void>("DELETE", `/api/groups/${id}/profiles/${profileID}`),
+  groupNodeAccess: (id: string) =>
+    req<{ fleet: NodeAccessEntry[]; external: NodeAccessEntry[]; relay: NodeAccessEntry[] }>(
+      "GET",
+      `/api/groups/${id}/nodes`,
+    ),
+  setGroupNodeAccess: (
+    id: string,
+    denied: { denied_nodes: string[]; denied_proxies: string[]; denied_relays: string[] },
+  ) => req<void>("PUT", `/api/groups/${id}/nodes`, denied),
+  setGroupRuleset: (id: string, rulesetID: string) =>
+    req<void>("PUT", `/api/groups/${id}/ruleset`, { ruleset_id: rulesetID }),
+  setUserProfileAccess: (userID: string, profileID: string, state: "grant" | "deny" | "inherit") =>
+    req<void>("PUT", `/api/users/${userID}/profiles/${profileID}`, { state }),
+  setUserGroup: (userID: string, groupID: string) =>
+    req<void>("PUT", `/api/users/${userID}/group`, { group_id: groupID }),
 
   listVariables: () => req<{ variables: Variable[] }>("GET", "/api/variables"),
   createVariable: (v: {

@@ -79,6 +79,18 @@ func (s *Service) blocksFor(nodeID string) ([]template.BlockSource, error) {
 		for _, uid := range d.AllowedUserIDs {
 			allowed[uid] = true
 		}
+		// A group admitted here is shorthand for its members, expanded at
+		// assembly rather than stored: membership changes without anyone
+		// revisiting the destination, and the rule has to follow it.
+		for _, gid := range d.AllowedGroupIDs {
+			members, err := s.st.GroupMemberIDs(gid)
+			if err != nil {
+				return nil, err
+			}
+			for _, uid := range members {
+				allowed[uid] = true
+			}
+		}
 		// Barred = every subscriber not on the allow list. Their every
 		// credential email on this node, because the rule matches emails and
 		// one person holds one per access point × exit.

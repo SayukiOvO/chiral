@@ -343,3 +343,73 @@ func TestRollbackReDerivesTheBlockRules(t *testing.T) {
 		}
 	}
 }
+
+// A destination may admit a whole group, and the group is shorthand for its
+// members — expanded at assembly, so membership can change without anyone
+// revisiting the destination. The dangerous half is the same one as always: a
+// destination that ends up admitting EVERYONE must emit no rule at all, not a
+// rule with an empty user list.
+func TestAGroupMayBeAdmittedToARestrictedDestination(t *testing.T) {
+	svc, st, _ := newFixture(t)
+	p, n := realityProfile(t, svc, st)
+	alice := entitle(t, st, "alice", p.ID, nil)
+	bob := entitle(t, st, "bob", p.ID, nil)
+
+	d, err := st.CreateRestrictedDestination("dn42", []string{"172.20.0.0/14"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetRestrictedDestinationNodes(d.ID, []string{n.ID}); err != nil {
+		t.Fatal(err)
+	}
+	g, err := st.CreateSubscriberGroup("operators", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Alice joins the group; the group is admitted. Her grants are cleared by
+	// the join, so the group has to hand them back for her to be on the node
+	// at all — which is exactly what makes this worth asserting end to end.
+	if err := st.BindGroupProfile(g.ID, p.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetGroupNodeAccess(g.ID, nil, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetUserGroup(alice.ID, g.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetRestrictedDestinationGroupAllows(d.ID, []string{g.ID}); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := svc.AssembleNode(n.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rules := restrictedRules(t, cfg)
+	if len(rules) != 1 {
+		t.Fatalf("want one ip rule, got %+v", rules)
+	}
+	aliceEmail := user.StatsEmail(alice.Name, alice.ID, p.ID, n.ID)
+	bobEmail := user.StatsEmail(bob.Name, bob.ID, p.ID, n.ID)
+	for _, u := range rules[0].User {
+		if u == aliceEmail {
+			t.Errorf("a member of an admitted group is barred: %v", rules[0].User)
+		}
+	}
+	if len(rules[0].User) != 1 || rules[0].User[0] != bobEmail {
+		t.Errorf("rule bars %v, want exactly [%s]", rules[0].User, bobEmail)
+	}
+
+	// Bob joins too: nobody is left to bar, so the rule must vanish.
+	if err := st.SetUserGroup(bob.ID, g.ID); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err = svc.AssembleNode(n.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := restrictedRules(t, cfg); len(got) != 0 {
+		t.Fatalf("with everyone admitted the rules must vanish, got %+v", got)
+	}
+}

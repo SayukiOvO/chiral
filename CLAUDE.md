@@ -49,6 +49,8 @@ Chiral 是一个 Xray 管理面板，定位类似 Remnawave：采用 **Panel + A
 17. **端用户与管理员是两类主体，边界靠构造而非小心**（M5）：`portal.Identity` **永远不带 Role**，`auth.rank()` **永远不新增 `>= 1` 的值**。一旦有人给 rank 加了「user: 1」，`requireAdmin`（= viewer 档）覆盖的节点列表、用户列表、变量、Profile、流量、审计日志就全部对客户开放。（`config/preview` 不在此列——M5-2 已把它提到 `requireWrite`，正因为它返回含 REALITY 私钥与全部凭证明文的完整 config。）
     编译期能保证的部分要说准：**接错守卫是编译错误**（`portalHandler` 多收一个 `portal.Identity`，两种签名不统一）；**`package portal` 内部够不到 store**，所以越权取数在 `View` 这条路径上不可能。但 `package api` 里的门户 handler 是 `*Server` 的方法，仍持有 `s.st`（`portalLogin`、`portalChangePassword` 就在用它读写自己的账号行）——在那里写 `s.st.ListNodes()` 是能编译过的。**规矩是：凡是要展示机队信息，一律走 `View`。**
 
+18. **用户组：归属单一，判定次序个人 > 组 > 默认**（M7）：多对多取并集**无法表达拒绝**——只要一个组允许，其余组的拒绝全部失效，而本面板的节点控制本身就是拒绝表（和空 `user` 列表匹配所有人同类的陷阱）。解析放在 store 内部，`UserProfileIDs` / `ProfileUserIDs` / `UserNodeDenies` 等函数名不变、返回解析后的结果：订阅装配、凭证铸造、控制台问的是同一个问题，绝不能各自作答。三处默认必须关闭：新建组对已存在的一切写拒绝行、新建节点也给每个组写一行、新建订阅者维持原状。**加入组清空个人行**（否则成员被自己的例外完整覆盖，组永不生效），**离开或删除组则把组当时的决定写进成员自己的行**（否则离开＝不被任何东西拒绝＝拿到整个机队）。整集编辑器只写与组不一致的差异，否则第一次保存就把组埋掉。`ruleset_none` 是必需的第三态：空 `ruleset_id` 现在意味着继承。详见 `docs/user-groups.md`。
+
 ## 5. 搁置 / 待议
 
 - **shadcn/ui 组件化下沉**：当前是手写原语，功能与观感已达标，属重构而非缺口。

@@ -14,6 +14,7 @@ import { SettingsPage } from "./pages/SettingsPage";
 import { AuditPage } from "./pages/AuditPage";
 import { SecurityPage } from "./pages/SecurityPage";
 import { UsersPage } from "./pages/UsersPage";
+import { GroupsPage } from "./pages/GroupsPage";
 import { VariablesPage } from "./pages/VariablesPage";
 import { useRoute } from "./lib/router";
 
@@ -46,6 +47,7 @@ function Console({ onSignOut }: { onSignOut: () => void }) {
         {route.view === "nodes" && <NodesPage onSignOut={onSignOut} />}
         {route.view === "profiles" && <ProfilesPage id={route.id} />}
         {route.view === "users" && <UsersPage />}
+        {route.view === "groups" && <GroupsPage />}
         {route.view === "variables" && <VariablesPage />}
         {route.view === "alerts" && <AlertsPage />}
         {route.view === "kernel" && <KernelPage />}

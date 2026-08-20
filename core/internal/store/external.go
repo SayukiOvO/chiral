@@ -280,6 +280,10 @@ func (s *Store) ReplaceExternalProxies(subID string, fresh []ExternalProxy) erro
 			SELECT id, ? FROM users`, id); err != nil {
 			return err
 		}
+		if _, err := tx.Exec(`INSERT INTO group_external_denies (group_id, proxy_id)
+			SELECT id, ? FROM subscriber_groups`, id); err != nil {
+			return err
+		}
 		kept[id] = struct{}{}
 	}
 
@@ -375,16 +379,29 @@ func nullIfEmpty(s string) any {
 // which is what an operator expects when they bind a new one, and it keeps
 // these tables empty for a fleet that does not need per-user control.
 func (s *Store) UserNodeDenies(userID string) (map[string]struct{}, error) {
-	return s.denySet(`SELECT node_id FROM user_node_denies WHERE user_id = ?`, userID)
+	return s.effectiveDenies(userID, "node_id", "user_node_denies", "user_node_allows", "group_node_denies")
 }
 
 // UserExternalDenies lists the external proxies this subscriber may not use.
 func (s *Store) UserExternalDenies(userID string) (map[string]struct{}, error) {
-	return s.denySet(`SELECT proxy_id FROM user_external_denies WHERE user_id = ?`, userID)
+	return s.effectiveDenies(userID, "proxy_id", "user_external_denies", "user_external_allows", "group_external_denies")
 }
 
-func (s *Store) denySet(query, userID string) (map[string]struct{}, error) {
-	rows, err := s.db.Query(query, userID)
+// effectiveDenies resolves one dimension of access: what this subscriber is
+// refused, being their own refusals plus their group's, less the objects they
+// are allowed by exception. A personal row always outranks the group — that is
+// what makes it an exception — and an object nobody has ruled on is allowed.
+func (s *Store) effectiveDenies(userID, col, denyTable, allowTable, groupTable string) (map[string]struct{}, error) {
+	return s.denySet(`SELECT `+col+` FROM `+denyTable+` WHERE user_id = ?
+		UNION
+		SELECT g.`+col+` FROM `+groupTable+` g
+			JOIN users u ON u.group_id = g.group_id AND u.id = ?
+			WHERE g.`+col+` NOT IN (SELECT `+col+` FROM `+allowTable+` WHERE user_id = ?)`,
+		userID, userID, userID)
+}
+
+func (s *Store) denySet(query string, args ...any) (map[string]struct{}, error) {
+	rows, err := s.db.Query(query, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -407,42 +424,30 @@ func (s *Store) denySet(query, userID string) (map[string]struct{}, error) {
 // each toggled one node could interleave into a state neither of them asked
 // for.
 func (s *Store) SetUserNodeAccess(userID string, deniedNodes, deniedProxies, deniedRelays []string) error {
+	groupID, err := s.UserGroupID(userID)
+	if err != nil {
+		return err
+	}
 	tx, err := s.db.Begin()
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
-	if _, err := tx.Exec(`DELETE FROM user_node_denies WHERE user_id = ?`, userID); err != nil {
-		return err
-	}
-	if _, err := tx.Exec(`DELETE FROM user_external_denies WHERE user_id = ?`, userID); err != nil {
-		return err
-	}
-	if _, err := tx.Exec(`DELETE FROM user_relay_denies WHERE user_id = ?`, userID); err != nil {
-		return err
-	}
-	for _, id := range deniedNodes {
-		if _, err := tx.Exec(`INSERT OR IGNORE INTO user_node_denies (user_id, node_id) VALUES (?, ?)`,
-			userID, id); err != nil {
-			return err
-		}
-	}
-	for _, id := range deniedProxies {
-		if _, err := tx.Exec(`INSERT OR IGNORE INTO user_external_denies (user_id, proxy_id) VALUES (?, ?)`,
-			userID, id); err != nil {
-			return err
-		}
-	}
-	for _, id := range deniedRelays {
-		if _, err := tx.Exec(`INSERT OR IGNORE INTO user_relay_denies (user_id, relay_id) VALUES (?, ?)`,
-			userID, id); err != nil {
+	for _, d := range []struct {
+		kind   string
+		denied []string
+	}{
+		{"node", deniedNodes},
+		{"external", deniedProxies},
+		{"relay", deniedRelays},
+	} {
+		if err := s.setUserDimension(tx, userID, groupID, d.kind, d.denied); err != nil {
 			return err
 		}
 	}
 	return tx.Commit()
 }
 
-// GetExternalProxy loads one proxy by id, across sources.
 func (s *Store) GetExternalProxy(id string) (ExternalProxy, error) {
 	return scanExternalProxy(s.db.QueryRow(
 		`SELECT `+externalProxyCols+` FROM external_proxies WHERE id = ?`, id))
@@ -454,36 +459,13 @@ func (s *Store) GetExternalProxy(id string) (ExternalProxy, error) {
 // read it from is a question about what the operator is doing — going through a
 // person's entitlements, or deciding who a newly added node is for.
 func (s *Store) ExternalProxyDenies(proxyID string) (map[string]struct{}, error) {
-	return s.denySet(`SELECT user_id FROM user_external_denies WHERE proxy_id = ?`, proxyID)
+	return s.objectDenies("external", proxyID)
 }
 
-// SetExternalProxyAccess replaces the set of subscribers denied one external
-// node, leaving every other node's denials alone.
-//
-// Whole-set for this proxy, per the same reasoning as SetUserNodeAccess: the
-// console shows the whole list of subscribers and the operator is describing an
-// end state, not a sequence of toggles.
 func (s *Store) SetExternalProxyAccess(proxyID string, deniedUsers []string) error {
-	tx, err := s.db.Begin()
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-	if _, err := tx.Exec(`DELETE FROM user_external_denies WHERE proxy_id = ?`, proxyID); err != nil {
-		return err
-	}
-	for _, id := range deniedUsers {
-		if _, err := tx.Exec(
-			`INSERT OR IGNORE INTO user_external_denies (user_id, proxy_id) VALUES (?, ?)`,
-			id, proxyID); err != nil {
-			return err
-		}
-	}
-	return tx.Commit()
+	return s.setObjectAccess("external", proxyID, deniedUsers)
 }
 
-// RenameExternalProxy sets or clears the operator's own label for one proxy.
-// An empty name restores the provider's.
 func (s *Store) RenameExternalProxy(id, displayName string) error {
 	res, err := s.db.Exec(`UPDATE external_proxies SET display_name = ? WHERE id = ?`, displayName, id)
 	if err != nil {

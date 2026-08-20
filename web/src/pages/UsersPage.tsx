@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { api, type Profile, type Ruleset, type User } from "../api";
+import { api, type Profile, type Ruleset, type SubscriberGroup, type User } from "../api";
 import { expiryLabel, periodLabel } from "../format";
 import { cn } from "../lib/cn";
 import { QuotaBar } from "../components/QuotaBar";
@@ -20,6 +20,10 @@ export function UsersPage() {
   const [users, setUsers] = useState<User[]>([]);
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [rulesets, setRulesets] = useState<Ruleset[]>([]);
+  const [groups, setGroups] = useState<SubscriberGroup[]>([]);
+  // Bumped on every reload, so a card's node list re-reads entitlement after a
+  // grant rather than keeping what it was mounted with.
+  const [version, setVersion] = useState(0);
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState("");
   const [editing, setEditing] = useState<User | null>(null);
@@ -33,14 +37,17 @@ export function UsersPage() {
 
   const refresh = useCallback(async () => {
     try {
-      const [u, p, rs] = await Promise.all([
+      const [u, p, rs, g] = await Promise.all([
         api.listUsers(),
         api.listProfiles(),
         api.listRulesets(),
+        api.listGroups(),
       ]);
       setUsers(u.users);
       setProfiles(p.profiles);
       setRulesets(rs.rulesets);
+      setGroups(g.groups ?? []);
+      setVersion((v) => v + 1);
       setError("");
     } catch (e) {
       setError((e as Error).message);
@@ -89,6 +96,8 @@ export function UsersPage() {
                 user={u}
                 profiles={profiles}
                 rulesets={rulesets}
+                groups={groups}
+                version={version}
                 onChanged={refresh}
                 onEdit={() => setEditing(u)}
                 onSubscription={(url, fresh) =>
@@ -142,6 +151,8 @@ function UserCard({
   user,
   profiles,
   rulesets,
+  groups,
+  version,
   onChanged,
   onEdit,
   onSubscription,
@@ -149,6 +160,8 @@ function UserCard({
   user: User;
   profiles: Profile[];
   rulesets: Ruleset[];
+  groups: SubscriberGroup[];
+  version: number;
   onChanged: () => void;
   onEdit: () => void;
   onSubscription: (url: string, fresh: boolean) => void;
@@ -191,10 +204,12 @@ function UserCard({
     }
   }
 
-  async function setRuleset(id: string) {
+  // Three choices for a member of a group — inherit, none, or a rule set —
+  // because an empty id now means "inherit" and could not also mean "none".
+  async function setRuleset(id: string, none = false) {
     setBusy(true);
     try {
-      await api.setUserRuleset(user.id, id);
+      await api.setUserRuleset(user.id, id, none);
       onChanged();
     } catch (e) {
       alert(t("修改分流规则失败：") + (e as Error).message);
@@ -203,14 +218,52 @@ function UserCard({
     }
   }
 
-  async function toggleProfile(profileId: string, bound: boolean) {
+  // Joining discards this subscriber's own grants and denials — the group
+  // decides from then on — so the operator is told before it happens rather
+  // than after.
+  async function setGroup(groupID: string) {
+    if (groupID && groupID !== (user.group_id ?? "")) {
+      const g = groups.find((x) => x.id === groupID);
+      if (
+        !window.confirm(
+          tf("将「{user}」加入用户组「{group}」后，其现有的接入配置授权与节点设置将被清除，改由该组决定。是否继续？", {
+            user: user.name,
+            group: g?.name ?? groupID,
+          }),
+        )
+      )
+        return;
+    }
     setBusy(true);
     try {
-      if (bound) {
-        await api.unbindUserProfile(user.id, profileId);
-      } else {
-        await api.bindUserProfile(user.id, profileId);
-      }
+      await api.setUserGroup(user.id, groupID);
+      onChanged();
+    } catch (e) {
+      alert(t("修改用户组失败：") + (e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  // Three states rather than a toggle, because a member of a group can hold a
+  // configuration without a row of their own: clicking such a chip has to
+  // withhold it explicitly, and clicking again hands the decision back.
+  async function cycleProfile(profileId: string) {
+    const own = user.own_profile_ids?.includes(profileId);
+    const denied = user.denied_profile_ids?.includes(profileId);
+    const held = user.profile_ids.includes(profileId);
+    const next: "grant" | "deny" | "inherit" = denied
+      ? "inherit"
+      : own
+        ? user.group_id
+          ? "inherit"
+          : "deny"
+        : held
+          ? "deny"
+          : "grant";
+    setBusy(true);
+    try {
+      await api.setUserProfileAccess(user.id, profileId, next);
       onChanged();
     } catch (e) {
       alert(t("修改权限失败：") + (e as Error).message);
@@ -315,6 +368,38 @@ function UserCard({
 
       {expanded && (
         <div className="mt-4 border-t border-line pt-4 pl-[22px]">
+          {groups.length > 0 && (
+            <div className="mb-5">
+              <div className="mb-2 text-[11px] font-medium uppercase tracking-[0.07em] text-faint">
+                {t("用户组")}
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                {[{ id: "", name: t("不属于任何组") }, ...groups].map((g) => {
+                  const on = (user.group_id ?? "") === g.id;
+                  return (
+                    <button
+                      key={g.id || "none"}
+                      onClick={() => setGroup(g.id)}
+                      disabled={busy}
+                      className={cn(
+                        "inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs transition-colors disabled:opacity-50",
+                        on
+                          ? "border-[color-mix(in_srgb,var(--online)_45%,transparent)] text-online"
+                          : "border-line-strong text-muted hover:border-signal hover:text-ink",
+                      )}
+                    >
+                      {on && <CheckIcon size={12} />}
+                      {g.name}
+                    </button>
+                  );
+                })}
+              </div>
+              <p className="mt-2 text-xs text-faint">
+                {t("组决定成员的接入配置、可用节点与分流规则；以下各项的调整将作为该成员的个人设置，优先于组。移出组时保留组当前授予的权限。")}
+              </p>
+            </div>
+          )}
+
           <div className="mb-2 text-[11px] font-medium uppercase tracking-[0.07em] text-faint">
             {t("可访问的接入配置")}
           </div>
@@ -323,21 +408,37 @@ function UserCard({
           ) : (
             <div className="flex flex-wrap gap-1.5">
               {profiles.map((p) => {
-                const bound = user.profile_ids.includes(p.id);
+                const held = user.profile_ids.includes(p.id);
+                const inherited = held && !user.own_profile_ids?.includes(p.id);
+                const excluded = user.denied_profile_ids?.includes(p.id);
                 return (
                   <button
                     key={p.id}
-                    onClick={() => toggleProfile(p.id, bound)}
+                    onClick={() => cycleProfile(p.id)}
                     disabled={busy}
+                    title={
+                      excluded
+                        ? t("已对此用户单独排除；再次点击恢复由用户组决定")
+                        : inherited
+                          ? t("由用户组授予；点击可对此用户单独排除")
+                          : undefined
+                    }
                     className={cn(
                       "inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs transition-colors disabled:opacity-50",
-                      bound
+                      held
                         ? "border-[color-mix(in_srgb,var(--online)_45%,transparent)] text-online"
-                        : "border-line-strong text-muted hover:border-signal hover:text-ink",
+                        : excluded
+                          ? "border-dashed border-line-strong text-muted line-through"
+                          : "border-line-strong text-muted hover:border-signal hover:text-ink",
                     )}
                   >
-                    {bound && <CheckIcon size={12} />}
+                    {held && <CheckIcon size={12} />}
                     {p.name}
+                    {inherited && (
+                      <span className="text-[10px] text-faint" title={t("该状态继承自用户组")}>
+                        {t("组")}
+                      </span>
+                    )}
                   </button>
                 );
               })}
@@ -353,7 +454,7 @@ function UserCard({
             <div className="mb-2 text-[11px] font-medium uppercase tracking-[0.07em] text-faint">
               {t("可用节点")}
             </div>
-            {expanded && <NodeAccess userId={user.id} />}
+            {expanded && <NodeAccess subject="user" id={user.id} version={version} />}
           </div>
 
           {/* Per subscriber, not per profile: which traffic goes through the
@@ -369,12 +470,23 @@ function UserCard({
               </p>
             ) : (
               <div className="flex flex-wrap gap-1.5">
-                {[{ id: "", name: t("不分流") }, ...rulesets].map((rs) => {
-                  const on = (user.ruleset_id ?? "") === rs.id;
+                {[
+                  ...(user.group_id ? [{ id: "inherit", name: t("继承自用户组") }] : []),
+                  { id: "", name: t("不分流") },
+                  ...rulesets,
+                ].map((rs) => {
+                  const chosen = user.ruleset_id
+                    ? user.ruleset_id
+                    : user.ruleset_none || !user.group_id
+                      ? ""
+                      : "inherit";
+                  const on = chosen === rs.id;
                   return (
                     <button
                       key={rs.id || "none"}
-                      onClick={() => setRuleset(rs.id)}
+                      onClick={() =>
+                        rs.id === "inherit" ? setRuleset("") : setRuleset(rs.id, rs.id === "")
+                      }
                       disabled={busy}
                       className={cn(
                         "inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs transition-colors disabled:opacity-50",

@@ -34,6 +34,14 @@ type User struct {
 	// proxies and groups with no rules — every client then routes everything
 	// through the proxy.
 	RulesetID string
+	// RulesetNone says "no routing rules, whatever my group says". Without it
+	// an empty RulesetID would have to mean both "inherit" and "none", and a
+	// member could never be excused from their group's rule set.
+	RulesetNone bool
+	// GroupID is the subscriber group deciding for them, empty when they are
+	// in none. What that decides is resolved in the store — see group.go — so
+	// nothing outside it has to know a group exists.
+	GroupID   string
 	CreatedAt int64
 	UpdatedAt int64
 }
@@ -61,12 +69,13 @@ type Credential struct {
 
 func credentialAAD(id string) string { return "credential:" + id }
 
-const userCols = `id, name, quota_bytes, used_bytes, expires_at, renew_period, enabled, active, device_limit, COALESCE(ruleset_id, ''), created_at, updated_at`
+const userCols = `id, name, quota_bytes, used_bytes, expires_at, renew_period, enabled, active, device_limit, COALESCE(ruleset_id, ''), ruleset_none, COALESCE(group_id, ''), created_at, updated_at`
 
 func scanUser(row interface{ Scan(...any) error }) (User, error) {
 	var u User
 	err := row.Scan(&u.ID, &u.Name, &u.QuotaBytes, &u.UsedBytes, &u.ExpiresAt,
-		&u.RenewPeriod, &u.Enabled, &u.Active, &u.DeviceLimit, &u.RulesetID, &u.CreatedAt, &u.UpdatedAt)
+		&u.RenewPeriod, &u.Enabled, &u.Active, &u.DeviceLimit, &u.RulesetID,
+		&u.RulesetNone, &u.GroupID, &u.CreatedAt, &u.UpdatedAt)
 	return u, err
 }
 
@@ -245,13 +254,55 @@ func (s *Store) UnbindUserProfile(userID, profileID string) error {
 	return err
 }
 
+// UserProfileIDs lists the access configurations this subscriber holds: their
+// own grants plus their group's, less anything withheld from them personally.
+//
+// Resolved here rather than at each call site, because subscription assembly,
+// credential minting and the console all ask this question and must not be
+// able to answer it differently.
 func (s *Store) UserProfileIDs(userID string) ([]string, error) {
-	return s.idList(`SELECT profile_id FROM user_profiles WHERE user_id = ? ORDER BY profile_id`, userID)
+	return s.idList(`SELECT profile_id FROM (
+			SELECT profile_id FROM user_profiles WHERE user_id = ?
+			UNION
+			SELECT gp.profile_id FROM group_profiles gp
+				JOIN users u ON u.group_id = gp.group_id AND u.id = ?
+		) WHERE profile_id NOT IN (
+			SELECT profile_id FROM user_profile_denies WHERE user_id = ?
+		) ORDER BY profile_id`, userID, userID, userID)
 }
 
-// ProfileUserIDs lists the users entitled to a profile.
+// ProfileUserIDs lists the users entitled to a profile — the other direction
+// of UserProfileIDs, and resolved the same way. This one decides which
+// credentials exist on a node, so a group grant missing here would mean a
+// subscriber whose subscription names a node that will not let them in.
 func (s *Store) ProfileUserIDs(profileID string) ([]string, error) {
-	return s.idList(`SELECT user_id FROM user_profiles WHERE profile_id = ? ORDER BY user_id`, profileID)
+	return s.idList(`SELECT user_id FROM (
+			SELECT user_id FROM user_profiles WHERE profile_id = ?
+			UNION
+			SELECT u.id AS user_id FROM users u
+				JOIN group_profiles gp ON gp.group_id = u.group_id AND gp.profile_id = ?
+		) WHERE user_id NOT IN (
+			SELECT user_id FROM user_profile_denies WHERE profile_id = ?
+		) ORDER BY user_id`, profileID, profileID, profileID)
+}
+
+// idListTx is idList inside a transaction, for the multi-step writes that have
+// to read their own uncommitted state.
+func (s *Store) idListTx(tx *sql.Tx, query string, args ...any) ([]string, error) {
+	rows, err := tx.Query(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		out = append(out, id)
+	}
+	return out, rows.Err()
 }
 
 func (s *Store) idList(query string, args ...any) ([]string, error) {
@@ -375,6 +426,26 @@ func (s *Store) UserCredentials(userID string) ([]Credential, error) {
 // profile, used when the entitlement is revoked.
 func (s *Store) DeleteCredentialsForBinding(userID, profileID string) error {
 	_, err := s.db.Exec(`DELETE FROM credentials WHERE user_id = ? AND profile_id = ?`, userID, profileID)
+	return err
+}
+
+// DeleteCredentialsNotEntitled drops every credential this subscriber holds
+// for an access configuration they no longer have.
+//
+// The moving parts are the group's grants, so a move can withdraw a profile
+// without anyone naming it. Left behind, the credential stays valid on the
+// node until something else rewrites that config, and a client that already
+// has it reconnects straight through the revocation.
+func (s *Store) DeleteCredentialsNotEntitled(userID string) error {
+	_, err := s.db.Exec(`DELETE FROM credentials WHERE user_id = ? AND profile_id NOT IN (
+		SELECT profile_id FROM (
+			SELECT profile_id FROM user_profiles WHERE user_id = ?
+			UNION
+			SELECT gp.profile_id FROM group_profiles gp
+				JOIN users u ON u.group_id = gp.group_id AND u.id = ?
+		) WHERE profile_id NOT IN (
+			SELECT profile_id FROM user_profile_denies WHERE user_id = ?
+		))`, userID, userID, userID, userID)
 	return err
 }
 

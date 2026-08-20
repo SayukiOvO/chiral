@@ -213,6 +213,10 @@ func (s *Server) setUserRuleset(w http.ResponseWriter, r *http.Request) {
 	}
 	var req struct {
 		RulesetID string `json:"ruleset_id"`
+		// None is "no routing rules, whatever my group says". An empty
+		// RulesetID now means "inherit", so without this a member of a group
+		// with rules could not be excused from them.
+		None bool `json:"none"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeErr(w, http.StatusBadRequest, "body must be JSON")
@@ -225,7 +229,12 @@ func (s *Server) setUserRuleset(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	if err := s.st.SetUserRuleset(u.ID, req.RulesetID); err != nil {
+	if req.None {
+		if err := s.st.SetUserRulesetNone(u.ID, true); err != nil {
+			s.internalErr(w, "set user ruleset", err)
+			return
+		}
+	} else if err := s.st.SetUserRuleset(u.ID, req.RulesetID); err != nil {
 		s.internalErr(w, "set user ruleset", err)
 		return
 	}

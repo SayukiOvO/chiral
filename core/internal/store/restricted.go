@@ -23,7 +23,12 @@ type RestrictedDestination struct {
 	NodeIDs []string
 	// AllowedUserIDs may go there. Everyone else is blackholed.
 	AllowedUserIDs []string
-	CreatedAt      int64
+	// AllowedGroupIDs admits whole groups, unioned with the named users. A
+	// group is only ever a shorthand for its members here: this table stays
+	// the panel's one allow list, and a destination naming nobody at all — no
+	// user, no group — still admits nobody.
+	AllowedGroupIDs []string
+	CreatedAt       int64
 }
 
 // ParseCIDRLines validates operator-entered CIDRs, one per line. A bare IP is
@@ -169,6 +174,14 @@ func (s *Store) SetRestrictedDestinationAllows(destID string, userIDs []string) 
 		destID, userIDs)
 }
 
+// SetRestrictedDestinationGroupAllows replaces which groups may enter one
+// destination.
+func (s *Store) SetRestrictedDestinationGroupAllows(destID string, groupIDs []string) error {
+	return s.replaceSet(`DELETE FROM restricted_destination_group_allows WHERE dest_id = ?`,
+		`INSERT OR IGNORE INTO restricted_destination_group_allows (dest_id, group_id) VALUES (?, ?)`,
+		destID, groupIDs)
+}
+
 func (s *Store) replaceSet(deleteQ, insertQ, key string, ids []string) error {
 	tx, err := s.db.Begin()
 	if err != nil {
@@ -216,6 +229,10 @@ func (s *Store) ListRestrictedDestinations() ([]RestrictedDestination, error) {
 		}
 		if out[i].AllowedUserIDs, err = s.stringColumn(
 			`SELECT user_id FROM restricted_destination_allows WHERE dest_id = ?`, out[i].ID); err != nil {
+			return nil, err
+		}
+		if out[i].AllowedGroupIDs, err = s.stringColumn(
+			`SELECT group_id FROM restricted_destination_group_allows WHERE dest_id = ?`, out[i].ID); err != nil {
 			return nil, err
 		}
 	}

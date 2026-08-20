@@ -167,7 +167,7 @@ func (s *Store) SetUserRuleset(userID, rulesetID string) error {
 	if rulesetID != "" {
 		v = rulesetID
 	}
-	res, err := s.db.Exec(`UPDATE users SET ruleset_id = ? WHERE id = ?`, v, userID)
+	res, err := s.db.Exec(`UPDATE users SET ruleset_id = ?, ruleset_none = 0 WHERE id = ?`, v, userID)
 	if err != nil {
 		return err
 	}

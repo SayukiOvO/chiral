@@ -12,7 +12,23 @@ import { useT } from "../lib/i18n";
  * person, not that box". This is that exception, stored as denials so a node
  * nobody has been asked about is usable by everyone the moment it is bound.
  */
-export function NodeAccess({ userId }: { userId: string }) {
+export function NodeAccess({
+  subject,
+  id,
+  version = 0,
+}: {
+  /** Whose access this is: one subscriber, or a whole group. */
+  subject: "user" | "group";
+  id: string;
+  /**
+   * Bumped by the parent whenever something it owns changes what this list
+   * should say — granting an access configuration is the case that matters,
+   * because entitlement is what decides whether a node can be chosen at all.
+   * Without it the list keeps the answer it was mounted with, and a node that
+   * has just become reachable goes on refusing to be clicked.
+   */
+  version?: number;
+}) {
   const { t, tf } = useT();
   const [fleet, setFleet] = useState<NodeAccessEntry[]>([]);
   const [external, setExternal] = useState<NodeAccessEntry[]>([]);
@@ -22,7 +38,8 @@ export function NodeAccess({ userId }: { userId: string }) {
 
   async function load() {
     try {
-      const a = await api.userNodeAccess(userId);
+      const a =
+        subject === "group" ? await api.groupNodeAccess(id) : await api.userNodeAccess(id);
       setFleet(a.fleet);
       setExternal(a.external);
       setRelay(a.relay ?? []);
@@ -34,7 +51,7 @@ export function NodeAccess({ userId }: { userId: string }) {
   useEffect(() => {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [userId]);
+  }, [subject, id, version]);
 
   type Kind = "fleet" | "external" | "relay";
 
@@ -49,11 +66,13 @@ export function NodeAccess({ userId }: { userId: string }) {
     setRelay(nextRelay);
     setBusy(true);
     try {
-      await api.setUserNodeAccess(userId, {
+      const denied = {
         denied_nodes: nextFleet.filter((e) => !e.allowed).map((e) => e.id),
         denied_proxies: nextExternal.filter((e) => !e.allowed).map((e) => e.id),
         denied_relays: nextRelay.filter((e) => !e.allowed).map((e) => e.id),
-      });
+      };
+      if (subject === "group") await api.setGroupNodeAccess(id, denied);
+      else await api.setUserNodeAccess(id, denied);
     } catch (e) {
       setError((e as Error).message);
       load();
@@ -97,9 +116,13 @@ export function NodeAccess({ userId }: { userId: string }) {
                 ? tf("经由「{node}」接入，而此用户无法使用该节点", { node: e.chained_via })
                 : e.entitled
                   ? undefined
-                  : g.kind === "relay"
-                    ? t("此用户的接入配置未覆盖该线路的入口节点，因此无法选择")
-                    : t("此用户的接入配置未覆盖该节点，因此无法选择");
+                  : subject === "group"
+                    ? g.kind === "relay"
+                      ? t("该组的接入配置未覆盖此线路的入口节点，因此无法选择")
+                      : t("该组的接入配置未覆盖此节点，因此无法选择")
+                    : g.kind === "relay"
+                      ? t("此用户的接入配置未覆盖该线路的入口节点，因此无法选择")
+                      : t("此用户的接入配置未覆盖该节点，因此无法选择");
               return (
                 <button
                   key={e.id}
@@ -118,6 +141,14 @@ export function NodeAccess({ userId }: { userId: string }) {
                 >
                   {reachable && e.allowed && <CheckIcon size={12} />}
                   {e.name}
+                  {/* An inherited decision is still this subscriber's state,
+                      so it is drawn the same; the mark says only that no row
+                      of their own is holding it there. */}
+                  {reachable && e.from_group && (
+                    <span className="text-[10px] text-faint" title={t("该状态继承自用户组")}>
+                      {t("组")}
+                    </span>
+                  )}
                   {e.chained_via && <span className="text-faint">⛓</span>}
                 </button>
               );
@@ -126,7 +157,9 @@ export function NodeAccess({ userId }: { userId: string }) {
         </div>
       ))}
       <p className="mt-2 text-xs text-faint">
-        {t("取消勾选后，该节点将不再出现在此用户的订阅中。节点上的凭证予以保留，变更于订阅者下次刷新时生效。")}
+        {subject === "group"
+          ? t("此处的选择适用于该组的全部成员；为个别成员单独调整后，其个人设置优先。")
+          : t("取消勾选后，该节点将不再出现在此用户的订阅中。节点上的凭证予以保留，变更于订阅者下次刷新时生效。")}
       </p>
     </div>
   );

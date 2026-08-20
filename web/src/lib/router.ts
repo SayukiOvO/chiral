@@ -9,6 +9,7 @@ export type Route =
   | { view: "nodes" }
   | { view: "profiles"; id?: string }
   | { view: "users"; id?: string }
+  | { view: "groups" }
   | { view: "variables" }
   | { view: "admins" }
   | { view: "audit" }
@@ -26,6 +27,8 @@ export function parseHash(hash: string): Route {
       return { view: "profiles", id: path[1] };
     case "users":
       return { view: "users", id: path[1] };
+    case "groups":
+      return { view: "groups" };
     case "variables":
       return { view: "variables" };
     case "admins":
@@ -55,6 +58,8 @@ export function href(route: Route): string {
       return route.id ? `#/profiles/${route.id}` : "#/profiles";
     case "users":
       return route.id ? `#/users/${route.id}` : "#/users";
+    case "groups":
+      return "#/groups";
     case "variables":
       return "#/variables";
     case "admins":

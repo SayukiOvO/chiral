@@ -121,6 +121,7 @@ func TestPortalTokenIsRefusedByEveryAdminRoute(t *testing.T) {
 		{"GET", "/api/whoami"},
 		{"GET", "/api/mfa"},
 		{"GET", "/api/admins"},
+		{"GET", "/api/groups"},
 		// The worst one: a fully rendered config.json, REALITY private keys
 		// and every user's credential in the clear.
 		{"GET", "/api/nodes/anything/config/preview"},

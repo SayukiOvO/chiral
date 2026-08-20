@@ -45,7 +45,10 @@ const GROUPS: { label: string; items: Item[] }[] = [
   },
   {
     label: "订阅者",
-    items: [{ view: "users", label: "用户", icon: UsersIcon }],
+    items: [
+      { view: "users", label: "用户", icon: UsersIcon },
+      { view: "groups", label: "用户组", icon: UsersIcon },
+    ],
   },
   {
     label: "运维",

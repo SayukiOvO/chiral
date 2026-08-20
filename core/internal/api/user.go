@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"sort"
 	"strings"
 	"time"
 
@@ -27,9 +28,19 @@ type userView struct {
 	Active bool `json:"active"`
 	// Allowed is the computed verdict: enabled, in date, and under quota.
 	Allowed bool `json:"allowed"`
-	// RulesetID is the routing configuration their clash-family subscription
-	// is rendered against; empty means none.
-	RulesetID string `json:"ruleset_id"`
+	// RulesetID is what this subscriber chose for themselves, empty when they
+	// have chosen nothing. EffectiveRulesetID is what their subscription is
+	// actually rendered against — their own choice, else their group's — and
+	// the console shows the second while editing the first.
+	RulesetID          string `json:"ruleset_id"`
+	EffectiveRulesetID string `json:"effective_ruleset_id"`
+	// RulesetNone records "no routing rules, whatever the group says", which
+	// an empty RulesetID cannot express for a member of a group that has one.
+	RulesetNone bool `json:"ruleset_none"`
+	// GroupID is the group deciding for them, empty when none. GroupName is
+	// carried so a list of subscribers can name it without a second request.
+	GroupID   string `json:"group_id,omitempty"`
+	GroupName string `json:"group_name,omitempty"`
 	// Reason names WHICH of those failed, empty when allowed. The precedence
 	// between them lives in one place (user.Reason) precisely so nothing has
 	// to reimplement it; serving only the boolean forced the console to do
@@ -40,10 +51,17 @@ type userView struct {
 	DeviceLimit int `json:"device_limit"`
 	// OnlineDevices is the current count, absent when recording is off so the
 	// UI can distinguish "nobody connected" from "not measuring".
-	OnlineDevices *int             `json:"online_devices,omitempty"`
-	ProfileIDs    []string         `json:"profile_ids"`
-	Credentials   []credentialView `json:"credentials,omitempty"`
-	CreatedAt     int64            `json:"created_at"`
+	OnlineDevices *int `json:"online_devices,omitempty"`
+	// ProfileIDs is what they hold, by whatever route. OwnProfileIDs are the
+	// grants written against this subscriber, and DeniedProfileIDs the ones
+	// withheld from them despite their group — the console needs all three to
+	// tell "granted here" from "granted by the group".
+	ProfileIDs       []string `json:"profile_ids"`
+	OwnProfileIDs    []string `json:"own_profile_ids"`
+	DeniedProfileIDs []string `json:"denied_profile_ids"`
+
+	Credentials []credentialView `json:"credentials,omitempty"`
+	CreatedAt   int64            `json:"created_at"`
 }
 
 type credentialView struct {
@@ -78,10 +96,31 @@ func (s *Server) userView(u store.User, withCredentials bool) (userView, error) 
 		Enabled: u.Enabled, Active: u.Active,
 		Allowed:     user.Allowed(u, time.Now().Unix()),
 		RulesetID:   u.RulesetID,
+		RulesetNone: u.RulesetNone,
 		Reason:      user.Reason(u, time.Now().Unix()),
 		DeviceLimit: u.DeviceLimit,
 		ProfileIDs:  profileIDs,
 		CreatedAt:   u.CreatedAt,
+	}
+	if v.EffectiveRulesetID, err = s.st.EffectiveRulesetID(u.ID); err != nil {
+		return userView{}, err
+	}
+	if own, err := s.st.UserOwnAccess(u.ID); err == nil {
+		v.OwnProfileIDs, v.DeniedProfileIDs = []string{}, []string{}
+		for id := range own.Profiles {
+			v.OwnProfileIDs = append(v.OwnProfileIDs, id)
+		}
+		for id := range own.ProfileDenies {
+			v.DeniedProfileIDs = append(v.DeniedProfileIDs, id)
+		}
+		sort.Strings(v.OwnProfileIDs)
+		sort.Strings(v.DeniedProfileIDs)
+	}
+	if u.GroupID != "" {
+		v.GroupID = u.GroupID
+		if g, err := s.st.GetSubscriberGroup(u.GroupID); err == nil {
+			v.GroupName = g.Name
+		}
 	}
 	if s.online != nil {
 		n := s.online.Status(u.ID, time.Now()).Count
@@ -560,6 +599,11 @@ type nodeAccessEntry struct {
 	// provider — so it silently leaves the subscription along with the relay.
 	// Silently is the problem: the console said it was on.
 	ChainedVia string `json:"chained_via,omitempty"`
+	// FromGroup marks a decision this subscriber inherited: their group's
+	// answer, with no row of their own. The console draws it differently
+	// because clearing an exception and setting one are different actions, and
+	// an operator who cannot see which they are looking at will do neither.
+	FromGroup bool `json:"from_group,omitempty"`
 }
 
 func (s *Server) userNodeAccess(w http.ResponseWriter, r *http.Request) {
@@ -583,6 +627,30 @@ func (s *Server) userNodeAccess(w http.ResponseWriter, r *http.Request) {
 		s.internalErr(w, "load denies", err)
 		return
 	}
+	// Their own rows, so each entry can say whether the answer is theirs or
+	// their group's. Nothing decides access from this — the resolved sets
+	// above do — it only labels what has already been decided.
+	own, err := s.st.UserOwnAccess(u.ID)
+	if err != nil {
+		s.internalErr(w, "load personal rows", err)
+		return
+	}
+	inherited := func(personal ...map[string]struct{}) func(string) bool {
+		return func(id string) bool {
+			if own.GroupID == "" {
+				return false
+			}
+			for _, set := range personal {
+				if _, ok := set[id]; ok {
+					return false
+				}
+			}
+			return true
+		}
+	}
+	nodeInherited := inherited(own.NodeDenies, own.NodeAllows)
+	relayInherited := inherited(own.RelayDenies, own.RelayAllows)
+	proxyInherited := inherited(own.ExternalDenies, own.ExternalAllows)
 
 	// Which fleet nodes their profiles actually reach.
 	entitled := map[string]struct{}{}
@@ -611,6 +679,7 @@ func (s *Server) userNodeAccess(w http.ResponseWriter, r *http.Request) {
 			fleet = append(fleet, nodeAccessEntry{
 				ID: n.ID, Name: name, Source: "fleet",
 				Allowed: !denied, Entitled: ok,
+				FromGroup: nodeInherited(n.ID),
 			})
 		}
 	}
@@ -682,6 +751,7 @@ func (s *Server) userNodeAccess(w http.ResponseWriter, r *http.Request) {
 				// there is no profile in between to be entitled by.
 				Allowed: !denied, Entitled: enabled && p.Enabled,
 				ChainedVia: via,
+				FromGroup:  proxyInherited(p.ID),
 			})
 		}
 	}
@@ -706,6 +776,7 @@ func (s *Server) userNodeAccess(w http.ResponseWriter, r *http.Request) {
 				Allowed:    !denied,
 				Entitled:   rl.Enabled && reaches && !entryDenied,
 				ChainedVia: via,
+				FromGroup:  relayInherited(rl.ID),
 			})
 		}
 	}

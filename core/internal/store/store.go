@@ -232,6 +232,12 @@ func (s *Store) CreateNode(name, joinTokenHash string) (Node, error) {
 		SELECT id, ? FROM users`, n.ID); err != nil {
 		return Node{}, err
 	}
+	// And to every group, for the same reason and with more at stake: a group
+	// left open would hand the node to its whole membership at once.
+	if _, err := tx.Exec(`INSERT INTO group_node_denies (group_id, node_id)
+		SELECT id, ? FROM subscriber_groups`, n.ID); err != nil {
+		return Node{}, err
+	}
 	return n, tx.Commit()
 }
 

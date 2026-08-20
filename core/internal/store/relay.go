@@ -81,38 +81,26 @@ func (s *Store) CreateNodeRelay(r NodeRelay) (NodeRelay, error) {
 		SELECT id, ? FROM users`, r.ID); err != nil {
 		return NodeRelay{}, err
 	}
+	if _, err := tx.Exec(`INSERT INTO group_relay_denies (group_id, relay_id)
+		SELECT id, ? FROM subscriber_groups`, r.ID); err != nil {
+		return NodeRelay{}, err
+	}
 	return r, tx.Commit()
 }
 
 // UserRelayDenies lists the relay lines this subscriber may not take.
 func (s *Store) UserRelayDenies(userID string) (map[string]struct{}, error) {
-	return s.denySet(`SELECT relay_id FROM user_relay_denies WHERE user_id = ?`, userID)
+	return s.effectiveDenies(userID, "relay_id", "user_relay_denies", "user_relay_allows", "group_relay_denies")
 }
 
 // NodeRelayDenies lists the subscribers who may not take one line — the same
 // relation read from the other end.
 func (s *Store) NodeRelayDenies(relayID string) (map[string]struct{}, error) {
-	return s.denySet(`SELECT user_id FROM user_relay_denies WHERE relay_id = ?`, relayID)
+	return s.objectDenies("relay", relayID)
 }
 
-// SetNodeRelayAccess replaces the set of subscribers denied one line.
 func (s *Store) SetNodeRelayAccess(relayID string, deniedUsers []string) error {
-	tx, err := s.db.Begin()
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-	if _, err := tx.Exec(`DELETE FROM user_relay_denies WHERE relay_id = ?`, relayID); err != nil {
-		return err
-	}
-	for _, id := range deniedUsers {
-		if _, err := tx.Exec(
-			`INSERT OR IGNORE INTO user_relay_denies (user_id, relay_id) VALUES (?, ?)`,
-			id, relayID); err != nil {
-			return err
-		}
-	}
-	return tx.Commit()
+	return s.setObjectAccess("relay", relayID, deniedUsers)
 }
 
 func (s *Store) GetNodeRelay(id string) (NodeRelay, error) {
