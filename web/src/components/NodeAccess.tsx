@@ -78,44 +78,55 @@ export function NodeAccess({ userId }: { userId: string }) {
         <div key={g.label} className="mb-3 last:mb-0">
           <div className="mb-1.5 text-[11px] text-faint">{t(g.label)}</div>
           <div className="flex flex-wrap gap-1.5">
-            {g.entries.map((e) => (
-              <button
-                key={e.id}
-                onClick={() => toggle(e, g.kind)}
-                disabled={busy}
-                // Not entitled is a different state from denied: no profile
-                // this user holds reaches that node, and switching it on here
-                // changes nothing. Shown rather than hidden, because "where did
-                // my node go" is a worse question than a greyed row.
-                title={
-                  e.chained_via
-                    ? tf("链经「{node}」，而此用户拿不到那个节点", { node: e.chained_via })
-                    : g.kind === "relay" && !e.entitled
-                      ? t("此用户的接入配置没有覆盖这条线路的入口节点")
-                    : e.entitled
-                      ? undefined
-                      : t("该用户的接入配置未覆盖此节点")
-                }
-                className={cn(
-                  "inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs transition-colors disabled:opacity-50",
-                  // A chained node whose relay is gone is not carried, whatever
-                  // the toggle says — so it does not get to look on.
-                  e.allowed && !e.chained_via
-                    ? "border-[color-mix(in_srgb,var(--online)_45%,transparent)] text-online"
-                    : "border-line-strong text-muted hover:border-signal hover:text-ink",
-                  (!e.entitled || e.chained_via) && "opacity-45",
-                )}
-              >
-                {e.allowed && !e.chained_via && <CheckIcon size={12} />}
-                {e.name}
-                {e.chained_via && <span className="text-faint">⛓</span>}
-              </button>
-            ))}
+            {g.entries.map((e) => {
+              // Three states, and the third is not "the second, but fainter".
+              //
+              //   allowed        — the subscriber receives it
+              //   not allowed    — withheld, and one click restores it
+              //   not reachable  — no access configuration this subscriber
+              //                    holds covers this node, so the toggle
+              //                    would decide nothing
+              //
+              // The third used to be drawn as the second with opacity on top,
+              // which read as "even more off than off" and still invited a
+              // click that changed nothing. It is now inert and marked by a
+              // dashed outline rather than by being harder to read: the point
+              // is to say "not applicable here", not to hide it.
+              const reachable = e.entitled && !e.chained_via;
+              const reason = e.chained_via
+                ? tf("经由「{node}」接入，而此用户无法使用该节点", { node: e.chained_via })
+                : e.entitled
+                  ? undefined
+                  : g.kind === "relay"
+                    ? t("此用户的接入配置未覆盖该线路的入口节点，因此无法选择")
+                    : t("此用户的接入配置未覆盖该节点，因此无法选择");
+              return (
+                <button
+                  key={e.id}
+                  onClick={() => reachable && toggle(e, g.kind)}
+                  disabled={busy || !reachable}
+                  title={reason}
+                  aria-disabled={!reachable}
+                  className={cn(
+                    "inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs transition-colors",
+                    !reachable
+                      ? "cursor-not-allowed border-dashed border-line-strong text-muted"
+                      : e.allowed
+                        ? "border-[color-mix(in_srgb,var(--online)_45%,transparent)] text-online disabled:opacity-50"
+                        : "border-line-strong text-muted hover:border-signal hover:text-ink disabled:opacity-50",
+                  )}
+                >
+                  {reachable && e.allowed && <CheckIcon size={12} />}
+                  {e.name}
+                  {e.chained_via && <span className="text-faint">⛓</span>}
+                </button>
+              );
+            })}
           </div>
         </div>
       ))}
       <p className="mt-2 text-xs text-faint">
-        {t("取消后该节点不再出现在此用户的订阅里。凭证仍在节点上，订阅者下次刷新订阅时生效。")}
+        {t("取消勾选后，该节点将不再出现在此用户的订阅中。节点上的凭证予以保留，变更于订阅者下次刷新时生效。")}
       </p>
     </div>
   );
