@@ -1,8 +1,15 @@
+# Pinned on purpose.
+#
+# Unpinned remote plugins float: CI regenerates with whatever buf.build serves
+# that day and compares against code generated weeks earlier, so the release
+# that fails is whichever one happens to follow an upstream plugin release.
+# That failure says nothing about the change being released. Bump these
+# deliberately, with the regenerated code in the same commit.
 version: v2
 plugins:
-  - remote: buf.build/protocolbuffers/go
+  - remote: buf.build/protocolbuffers/go:v1.36.11
     out: proto
     opt: paths=source_relative
-  - remote: buf.build/grpc/go
+  - remote: buf.build/grpc/go:v1.6.2
     out: proto
     opt: paths=source_relative
