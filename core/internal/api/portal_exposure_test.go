@@ -97,6 +97,13 @@ func TestPortalNodesAreOnlyTheUsersOwn(t *testing.T) {
 	st.BindProfileNode(p.ID, mine.ID)
 	st.BindProfileNode(other.ID, theirs.ID)
 	st.BindUserProfile(u.ID, p.ID)
+	// Both nodes were created after the subscriber, so both are withheld from
+	// them by default. Grant the one they are supposed to have: the portal
+	// lists what the subscription carries, and a withheld node is carried by
+	// neither.
+	if err := st.SetUserNodeAccess(u.ID, nil, nil, nil); err != nil {
+		t.Fatal(err)
+	}
 
 	w := do(t, srv.Handler(), "GET", "/api/portal/me", token, nil)
 	body := w.Body.String()
@@ -121,5 +128,32 @@ func TestPortalMeWorksWithNoProfiles(t *testing.T) {
 	}
 	if !strings.Contains(w.Body.String(), `"no_access"`) {
 		t.Errorf("an account with no profiles is not reported as no_access:\n%s", w.Body)
+	}
+}
+
+// Withholding a node hides it from a subscription; it does not revoke the
+// credential. So a withheld node still has one, and a portal that listed nodes
+// from profiles alone showed the subscriber a node their client never receives
+// — with an availability light beside it. With groups this stopped being
+// hypothetical: a group withholds every node that exists when it is created.
+func TestPortalDoesNotListAWithheldNode(t *testing.T) {
+	srv, st := portalFixture(t)
+	u, token := seedSubscriber(t, srv, st, "sub@example.com")
+	granted, _ := st.CreateNode("granted", "h1")
+	withheld, _ := st.CreateNode("withheld", "h2")
+	p, _ := st.CreateProfile("granted")
+	st.BindProfileNode(p.ID, granted.ID)
+	st.BindProfileNode(p.ID, withheld.ID)
+	st.BindUserProfile(u.ID, p.ID)
+	if err := st.SetUserNodeAccess(u.ID, []string{withheld.ID}, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+
+	body := do(t, srv.Handler(), "GET", "/api/portal/me", token, nil).Body.String()
+	if !strings.Contains(body, granted.ID) {
+		t.Errorf("the node the subscriber holds is missing:\n%s", body)
+	}
+	if strings.Contains(body, withheld.ID) {
+		t.Errorf("a withheld node is listed in the portal:\n%s", body)
 	}
 }

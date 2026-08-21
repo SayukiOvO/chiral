@@ -34,6 +34,13 @@ type User struct {
 	// proxies and groups with no rules — every client then routes everything
 	// through the proxy.
 	RulesetID string
+	// EffectiveRulesetID is what a render must use: their own choice, else
+	// none if they refused, else their group's. Resolved in the same query the
+	// row is read with, because every rendering path reaches for a User and
+	// none of them should have to know a group exists — the subscription used
+	// to read the raw column here, which left a member inheriting their
+	// group's rules with a subscription that carried none.
+	EffectiveRulesetID string
 	// RulesetNone says "no routing rules, whatever my group says". Without it
 	// an empty RulesetID would have to mean both "inherit" and "none", and a
 	// member could never be excused from their group's rule set.
@@ -69,13 +76,18 @@ type Credential struct {
 
 func credentialAAD(id string) string { return "credential:" + id }
 
-const userCols = `id, name, quota_bytes, used_bytes, expires_at, renew_period, enabled, active, device_limit, COALESCE(ruleset_id, ''), ruleset_none, COALESCE(group_id, ''), created_at, updated_at`
+const userCols = `id, name, quota_bytes, used_bytes, expires_at, renew_period, enabled, active, device_limit, COALESCE(ruleset_id, ''),
+	COALESCE(users.ruleset_id,
+		CASE WHEN users.ruleset_none = 1 THEN NULL
+		     ELSE (SELECT g.ruleset_id FROM subscriber_groups g WHERE g.id = users.group_id) END,
+		''),
+	ruleset_none, COALESCE(group_id, ''), created_at, updated_at`
 
 func scanUser(row interface{ Scan(...any) error }) (User, error) {
 	var u User
 	err := row.Scan(&u.ID, &u.Name, &u.QuotaBytes, &u.UsedBytes, &u.ExpiresAt,
 		&u.RenewPeriod, &u.Enabled, &u.Active, &u.DeviceLimit, &u.RulesetID,
-		&u.RulesetNone, &u.GroupID, &u.CreatedAt, &u.UpdatedAt)
+		&u.EffectiveRulesetID, &u.RulesetNone, &u.GroupID, &u.CreatedAt, &u.UpdatedAt)
 	return u, err
 }
 

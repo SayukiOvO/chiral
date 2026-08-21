@@ -79,14 +79,23 @@ const (
 // the client narrow it would put the whole roster one devtools tab away.
 //
 // This walks the same path subscription.Render does — profiles, then their
-// nodes, then the credential for each pair — so what the portal shows and what
-// the subscription contains cannot disagree.
+// nodes less the ones withheld, then the credential for each pair — so what
+// the portal shows and what the subscription contains cannot disagree.
+//
+// The denials are not decoration. A withheld node keeps its credential (that
+// is the point: withholding hides a node, it does not revoke access), so
+// leaving them out here would show a subscriber a node their client never
+// receives, with a green light beside it.
 func (v *View) Nodes() ([]Node, error) {
 	profileIDs, err := v.data.UserProfileIDs(v.id.UserID)
 	if err != nil {
 		return nil, err
 	}
 	sort.Strings(profileIDs)
+	denied, err := v.data.UserNodeDenies(v.id.UserID)
+	if err != nil {
+		return nil, err
+	}
 
 	to := v.now()
 	from := to.Add(-24 * time.Hour)
@@ -111,6 +120,9 @@ func (v *View) Nodes() ([]Node, error) {
 				continue
 			}
 			seen[nid] = true
+			if _, no := denied[nid]; no {
+				continue
+			}
 
 			n, err := v.data.GetNode(nid)
 			if err != nil {

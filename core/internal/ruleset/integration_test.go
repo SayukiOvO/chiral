@@ -141,3 +141,60 @@ func TestNoRulesetRendersNothing(t *testing.T) {
 		t.Fatalf("groups=%q err=%v, want empty and no error", groups, err)
 	}
 }
+
+// A member of a group with a rule set renders that group's rules.
+//
+// The subscription used to read users.ruleset_id directly, so a member who had
+// chosen nothing for themselves — which after joining a group is every member —
+// got a subscription with no routing rules at all while the console reported
+// the group's. Rendering resolves the same way everything else does: their own
+// choice, else none if they refused it, else their group's.
+func TestAGroupsRuleSetReachesTheRender(t *testing.T) {
+	st, svc, srv, u := fixture(t)
+	rs, err := st.CreateRuleset("test", "", srv.URL+"/preset.ini")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.Refresh(context.Background(), rs.ID); err != nil {
+		t.Fatal(err)
+	}
+	g, err := st.CreateSubscriberGroup("staff", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetGroupRuleset(g.ID, rs.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetUserGroup(u.ID, g.ID); err != nil {
+		t.Fatal(err)
+	}
+	u, _ = st.GetUser(u.ID)
+	if u.RulesetID != "" {
+		t.Fatalf("fixture: the member should have chosen nothing of their own, got %q", u.RulesetID)
+	}
+
+	groups, _, rules, err := svc.For(u, []string{"tokyo 01"}, "https://p.example/sub/T/rules")
+	if err != nil {
+		t.Fatalf("For: %v", err)
+	}
+	if !strings.Contains(groups, "🚀 节点选择") || !strings.Contains(rules, "MATCH,🚀 节点选择") {
+		t.Errorf("the group's rules did not reach the render:\ngroups:\n%s\nrules:\n%s", groups, rules)
+	}
+	if _, ok, err := svc.ListFor(u, "china"); err != nil || !ok {
+		t.Errorf("the group's rule providers do not resolve: ok=%v err=%v", ok, err)
+	}
+
+	// And a member excused from their group's rules renders none, which an
+	// empty ruleset_id alone could not express.
+	if err := st.SetUserRulesetNone(u.ID, true); err != nil {
+		t.Fatal(err)
+	}
+	u, _ = st.GetUser(u.ID)
+	groups, _, rules, err = svc.For(u, []string{"tokyo 01"}, "https://p.example/sub/T/rules")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if groups != "" || rules != "" {
+		t.Errorf("an excused member still received rules:\ngroups:\n%s\nrules:\n%s", groups, rules)
+	}
+}

@@ -12,10 +12,10 @@ import (
 // fetches: the subscriber is often on the network the proxy exists to get them
 // off, so a render that reaches for GitHub is a render that hangs.
 func (s *Service) For(u store.User, proxyNames []string, providerBase string) (groups, providers, rules string, err error) {
-	if u.RulesetID == "" {
+	if u.EffectiveRulesetID == "" {
 		return "", "", "", nil
 	}
-	r, err := s.st.GetRuleset(u.RulesetID)
+	r, err := s.st.GetRuleset(u.EffectiveRulesetID)
 	if err != nil {
 		return "", "", "", err
 	}
@@ -38,10 +38,10 @@ func (s *Service) For(u store.User, proxyNames []string, providerBase string) (g
 // different lists for two subscribers on different rulesets. Looking it up any
 // other way would serve one subscriber another's rules.
 func (s *Service) ListFor(u store.User, name string) (string, bool, error) {
-	if u.RulesetID == "" {
+	if u.EffectiveRulesetID == "" {
 		return "", false, nil
 	}
-	r, err := s.st.GetRuleset(u.RulesetID)
+	r, err := s.st.GetRuleset(u.EffectiveRulesetID)
 	if err != nil {
 		return "", false, err
 	}

@@ -66,6 +66,7 @@ type Subscriptions interface {
 type Data interface {
 	GetUser(id string) (store.User, error)
 	UserProfileIDs(userID string) ([]string, error)
+	UserNodeDenies(userID string) (map[string]struct{}, error)
 	ProfileNodeIDs(profileID string) ([]string, error)
 	GetNode(id string) (store.Node, error)
 	FindCredential(userID, profileID, nodeID, exitProxyID string) (store.Credential, error)
@@ -197,7 +198,7 @@ func (v *View) Rules() ([]RuleChoice, string, error) {
 	for _, r := range sets {
 		out = append(out, RuleChoice{ID: r.ID, Name: r.Name})
 	}
-	return out, u.RulesetID, nil
+	return out, u.EffectiveRulesetID, nil
 }
 
 // ChooseRules points this subscriber at one of them, or at none.

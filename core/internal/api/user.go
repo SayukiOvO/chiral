@@ -102,9 +102,7 @@ func (s *Server) userView(u store.User, withCredentials bool) (userView, error) 
 		ProfileIDs:  profileIDs,
 		CreatedAt:   u.CreatedAt,
 	}
-	if v.EffectiveRulesetID, err = s.st.EffectiveRulesetID(u.ID); err != nil {
-		return userView{}, err
-	}
+	v.EffectiveRulesetID = u.EffectiveRulesetID
 	if own, err := s.st.UserOwnAccess(u.ID); err == nil {
 		v.OwnProfileIDs, v.DeniedProfileIDs = []string{}, []string{}
 		for id := range own.Profiles {

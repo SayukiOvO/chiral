@@ -650,7 +650,7 @@ func ClientForUserAgent(ua string) string {
 // ruleset, a panel with no public URL — is something only the operator can
 // fix, so it is reported to them rather than to the subscriber's client.
 func (s *Service) routingFor(u store.User, token string, fragments []string) (groups, providers, rules string) {
-	if s.routing == nil || s.publicURL == "" || u.RulesetID == "" || token == "" {
+	if s.routing == nil || s.publicURL == "" || u.EffectiveRulesetID == "" || token == "" {
 		return "", "", ""
 	}
 	names := make([]string, 0, len(fragments))
