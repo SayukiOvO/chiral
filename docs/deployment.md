@@ -68,6 +68,14 @@ Agent 容器启动后：用 `JOIN_TOKEN` 向 `PANEL_URL` 注册 → 换取长期
 
 生成的 compose 通过环境变量注入：`PANEL_URL`、`JOIN_TOKEN`（一次性）。Agent 与 Xray-core 可同容器或同 pod；config.json 走数据卷。
 
+M8 第一阶段可选的 3x-ui 只读观测不写进默认生成文件，避免未完成的 provider 被误当成
+生产后端。测试节点可在生成的 compose 上叠加
+[`docker-compose.3x-ui-shadow.yml`](../deploy/agent/docker-compose.3x-ui-shadow.yml)，并把不授予
+group/other 权限（通常为 `0400`/`0600`）的 admin token 文件只读挂载给 Agent。3x-ui 应在同一节点通过回环地址访问；
+若必须使用非回环地址，Agent 要求 HTTPS 且需显式设置 `CHIRAL_3XUI_ALLOW_PUBLIC=1`。
+`3x-ui-shadow` 只读取状态、OpenAPI 和最终 config，所有写操作仍由 direct-Xray 执行。完整命令
+见 [`deploy/agent/README.md`](../deploy/agent/README.md#可选3x-ui-shadow-观测)。
+
 ## 加入流程时序
 
 ```

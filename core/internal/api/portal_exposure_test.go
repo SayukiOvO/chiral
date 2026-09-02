@@ -2,11 +2,29 @@ package api
 
 import (
 	"net/http"
+	"reflect"
 	"strings"
 	"testing"
 
+	"github.com/SayukiOvO/chiral/core/internal/portal"
 	"github.com/SayukiOvO/chiral/core/internal/store"
 )
+
+func TestPortalNodeJSONSchemaIsAnExplicitAllowlist(t *testing.T) {
+	assertJSONFields := func(value any, want []string) {
+		t.Helper()
+		typeOf := reflect.TypeOf(value)
+		got := make([]string, 0, typeOf.NumField())
+		for i := 0; i < typeOf.NumField(); i++ {
+			got = append(got, strings.Split(typeOf.Field(i).Tag.Get("json"), ",")[0])
+		}
+		if !reflect.DeepEqual(got, want) {
+			t.Fatalf("portal JSON fields = %v, want strict allowlist %v", got, want)
+		}
+	}
+	assertJSONFields(portal.Node{}, []string{"id", "name", "index", "availability", "traffic_24h"})
+	assertJSONFields(portal.TrafficPoint{}, []string{"at", "up_bytes", "down_bytes"})
+}
 
 // What the portal must never send.
 //
@@ -73,6 +91,7 @@ func TestPortalMeNeverExposesFleetDetail(t *testing.T) {
 	// to spell the same word — "status":"active" is not an `active` field.
 	for _, key := range []string{
 		"public_ip", "hostname", "agent_version", "xray_version",
+		"runtime_provider", "runtime_mode", "runtime_health", "runtime_version", "runtime_capabilities", "runtime_contract_digest", "runtime_error", "runtime_observed_at", "runtime_xray_state", "runtime_xray_version",
 		"cpu_percent", "mem_used_bytes", "disk_total_bytes",
 		"net_tx_bps", "config_version", "last_seen_at",
 		"profile_ids", "credentials", "enabled", "active",

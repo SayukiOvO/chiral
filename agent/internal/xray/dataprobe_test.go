@@ -42,7 +42,18 @@ func nodeUnderTest(t *testing.T) (*Manager, int) {
 				"decryption": "none",
 			},
 		}},
-		"outbounds": []any{map[string]any{"protocol": "freedom", "tag": "direct"}},
+		// Current Xray releases deliberately block private and reserved targets
+		// when Freedom receives traffic from a server-side VLESS inbound. The
+		// hermetic origin below is loopback, so this test-only node must opt in
+		// explicitly. An unconditional allow also keeps httptest free to choose
+		// either loopback family; production configs should allow only the
+		// private ranges they actually serve.
+		"outbounds": []any{map[string]any{
+			"protocol": "freedom", "tag": "direct",
+			"settings": map[string]any{"finalRules": []any{
+				map[string]any{"action": "allow"},
+			}},
+		}},
 	}
 	raw, err := json.Marshal(cfg)
 	if err != nil {
@@ -237,7 +248,16 @@ func TestTheAPIAnswersOnANodeThatCarriesNoTraffic(t *testing.T) {
 					"decryption": "none",
 				}},
 		},
-		"outbounds": []any{map[string]any{"protocol": "freedom", "tag": "direct"}},
+		// Keep the far-end loopback reachable here too. Otherwise current Xray
+		// would blackhole the target before authentication matters, and this
+		// negative control could pass even if the deliberately wrong credential
+		// below were accidentally changed to a valid one.
+		"outbounds": []any{map[string]any{
+			"protocol": "freedom", "tag": "direct",
+			"settings": map[string]any{"finalRules": []any{
+				map[string]any{"action": "allow"},
+			}},
+		}},
 		"routing": map[string]any{"rules": []any{
 			map[string]any{"type": "field", "inboundTag": []string{"chiral-api"}, "outboundTag": "api"},
 		}},

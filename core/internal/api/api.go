@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/SayukiOvO/chiral/core/internal/alert"
 	"github.com/SayukiOvO/chiral/core/internal/auth"
@@ -296,6 +297,19 @@ type nodeView struct {
 	// while an upgrade is mid-flight or has failed to take.
 	XrayVersion          string `json:"xray_version"`
 	XrayInstalledVersion string `json:"xray_installed_version"`
+	// RuntimeProvider names the node-local implementation being used or observed. RuntimeMode is
+	// ACTIVE for the implementation receiving writes, or SHADOW while an
+	// adapter is only proving its live API contract during migration.
+	RuntimeProvider     string   `json:"runtime_provider"`
+	RuntimeMode         string   `json:"runtime_mode"`
+	RuntimeHealth       string   `json:"runtime_health"`
+	RuntimeVersion      string   `json:"runtime_version,omitempty"`
+	RuntimeCapabilities []string `json:"runtime_capabilities,omitempty"`
+	RuntimeContract     string   `json:"runtime_contract_digest,omitempty"`
+	RuntimeError        string   `json:"runtime_error,omitempty"`
+	RuntimeObservedAt   int64    `json:"runtime_observed_at,omitempty"`
+	RuntimeXrayState    string   `json:"runtime_xray_state,omitempty"`
+	RuntimeXrayVersion  string   `json:"runtime_xray_version,omitempty"`
 	// Platform is what decides whether this node can be upgraded at all: an
 	// unknown one has no release asset to hand it, and the operator choosing a
 	// canary should be able to see that before pressing the button.
@@ -334,6 +348,9 @@ func (s *Server) view(n store.Node) nodeView {
 		AgentVersion:         n.AgentVersion,
 		XrayVersion:          n.XrayVersion,
 		XrayInstalledVersion: n.XrayInstalledVersion,
+		RuntimeProvider:      "unknown",
+		RuntimeMode:          "UNKNOWN",
+		RuntimeHealth:        "UNKNOWN",
 		Platform:             n.Platform,
 		CreatedAt:            n.CreatedAt,
 		RegisteredAt:         n.RegisteredAt.Int64,
@@ -357,8 +374,167 @@ func (s *Server) view(n store.Node) nodeView {
 			NetRxBps:       hb.GetNetRxBps(),
 			ConfigVersion:  hb.GetConfigVersion(),
 		}
+		applyHeartbeatRuntimeStatus(&v, hb, st.HeartbeatAt)
 	}
 	return v
+}
+
+func applyHeartbeatRuntimeStatus(v *nodeView, hb *chiralv1.Heartbeat, heartbeatAt time.Time) {
+	if v == nil || hb == nil {
+		return
+	}
+	if runtime := hb.GetRuntime(); runtime != nil {
+		// A present-but-malformed status is not an old Agent. Only absence is
+		// eligible for the legacy compatibility identity below.
+		applyRuntimeStatus(v, runtime, heartbeatAt)
+		return
+	}
+	// An agent old enough not to send RuntimeStatus can only be the legacy
+	// direct implementation. Apply this compatibility default only after an
+	// actual heartbeat; an offline/new node has no current runtime evidence.
+	v.RuntimeProvider = "direct-xray"
+	v.RuntimeMode = "ACTIVE"
+	if heartbeatAt.IsZero() {
+		v.RuntimeHealth = "UNKNOWN"
+		return
+	}
+	v.RuntimeHealth = "READY"
+	v.RuntimeObservedAt = heartbeatAt.Unix()
+}
+
+func applyRuntimeStatus(v *nodeView, runtime *chiralv1.RuntimeStatus, receivedAt time.Time) {
+	if v == nil || runtime == nil || runtime.GetProvider() == "" {
+		return
+	}
+	v.RuntimeProvider = boundedRuntimeText(runtime.GetProvider(), 64)
+	if v.RuntimeProvider == "" {
+		v.RuntimeProvider = "unknown"
+	}
+	switch runtime.GetMode() {
+	case chiralv1.RuntimeMode_RUNTIME_MODE_ACTIVE:
+		v.RuntimeMode = "ACTIVE"
+	case chiralv1.RuntimeMode_RUNTIME_MODE_SHADOW:
+		v.RuntimeMode = "SHADOW"
+	default:
+		v.RuntimeMode = "UNKNOWN"
+	}
+	switch runtime.GetHealth() {
+	case chiralv1.RuntimeHealth_RUNTIME_HEALTH_READY:
+		v.RuntimeHealth = "READY"
+	case chiralv1.RuntimeHealth_RUNTIME_HEALTH_INCOMPATIBLE:
+		v.RuntimeHealth = "INCOMPATIBLE"
+	case chiralv1.RuntimeHealth_RUNTIME_HEALTH_UNREACHABLE:
+		v.RuntimeHealth = "UNREACHABLE"
+	default:
+		v.RuntimeHealth = "UNKNOWN"
+	}
+	v.RuntimeVersion = boundedRuntimeText(runtime.GetVersion(), 64)
+	for _, capability := range runtime.GetCapabilities() {
+		if len(v.RuntimeCapabilities) == 32 {
+			break
+		}
+		if capability = boundedRuntimeText(capability, 64); capability != "" {
+			v.RuntimeCapabilities = append(v.RuntimeCapabilities, capability)
+		}
+	}
+	if isLowerHexDigest(runtime.GetContractDigest()) {
+		v.RuntimeContract = runtime.GetContractDigest()
+	}
+	v.RuntimeError = boundedRuntimeText(runtime.GetError(), 256)
+	if runtime.GetObservedAtUnix() > 0 && !receivedAt.IsZero() {
+		// Preserve age, not the Agent's wall-clock timestamp. A node with a bad
+		// clock must not make a fresh contract immediately stale (or keep an old
+		// one green for minutes) in an administrator's browser.
+		observedAt := receivedAt.Unix() - int64(runtime.GetObservedAgeSeconds())
+		if observedAt > 0 {
+			v.RuntimeObservedAt = observedAt
+		}
+	}
+	switch runtime.GetXrayState() {
+	case chiralv1.XrayState_XRAY_STATE_RUNNING:
+		v.RuntimeXrayState = "RUNNING"
+	case chiralv1.XrayState_XRAY_STATE_STOPPED:
+		v.RuntimeXrayState = "STOPPED"
+	case chiralv1.XrayState_XRAY_STATE_ERROR:
+		v.RuntimeXrayState = "ERROR"
+	default:
+		if v.RuntimeProvider == "3x-ui" {
+			v.RuntimeXrayState = "UNKNOWN"
+		}
+	}
+	v.RuntimeXrayVersion = boundedRuntimeText(runtime.GetXrayVersion(), 64)
+
+	// This release deliberately has no 3x-ui ACTIVE implementation. An Agent
+	// heartbeat is observation, not authority to enable writes; accepting a
+	// self-reported future mode here would make the UI advertise a cutover that
+	// Core cannot enforce or roll back.
+	switch v.RuntimeProvider {
+	case "direct-xray":
+		if v.RuntimeMode != "ACTIVE" {
+			v.RuntimeMode = "UNKNOWN"
+			v.RuntimeHealth = "UNKNOWN"
+		}
+	case "3x-ui":
+		if v.RuntimeMode != "SHADOW" {
+			v.RuntimeMode = "UNKNOWN"
+			v.RuntimeHealth = "UNKNOWN"
+			v.RuntimeError = "3x-ui ACTIVE is not supported by this Core release"
+		} else if v.RuntimeHealth == "READY" && (v.RuntimeObservedAt == 0 || v.RuntimeContract == "" || v.RuntimeXrayState == "UNKNOWN" || !has3XUIShadowCapabilities(v.RuntimeCapabilities)) {
+			v.RuntimeHealth = "UNKNOWN"
+			v.RuntimeError = "3x-ui shadow evidence is incomplete"
+		}
+	default:
+		v.RuntimeMode = "UNKNOWN"
+		v.RuntimeHealth = "UNKNOWN"
+	}
+	if v.RuntimeHealth != "UNKNOWN" && v.RuntimeObservedAt == 0 {
+		v.RuntimeHealth = "UNKNOWN"
+	}
+}
+
+var required3XUIShadowCapabilities = []string{
+	"status", "inbounds_list", "inbounds_add", "inbounds_update", "inbounds_delete",
+	"clients_list", "clients_add", "clients_update", "clients_delete", "client_traffic",
+	"clients_online", "client_ips", "xray_update", "xray_restart", "get_config", "install_xray",
+}
+
+func has3XUIShadowCapabilities(capabilities []string) bool {
+	seen := make(map[string]struct{}, len(capabilities))
+	for _, capability := range capabilities {
+		seen[capability] = struct{}{}
+	}
+	for _, required := range required3XUIShadowCapabilities {
+		if _, ok := seen[required]; !ok {
+			return false
+		}
+	}
+	return true
+}
+
+func boundedRuntimeText(value string, maxBytes int) string {
+	var bounded strings.Builder
+	for _, r := range strings.TrimSpace(value) {
+		if r < 0x20 || r == 0x7f {
+			continue
+		}
+		if bounded.Len()+utf8.RuneLen(r) > maxBytes {
+			break
+		}
+		bounded.WriteRune(r)
+	}
+	return bounded.String()
+}
+
+func isLowerHexDigest(value string) bool {
+	if len(value) != 64 {
+		return false
+	}
+	for _, b := range []byte(value) {
+		if (b < '0' || b > '9') && (b < 'a' || b > 'f') {
+			return false
+		}
+	}
+	return true
 }
 
 func (s *Server) createNode(w http.ResponseWriter, r *http.Request) {

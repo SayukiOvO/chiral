@@ -38,6 +38,19 @@ func main() {
 		return
 	}
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
+	runtimeCfg, err := runtimeConfigFromEnv()
+	if err != nil {
+		logger.Error("invalid runtime provider configuration", "err", err)
+		os.Exit(2)
+	}
+	var shadow *shadowRuntimeMonitor
+	if runtimeCfg.Provider == runtimeProvider3XUIShadow {
+		shadow, err = newShadowRuntimeMonitor(runtimeCfg, logger)
+		if err != nil {
+			logger.Error("could not configure the 3x-ui shadow provider", "err", err)
+			os.Exit(2)
+		}
+	}
 
 	// Env only, never a flag: command lines leak via `ps` and shell history.
 	joinToken := os.Getenv("JOIN_TOKEN")
@@ -75,18 +88,25 @@ func main() {
 		xr.UseBinary(active)
 	}
 
-	cl = client.New(client.Config{
+	clientCfg := client.Config{
 		PanelAddr:         *panelAddr,
 		JoinToken:         joinToken,
 		StateDir:          *stateDir,
 		Insecure:          *insecureTr,
 		AgentVersion:      version,
 		HeartbeatInterval: *hbInterval,
-	}, xr, col, logger)
+	}
+	if shadow != nil {
+		clientCfg.RuntimeStatusSnapshot = shadow.Snapshot
+	}
+	cl = client.New(clientCfg, xr, col, logger)
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
-	logger.Info("chiral-agent starting", "version", version, "panel", *panelAddr)
+	if shadow != nil {
+		go shadow.Run(ctx)
+	}
+	logger.Info("chiral-agent starting", "version", version, "panel", *panelAddr, "runtime_provider", runtimeCfg.Provider)
 
 	// Serve with the last known-good config immediately; don't leave proxies
 	// down while (re)connecting to Core. The config version is unknown until

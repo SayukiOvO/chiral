@@ -26,6 +26,7 @@ import (
 	"google.golang.org/grpc/status"
 
 	"github.com/SayukiOvO/chiral/agent/internal/collector"
+	"github.com/SayukiOvO/chiral/agent/internal/runtimeprovider"
 	"github.com/SayukiOvO/chiral/agent/internal/xray"
 	chiralv1 "github.com/SayukiOvO/chiral/proto/chiral/v1"
 )
@@ -50,6 +51,11 @@ type Config struct {
 	// resets the kernel's counters, so this is also the accounting
 	// granularity — and the window of traffic lost if the agent dies.
 	StatsInterval time.Duration
+	// RuntimeStatusSnapshot returns an immutable, already-cached observation
+	// and MUST NOT perform I/O. Heartbeats and report-now frames call it on
+	// latency-sensitive goroutines. New supplies direct-Xray status; other
+	// providers passed to NewWithRuntime must identify themselves explicitly.
+	RuntimeStatusSnapshot func() *chiralv1.RuntimeStatus
 }
 
 type state struct {
@@ -59,7 +65,7 @@ type state struct {
 
 type Client struct {
 	cfg    Config
-	xr     *xray.Manager
+	rt     runtimeprovider.Runtime
 	col    *collector.Collector
 	logger *slog.Logger
 
@@ -74,25 +80,57 @@ type Client struct {
 	onlineMu     sync.Mutex
 	onlinePolicy *chiralv1.OnlinePolicy
 
-	// inst installs kernel versions; installs serialises them and routes relay
-	// chunks from the reader goroutine to whichever download is waiting.
-	inst     *xray.Installer
-	installs *installState
+	// directUpgrade is present only for the legacy direct-Xray runtime;
+	// installs serialises upgrades and routes relay chunks to the active one.
+	directUpgrade *directXrayUpgrade
+	installs      *installState
 }
 
+// New constructs the existing direct-Xray client. Kept as the stable entry
+// point while main still owns the direct process supervisor.
 func New(cfg Config, xr *xray.Manager, col *collector.Collector, logger *slog.Logger) *Client {
+	if cfg.RuntimeStatusSnapshot == nil {
+		cfg.RuntimeStatusSnapshot = directRuntimeStatus
+	}
+	return newClient(cfg, xr, &directXrayUpgrade{
+		owner:     xr,
+		installer: xray.NewInstaller(cfg.StateDir, xr),
+	}, col, logger)
+}
+
+// NewWithRuntime separates ordinary runtime operations from the optional
+// direct-Xray installer. API-backed runtimes are not required to expose Xray
+// binaries or implement the CLI upgrade path merely to serve config, users,
+// stats and status.
+func NewWithRuntime(cfg Config, rt runtimeprovider.Runtime, col *collector.Collector, logger *slog.Logger) *Client {
+	return newClient(cfg, rt, nil, col, logger)
+}
+
+func newClient(cfg Config, rt runtimeprovider.Runtime, directUpgrade *directXrayUpgrade, col *collector.Collector, logger *slog.Logger) *Client {
+	if rt == nil {
+		panic("client: nil runtime provider")
+	}
 	if cfg.HeartbeatInterval <= 0 {
 		cfg.HeartbeatInterval = 10 * time.Second
 	}
 	if cfg.StatsInterval <= 0 {
 		cfg.StatsInterval = 60 * time.Second
 	}
-	return &Client{
-		cfg: cfg, xr: xr, col: col, logger: logger,
-		events:   make(chan *chiralv1.Event, 32),
-		inst:     xray.NewInstaller(cfg.StateDir, xr),
-		installs: newInstallState(),
+	if cfg.RuntimeStatusSnapshot == nil {
+		// Never infer a generic provider as direct-Xray. This explicit unknown
+		// keeps a future API adapter from being shown as ACTIVE merely because
+		// its status wiring was forgotten.
+		cfg.RuntimeStatusSnapshot = func() *chiralv1.RuntimeStatus {
+			return &chiralv1.RuntimeStatus{Provider: "unknown"}
+		}
 	}
+	c := &Client{
+		cfg: cfg, rt: rt, col: col, logger: logger,
+		events:        make(chan *chiralv1.Event, 32),
+		directUpgrade: directUpgrade,
+		installs:      newInstallState(),
+	}
+	return c
 }
 
 // QueueEvent enqueues an event for delivery to Core; safe from any goroutine
@@ -281,7 +319,7 @@ func (c *Client) runStream(ctx context.Context, svc chiralv1.AgentServiceClient)
 	hello := &chiralv1.AgentFrame{Frame: &chiralv1.AgentFrame_Hello{Hello: &chiralv1.Hello{
 		NodeId:       c.st.NodeID,
 		AgentVersion: c.cfg.AgentVersion,
-		XrayVersion:  c.xr.BinaryVersion(),
+		XrayVersion:  c.rt.InstalledVersion(),
 		// Platform is what decides which release asset Core hands out. The
 		// agent is the only thing that knows it, and guessing from the node's
 		// hostname or its uname string is how a node ends up being told to
@@ -406,12 +444,12 @@ func (c *Client) handleFrame(ctx context.Context, sendCh chan<- *chiralv1.AgentF
 		// Before Apply, so a kernel that restarts on this config already has
 		// the matching probe. They are rendered together by Core and belong to
 		// the same version of this node's access points.
-		c.xr.SetProbe(push.GetProbeOutboundJson(), push.GetProbeUrl())
+		c.rt.SetProbe(push.GetProbeOutboundJson(), push.GetProbeUrl())
 		if len(push.GetProbeOutboundJson()) == 0 {
 			c.logger.Warn("this config came with no client outbound to test with; a kernel upgrade here cannot be confirmed to carry traffic")
 		}
 		ack := &chiralv1.ConfigAck{Version: push.GetVersion(), Applied: true}
-		if err := c.xr.Apply(push.GetVersion(), push.GetConfigJson()); err != nil {
+		if err := c.rt.Apply(push.GetVersion(), push.GetConfigJson()); err != nil {
 			ack.Applied = false
 			ack.Error = err.Error()
 			c.logger.Error("config apply failed", "version", push.GetVersion(), "err", err)
@@ -421,7 +459,7 @@ func (c *Client) handleFrame(ctx context.Context, sendCh chan<- *chiralv1.AgentF
 		switch fr.Command.GetCmd().(type) {
 		case *chiralv1.Command_RestartXray:
 			c.logger.Info("restart command received")
-			if err := c.xr.Restart(); err != nil {
+			if err := c.rt.Restart(); err != nil {
 				c.QueueEvent(chiralv1.EventKind_EVENT_KIND_ERROR, fmt.Sprintf("restart failed: %v", err))
 			} else {
 				c.QueueEvent(chiralv1.EventKind_EVENT_KIND_XRAY_RESTARTED, "restarted on command")
@@ -449,9 +487,9 @@ func (c *Client) handleFrame(ctx context.Context, sendCh chan<- *chiralv1.AgentF
 		var err error
 		switch op.GetKind() {
 		case chiralv1.UserOpKind_USER_OP_KIND_ADD:
-			err = c.xr.AddUser(ctx, op.GetInboundTag(), op.GetEmail(), op.GetAccountJson())
+			err = c.rt.AddUser(ctx, op.GetInboundTag(), op.GetEmail(), op.GetAccountJson())
 		case chiralv1.UserOpKind_USER_OP_KIND_REMOVE:
-			err = c.xr.RemoveUser(ctx, op.GetInboundTag(), op.GetEmail())
+			err = c.rt.RemoveUser(ctx, op.GetInboundTag(), op.GetEmail())
 		default:
 			err = fmt.Errorf("unknown user op kind %v", op.GetKind())
 		}
@@ -471,12 +509,12 @@ func (c *Client) handleFrame(ctx context.Context, sendCh chan<- *chiralv1.AgentF
 // reset by a successful call or not consumed at all by a failed one, and the
 // next tick covers the same ground.
 func (c *Client) statsFrame(ctx context.Context) *chiralv1.AgentFrame {
-	stats, err := c.xr.Stats(ctx)
+	stats, err := c.rt.Stats(ctx)
 	if err != nil {
 		c.logger.Warn("reading xray stats failed", "err", err)
 		return nil
 	}
-	traffic := xray.UserTrafficFrom(stats)
+	traffic := runtimeprovider.UserTrafficFrom(stats)
 	if len(traffic) == 0 {
 		return nil
 	}
@@ -518,7 +556,7 @@ func (c *Client) onlineSettings() (enabled bool, interval time.Duration) {
 // and treating the second as the first would clear a user's addresses every
 // time an agent went quiet.
 func (c *Client) onlineFrame(ctx context.Context) *chiralv1.AgentFrame {
-	users, complete, err := c.xr.OnlineUsers(ctx)
+	users, complete, err := c.rt.OnlineUsers(ctx)
 	if err != nil {
 		c.logger.Warn("reading online users failed", "err", err)
 		// Not a silent skip: an incomplete round is a fact Core acts on.
@@ -543,11 +581,50 @@ func (c *Client) onlineFrame(ctx context.Context) *chiralv1.AgentFrame {
 
 func (c *Client) heartbeatFrame() *chiralv1.AgentFrame {
 	hb := c.col.Sample()
-	hb.XrayState = c.xr.State()
-	hb.ConfigVersion = c.xr.ConfigVersion()
-	hb.XrayVersion = c.xr.RunningVersion()
-	hb.InstalledXrayVersion = c.xr.BinaryVersion()
+	c.populateRuntimeHeartbeat(hb)
 	return &chiralv1.AgentFrame{Frame: &chiralv1.AgentFrame_Heartbeat{Heartbeat: hb}}
+}
+
+func (c *Client) populateRuntimeHeartbeat(hb *chiralv1.Heartbeat) {
+	hb.XrayState = c.rt.State()
+	hb.ConfigVersion = c.rt.ConfigVersion()
+	hb.XrayVersion = c.rt.RunningVersion()
+	hb.InstalledXrayVersion = c.rt.InstalledVersion()
+	observed := c.cfg.RuntimeStatusSnapshot()
+	if observed == nil {
+		observed = &chiralv1.RuntimeStatus{Provider: "unknown"}
+	}
+	hb.Runtime = cloneRuntimeStatus(observed)
+}
+
+func directRuntimeStatus() *chiralv1.RuntimeStatus {
+	return &chiralv1.RuntimeStatus{
+		Provider:       "direct-xray",
+		Mode:           chiralv1.RuntimeMode_RUNTIME_MODE_ACTIVE,
+		Health:         chiralv1.RuntimeHealth_RUNTIME_HEALTH_READY,
+		ObservedAtUnix: time.Now().Unix(),
+	}
+}
+
+// cloneRuntimeStatus prevents a background observer from racing protobuf
+// marshaling if its cached slice is replaced while a frame is in flight.
+func cloneRuntimeStatus(in *chiralv1.RuntimeStatus) *chiralv1.RuntimeStatus {
+	if in == nil {
+		return nil
+	}
+	return &chiralv1.RuntimeStatus{
+		Provider:           in.GetProvider(),
+		Mode:               in.GetMode(),
+		Version:            in.GetVersion(),
+		Capabilities:       append([]string(nil), in.GetCapabilities()...),
+		Error:              in.GetError(),
+		ContractDigest:     in.GetContractDigest(),
+		ObservedAtUnix:     in.GetObservedAtUnix(),
+		Health:             in.GetHealth(),
+		XrayState:          in.GetXrayState(),
+		XrayVersion:        in.GetXrayVersion(),
+		ObservedAgeSeconds: in.GetObservedAgeSeconds(),
+	}
 }
 
 // trySend enqueues to the writer unless the stream is gone.
