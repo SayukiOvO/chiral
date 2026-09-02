@@ -76,3 +76,6 @@ if [ "$reported" != "$expected" ]; then
 	exit 1
 fi
 echo "installed Xray $reported with geo assets in $destination"
+if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
+	printf '%s\n' "- Verified archive SHA-256: \`$sum\`" >> "$GITHUB_STEP_SUMMARY"
+fi

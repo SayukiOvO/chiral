@@ -12,7 +12,7 @@ on:
   workflow_dispatch:
     inputs:
       xray_version:
-        description: "Pin the bundled Xray-core (e.g. v26.7.28). Empty = latest prerelease at build time."
+        description: "Optional exact Xray-core release. Empty = latest published release at build time."
         required: false
         default: ""
       tag:
@@ -51,7 +51,7 @@ jobs:
 
       # Resolve the Xray version ONCE, then test the same release that both
       # images will bundle. This prevents a release-only kernel incompatibility
-      # from passing main's pinned-kernel gate and reaching Docker Hub.
+      # from passing a different kernel gate on main and reaching Docker Hub.
       - name: Resolve the Xray-core version
         id: xray
         env:

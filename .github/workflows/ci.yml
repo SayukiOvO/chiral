@@ -13,9 +13,33 @@ jobs:
       - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
-      - name: Install pinned Xray-core for integration tests
+      # Resolve once so every real-Xray test in this run exercises the same
+      # published prerelease or stable release. Drafts are not deployable.
+      - name: Resolve the latest Xray-core version
+        id: xray
         env:
-          XRAY_VERSION: v26.7.28
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          release=$(curl --fail --show-error --silent --location \
+            --retry 3 --retry-all-errors \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/XTLS/Xray-core/releases?per_page=100")
+          version=$(jq -r \
+            '[.[] | select(.draft == false)] | sort_by(.published_at) | reverse | .[0].tag_name // empty' \
+            <<<"$release")
+          if [[ ! "$version" =~ ^v[0-9]+(\.[0-9]+){2}$ ]]; then
+            echo "invalid Xray version (expected one line matching vMAJOR.MINOR.PATCH)" >&2
+            exit 1
+          fi
+          printf 'version=%s\n' "$version" >> "$GITHUB_OUTPUT"
+          echo "resolved Xray-core $version for this CI run"
+          printf '### Xray integration input\n\n- Release: %s\n' "$version" >> "$GITHUB_STEP_SUMMARY"
+      - name: Install resolved Xray-core for integration tests
+        env:
+          XRAY_VERSION: ${{ steps.xray.outputs.version }}
         run: sh .github/workflows/install-xray.sh "$XRAY_VERSION" "$RUNNER_TEMP/xray"
       - name: gofmt
         run: test -z "$(gofmt -l .)" || (gofmt -l . && exit 1)
