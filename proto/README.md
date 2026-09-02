@@ -11,6 +11,8 @@ Core 与 Agent **共享**的 protobuf 定义与生成代码。是两个组件间
   - Agent → Core：`Hello`（首帧）、`Heartbeat`、`StatsReport`、`ConfigAck`、`Event`、`OnlineReport`
   - Core → Agent：`ConfigPush`、`UserOp`（AddUser / RemoveUser）、`Command`（重启 / 立即上报）、`OnlinePolicy`
 
+`Heartbeat.runtime` 报告节点侧运行时提供者、模式、版本、实际探测到的能力、OpenAPI 摘要、契约实际读取时间、候选后端的 Xray 状态/版本及显式健康状态（`READY / INCOMPATIBLE / UNREACHABLE`）。迁移阶段的 `SHADOW` 只做 3x-ui 契约/健康观测，所有写操作仍走旧提供者；候选 Xray 字段不能覆盖 Heartbeat 顶层的 ACTIVE Xray 状态。只有经 Core 支持的 `ACTIVE` 才表示该提供者实际接收配置、用户与生命周期指令；当前 Core 明确拒绝 3x-ui 自报 ACTIVE。旧 Agent 在**收到心跳且完全缺少此字段时**，Core 才按其历史事实显示为 `direct-xray / ACTIVE`；畸形空字段、离线或尚未注册的节点均显示 `UNKNOWN`，不能凭空推断为已激活。
+
 ## 两条方向相反的上报规则
 
 `StatsReport` 报**增量**：Xray 重启会把计数器归零，报绝对值会把总量算歪。

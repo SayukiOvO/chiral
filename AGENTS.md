@@ -45,6 +45,8 @@ Chiral 是一个 Xray 管理面板，定位类似 Remnawave：采用 **Panel + A
 15. **端用户与管理员是两类主体，边界靠构造而非小心**（M5）：`portal.Identity` **永远不带 Role**，`auth.rank()` **永远不新增 `>= 1` 的值**。一旦有人给 rank 加了「user: 1」，`requireAdmin`（= viewer 档）覆盖的节点列表、用户列表、变量、Profile、流量、审计日志就全部对客户开放。（`config/preview` 不在此列——M5-2 已把它提到 `requireWrite`，正因为它返回含 REALITY 私钥与全部凭证明文的完整 config。）
     编译期能保证的部分要说准：**接错守卫是编译错误**（`portalHandler` 多收一个 `portal.Identity`，两种签名不统一）；**`package portal` 内部够不到 store**，所以越权取数在 `View` 这条路径上不可能。但 `package api` 里的门户 handler 是 `*Server` 的方法，仍持有 `s.st`（`portalLogin`、`portalChangePassword` 就在用它读写自己的账号行）——在那里写 `s.st.ListNodes()` 是能编译过的。**规矩是：凡是要展示机队信息，一律走 `View`。**
 
+16. **3x-ui 是节点执行后端，不是第二个控制面**（迁移中）：Core 继续独占用户、RBAC、Profile、变量、`用户 × Profile × 节点` 凭证、订阅、配额、审计和配置历史；Agent 保留主动连回 Core 的 NAT 架构，只在节点本地通过窄类型 HTTP client 调用独立 3x-ui 进程。不得把用户跳转/iframe 到各节点面板，不得复制或链接 3x-ui 核心，也不得让 Core 持有节点的 3x-ui admin token。API 无版本前缀，所以每次接管前必须用实时 OpenAPI 做能力握手；配置回读、在线绝对快照、增量计费、真实数据面探活、安装回滚和订阅逐字节不变全部通过后，provider 才能从 `SHADOW` 进入 `ACTIVE`。迁移期保留 direct-Xray provider 作为节点级回滚路径。详见 `docs/3x-ui-integration.md`。
+
 ## 5. 搁置 / 待议
 
 - **shadcn/ui 组件化下沉**：当前是手写原语，功能与观感已达标，属重构而非缺口。
@@ -76,7 +78,7 @@ Chiral 是一个 Xray 管理面板，定位类似 Remnawave：采用 **Panel + A
 
 ## 8. 开发里程碑
 
-见 `docs/roadmap.md`。M1–M5 均已完成：骨架、模板/变量系统、用户与订阅、UI 打磨与 i18n、端用户门户与在线地址记录。
+见 `docs/roadmap.md`。M1–M7 已完成；M8（3x-ui 节点执行后端迁移）正在进行，当前仅交付只读 SHADOW 基础设施，不能视为生产接管。
 
 ## 9. 协作方式
 

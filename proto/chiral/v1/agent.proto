@@ -94,6 +94,12 @@ message Heartbeat {
   // restart, a rollback, a crash-looping kernel — which is precisely when
   // collapsing them into one number would report the reassuring half.
   string installed_xray_version = 11;
+
+  // Runtime provider observation for this node. Older agents omit it, which
+  // Core treats as the legacy direct-Xray provider. During the 3x-ui migration
+  // a provider can run in SHADOW mode: its contract and health are observed,
+  // but every mutating instruction still goes through the direct provider.
+  RuntimeStatus runtime = 12;
 }
 
 enum XrayState {
@@ -402,3 +408,57 @@ message RestartXray {}
 // ReportNow asks the agent to send a Heartbeat (and StatsReport once
 // implemented) immediately.
 message ReportNow {}
+
+// RuntimeStatus is appended after the pre-existing protocol declarations so
+// adding it does not renumber the legacy descriptor indexes used by old Go
+// reflection APIs. Its Heartbeat field remains wire-compatible tag 12.
+message RuntimeStatus {
+  // Stable implementation name, currently "direct-xray" or "3x-ui".
+  string provider = 1;
+  RuntimeMode mode = 2;
+  // Provider version, not the managed Xray-core version. For 3x-ui this is the
+  // panelVersion returned by /panel/api/server/status.
+  string version = 3;
+  // Route capability names discovered from the provider's live contract.
+  // SHADOW verifies exact path/method shape, not write authorization or
+  // operation semantics; those require isolated probes before ACTIVE.
+  repeated string capabilities = 4;
+  // A bounded, operator-safe summary. Detailed upstream errors stay in the
+  // Agent log so a node cannot inject secrets or unbounded text into Core.
+  string error = 5;
+  // SHA-256 of the provider's live OpenAPI document. An unversioned API can
+  // change without its panel version making that contract change obvious.
+  string contract_digest = 6;
+  // Time behind the reported health: the last successful contract read, or
+  // the latest failed observation attempt.
+  int64 observed_at_unix = 7;
+  RuntimeHealth health = 8;
+  // Provider-observed Xray state. In SHADOW mode this describes the candidate
+  // backend only; Heartbeat.xray_state remains the active runtime that is
+  // actually serving subscribers.
+  XrayState xray_state = 9;
+  // Provider-observed Xray version, with the same SHADOW distinction as
+  // xray_state. It must never overwrite Heartbeat.xray_version.
+  string xray_version = 10;
+  // Age of observed_at_unix when this heartbeat snapshot was made. Core uses
+  // this relative value with its receive time so Agent/browser clock skew
+  // cannot turn a stale contract green or a fresh one red.
+  uint32 observed_age_seconds = 11;
+}
+
+enum RuntimeMode {
+  RUNTIME_MODE_UNSPECIFIED = 0;
+  RUNTIME_MODE_ACTIVE = 1;
+  RUNTIME_MODE_SHADOW = 2;
+}
+
+enum RuntimeHealth {
+  RUNTIME_HEALTH_UNSPECIFIED = 0;
+  // Reachable and satisfies the evidence required by this mode. In SHADOW it
+  // means route-shape discovery plus the safe config read, not ACTIVE parity.
+  RUNTIME_HEALTH_READY = 1;
+  // Reachable, but its live contract is missing one or more requirements.
+  RUNTIME_HEALTH_INCOMPATIBLE = 2;
+  // The provider or its live contract could not be observed.
+  RUNTIME_HEALTH_UNREACHABLE = 3;
+}

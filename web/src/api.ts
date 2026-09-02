@@ -38,6 +38,20 @@ export interface Node {
   agent_version: string;
   xray_version: string;
   xray_installed_version: string;
+  /** Node-local implementation that owns or shadows Xray lifecycle calls. */
+  runtime_provider: string;
+  /** ACTIVE receives writes; SHADOW is contract/health observation only. */
+  runtime_mode: "ACTIVE" | "SHADOW" | "UNKNOWN";
+  /** READY means the live provider contract satisfies this adapter revision. */
+  runtime_health: "READY" | "INCOMPATIBLE" | "UNREACHABLE" | "UNKNOWN";
+  runtime_version?: string;
+  runtime_capabilities?: string[];
+  runtime_contract_digest?: string;
+  runtime_error?: string;
+  runtime_observed_at?: number;
+  /** Candidate provider's Xray state; in SHADOW this is not the serving process. */
+  runtime_xray_state?: "RUNNING" | "STOPPED" | "ERROR" | "UNKNOWN";
+  runtime_xray_version?: string;
   platform: string;
   created_at: number;
   registered_at?: number;
