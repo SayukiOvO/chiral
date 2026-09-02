@@ -144,6 +144,23 @@ func plainRelay(t *testing.T, svc *Service, st *store.Store, entryPort, exitPort
 	}`); err != nil {
 		t.Fatal(err)
 	}
+	// Current Xray releases apply a server-side safety fallback that blocks
+	// private and reserved destinations reached through Freedom. Every real
+	// destination in these hermetic E2E tests is an httptest loopback server,
+	// so the test exit opts back in explicitly. Keep this broad allow confined
+	// to the fixture; production nodes should allow only their intended private
+	// ranges and ports.
+	if err := st.SetConfigSkeleton(exit.ID, `{
+	  "log": { "loglevel": "warning" },
+	  "inbounds": [],
+	  "outbounds": [ {
+	    "protocol": "freedom",
+	    "tag": "direct",
+	    "settings": { "finalRules": [ { "action": "allow" } ] }
+	  } ]
+	}`); err != nil {
+		t.Fatal(err)
+	}
 
 	rl, err := st.CreateNodeRelay(store.NodeRelay{
 		EntryNodeID: entry.ID, ExitNodeID: exit.ID, ProfileID: p.ID,
