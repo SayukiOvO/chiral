@@ -81,6 +81,10 @@ func liveOnlineXray(t *testing.T) (*Manager, string, int) {
 		t.Fatalf("starting the server kernel: %v", err)
 	}
 	t.Cleanup(m.Stop)
+	serverAddr := net.JoinHostPort(host, itoa(vlessPort))
+	if err := waitForPort(context.Background(), serverAddr, liveDeadline); err != nil {
+		t.Fatalf("the server kernel's VLESS inbound never became reachable: %v", err)
+	}
 
 	// A dokodemo-door entry rather than SOCKS: dialling it is a plain TCP
 	// connect, with no client-side handshake to get wrong.
@@ -115,15 +119,23 @@ func liveOnlineXray(t *testing.T) (*Manager, string, int) {
 	// wrong, so a longer one costs nothing on a healthy run and stops the test
 	// failing for being run on a busy machine — which is when the whole suite
 	// runs, alongside every other package.
+	apiReady := false
 	deadline := time.Now().Add(liveDeadline)
 	for time.Now().Before(deadline) {
 		if _, err := m.Stats(context.Background()); err == nil {
-			return m, email, entryPort
+			apiReady = true
+			break
 		}
 		time.Sleep(100 * time.Millisecond)
 	}
-	t.Fatalf("the server kernel's API never became reachable within %s", liveDeadline)
-	return nil, "", 0
+	if !apiReady {
+		t.Fatalf("the server kernel's API never became reachable within %s", liveDeadline)
+	}
+	entryAddr := net.JoinHostPort("127.0.0.1", itoa(entryPort))
+	if err := waitForPort(context.Background(), entryAddr, liveDeadline); err != nil {
+		t.Fatalf("the client kernel's entry never became reachable: %v", err)
+	}
+	return m, email, entryPort
 }
 
 func TestOnlineUsersReportsARealConnection(t *testing.T) {
