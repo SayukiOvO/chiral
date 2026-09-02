@@ -13,6 +13,10 @@ jobs:
       - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
+      - name: Install pinned Xray-core for integration tests
+        env:
+          XRAY_VERSION: v26.7.28
+        run: sh .github/workflows/install-xray.sh "$XRAY_VERSION" "$RUNNER_TEMP/xray"
       - name: gofmt
         run: test -z "$(gofmt -l .)" || (gofmt -l . && exit 1)
       - name: vet
@@ -21,8 +25,11 @@ jobs:
         run: |
           go build -o bin/chiral-core ./core/cmd/core
           go build -o bin/chiral-agent ./agent/cmd/agent
-      - name: test
-        run: go test ./...
+      - name: test (real Xray integrations required)
+        env:
+          CHIRAL_XRAY_BIN: ${{ runner.temp }}/xray/xray
+          XRAY_LOCATION_ASSET: ${{ runner.temp }}/xray
+        run: bash .github/workflows/test-go-with-xray.sh
 
   web:
     runs-on: ubuntu-latest

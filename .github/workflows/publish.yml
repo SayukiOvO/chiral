@@ -40,8 +40,86 @@ jobs:
       - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
-      - run: go vet ./...
-      - run: go test ./...
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - uses: bufbuild/buf-action@v1
+        with:
+          setup_only: true
+
+      # Resolve the Xray version ONCE, then test the same release that both
+      # images will bundle. This prevents a release-only kernel incompatibility
+      # from passing main's pinned-kernel gate and reaching Docker Hub.
+      - name: Resolve the Xray-core version
+        id: xray
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PINNED: ${{ inputs.xray_version }}
+        run: |
+          set -euo pipefail
+          if [ -n "${PINNED}" ]; then
+            v="${PINNED}"
+            source=pinned
+          else
+            v=
+            source=resolved
+            for attempt in 1 2 3; do
+              v=$(curl -fsSL -H "Authorization: Bearer ${GH_TOKEN}" \
+                    "https://api.github.com/repos/XTLS/Xray-core/releases?per_page=1" \
+                    | jq -r '.[0].tag_name // empty') && [ -n "$v" ] && break
+              echo "attempt $attempt failed, retrying" >&2
+              sleep $((attempt * 5))
+            done
+            if [ -z "$v" ]; then
+              echo "could not resolve the latest Xray-core release from api.github.com" >&2
+              exit 1
+            fi
+          fi
+          case "$v" in v*) ;; *) v="v$v" ;; esac
+          if [[ ! "$v" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "invalid Xray version (expected one line matching vMAJOR.MINOR.PATCH)" >&2
+            exit 1
+          fi
+          printf 'version=%s\n' "$v" >> "$GITHUB_OUTPUT"
+          echo "$source Xray-core $v; both images and release tests will use it"
+
+      - name: Install release Xray-core for integration tests
+        env:
+          XRAY_VERSION: ${{ steps.xray.outputs.version }}
+        run: sh .github/workflows/install-xray.sh "$XRAY_VERSION" "$RUNNER_TEMP/xray"
+
+      - name: gofmt
+        run: test -z "$(gofmt -l .)" || (gofmt -l . && exit 1)
+      - name: vet
+        run: go vet ./...
+      - name: build Go binaries
+        run: |
+          go build -o bin/chiral-core ./core/cmd/core
+          go build -o bin/chiral-agent ./agent/cmd/agent
+      - name: test Go (real Xray integrations required)
+        env:
+          CHIRAL_XRAY_BIN: ${{ runner.temp }}/xray/xray
+          XRAY_LOCATION_ASSET: ${{ runner.temp }}/xray
+        run: bash .github/workflows/test-go-with-xray.sh
+
+      - name: Install frontend dependencies
+        working-directory: web
+        run: npm ci
+      - name: Build frontend
+        working-directory: web
+        run: npm run build
+      - name: Test frontend
+        working-directory: web
+        run: npm test
+
+      - name: Lint protobuf definitions
+        run: buf lint
+      - name: Generated protobuf code is in sync
+        run: |
+          buf generate
+          git diff --exit-code -- proto
 
       # The compose file and its example .env drift in both directions and each
       # direction fails silently. A variable the example documents but compose
@@ -83,42 +161,6 @@ jobs:
           fi
           echo "version=$v" >> "$GITHUB_OUTPUT"
           echo "building $v"
-
-      # Resolve the Xray version ONCE, here, and hand the same answer to both
-      # images.
-      #
-      # Letting each Dockerfile ask for "latest" independently meant the two
-      # builds could disagree: they run in parallel, and a snapshot landing
-      # between them ships a panel that validates configs with one kernel and
-      # nodes that run another — the exact drift core/internal/kernel exists to
-      # prevent. Resolving here also halves the API calls and puts the one that
-      # remains behind a token, on a step whose failure names itself instead of
-      # surfacing as a build error two stages deep.
-      - name: Resolve the Xray-core version
-        id: xray
-        env:
-          GH_TOKEN: ${{ github.token }}
-          PINNED: ${{ inputs.xray_version }}
-        run: |
-          set -euo pipefail
-          if [ -n "${PINNED}" ]; then
-            echo "version=${PINNED}" >> "$GITHUB_OUTPUT"
-            echo "pinned to ${PINNED}"
-            exit 0
-          fi
-          for attempt in 1 2 3; do
-            v=$(curl -fsSL -H "Authorization: Bearer ${GH_TOKEN}" \
-                  "https://api.github.com/repos/XTLS/Xray-core/releases?per_page=1" \
-                  | jq -r '.[0].tag_name // empty') && [ -n "$v" ] && break
-            echo "attempt $attempt failed, retrying" >&2
-            sleep $((attempt * 5))
-          done
-          if [ -z "${v:-}" ]; then
-            echo "could not resolve the latest Xray-core release from api.github.com" >&2
-            exit 1
-          fi
-          echo "version=$v" >> "$GITHUB_OUTPUT"
-          echo "both images will bundle Xray-core $v"
 
   publish:
     needs: verify
@@ -219,11 +261,16 @@ jobs:
           cache-from: type=gha,scope=${{ matrix.name }}
 
       - name: Report what was published
+        env:
+          IMAGE: chiral-${{ matrix.name }}
+          TAGS: ${{ steps.meta.outputs.tags }}
         run: |
-          echo "### chiral-${{ matrix.name }}" >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
-          echo "${{ steps.meta.outputs.tags }}" >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
+          {
+            printf '### %s\n' "$IMAGE"
+            echo '```'
+            printf '%s\n' "$TAGS"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
 
   # Prebuilt binaries, for deploying without Docker. The panel carries its own
   # frontend, so a release is two executables and an Xray — no asset directory
@@ -274,7 +321,7 @@ jobs:
             cp README.md "build/$dir/"
             tar -czf "out/${dir}.tar.gz" -C build "$dir"
           done
-          cd out && sha256sum *.tar.gz > SHA256SUMS
+          cd out && sha256sum ./*.tar.gz > SHA256SUMS
           ls -lh
 
       # -X is silent when it misses: rename the variable, move it to another
@@ -286,10 +333,11 @@ jobs:
       - name: Check the version actually got stamped
         env:
           STAMP: ${{ needs.verify.outputs.version }}
+          VERSION: ${{ github.ref_name }}
         run: |
           set -euo pipefail
           for cmd in core agent; do
-            got=$("./build/chiral-${{ github.ref_name }}-linux-amd64/chiral-$cmd" --version)
+            got=$("./build/chiral-${VERSION}-linux-amd64/chiral-$cmd" --version)
             [ "$got" = "$STAMP" ] || {
               echo "chiral-$cmd reports '$got', expected '$STAMP' — the -X ldflag no longer reaches main.version" >&2
               exit 1
@@ -304,6 +352,8 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           VERSION: ${{ github.ref_name }}
+          REGISTRY_USER: ${{ vars.DOCKERHUB_USERNAME }}
+          XRAY_VERSION: ${{ needs.verify.outputs.xray_version }}
         run: |
           set -euo pipefail
           {
@@ -312,11 +362,11 @@ jobs:
             echo "## Container images"
             echo
             echo '```'
-            echo "docker pull ${{ vars.DOCKERHUB_USERNAME }}/chiral-core:${VERSION#v}"
-            echo "docker pull ${{ vars.DOCKERHUB_USERNAME }}/chiral-agent:${VERSION#v}"
+            echo "docker pull ${REGISTRY_USER}/chiral-core:${VERSION#v}"
+            echo "docker pull ${REGISTRY_USER}/chiral-agent:${VERSION#v}"
             echo '```'
             echo
-            echo "Bundled Xray-core: \`${{ needs.verify.outputs.xray_version }}\`"
+            echo "Bundled Xray-core: \`${XRAY_VERSION}\`"
           } > notes.md
           gh release create "$VERSION" \
             --title "$VERSION" \
