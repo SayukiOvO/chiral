@@ -10,7 +10,7 @@ import (
 	"testing"
 )
 
-const completeOpenAPIDocument = `{"openapi":"3.0.3","paths":{"/panel/api/server/status":{"get":{}},"/panel/api/inbounds/list":{"get":{}},"/panel/api/inbounds/add":{"post":{}},"/panel/api/inbounds/update/{id}":{"post":{}},"/panel/api/inbounds/del/{id}":{"post":{}},"/panel/api/clients/list":{"get":{}},"/panel/api/clients/add":{"post":{}},"/panel/api/clients/update/{email}":{"post":{}},"/panel/api/clients/del/{email}":{"post":{}},"/panel/api/clients/traffic/{email}":{"get":{}},"/panel/api/clients/onlines":{"post":{}},"/panel/api/clients/ips/{email}":{"post":{}},"/panel/api/xray/update":{"post":{}},"/panel/api/server/restartXrayService":{"post":{}},"/panel/api/server/getConfigJson":{"get":{}},"/panel/api/server/installXray/{version}":{"post":{}}}}`
+const completeOpenAPIDocument = `{"openapi":"3.0.3","paths":{"/panel/api/server/status":{"get":{}},"/panel/api/inbounds/list":{"get":{}},"/panel/api/inbounds/add":{"post":{}},"/panel/api/inbounds/update/{id}":{"post":{}},"/panel/api/inbounds/del/{id}":{"post":{}},"/panel/api/clients/list":{"get":{}},"/panel/api/clients/add":{"post":{}},"/panel/api/clients/update/{email}":{"post":{}},"/panel/api/clients/del/{email}":{"post":{}},"/panel/api/clients/traffic/{email}":{"get":{}},"/panel/api/clients/onlines":{"post":{}},"/panel/api/clients/ips/{email}":{"post":{}},"/panel/api/xray/update":{"post":{}},"/panel/api/server/restartXrayService":{"post":{}},"/panel/api/server/getConfigJson":{"get":{}},"/panel/api/server/getXrayVersion":{"get":{}},"/panel/api/server/installXray/{version}":{"post":{}}}}`
 
 func TestDiscoverCapabilitiesMatchesExactOpenAPIOperations(t *testing.T) {
 	var gotPath, gotAuthorization string
@@ -39,7 +39,7 @@ func TestDiscoverCapabilitiesMatchesExactOpenAPIOperations(t *testing.T) {
 	if capabilities.OpenAPIVersion != "3.0.3" {
 		t.Errorf("OpenAPIVersion = %q", capabilities.OpenAPIVersion)
 	}
-	const wantDocumentSHA256 = "b5da71f3309b02a292df369e874c07726accda54cab3478a10e8b9ecb575fd16"
+	const wantDocumentSHA256 = "9f6c27610743b07726933e5bb31ade43aa9871dff45e036d5b5992108e08c08d"
 	if capabilities.DocumentSHA256 != wantDocumentSHA256 {
 		t.Errorf("DocumentSHA256 = %q, want %q", capabilities.DocumentSHA256, wantDocumentSHA256)
 	}
@@ -61,6 +61,9 @@ func TestDiscoverCapabilitiesReportsMissingMethodOrPath(t *testing.T) {
 		body = strings.Replace(body,
 			`"/panel/api/server/restartXrayService":{"post":{}}`,
 			`"/panel/api/server/restartXrayService":{"post":true}`, 1)
+		body = strings.Replace(body,
+			`"/panel/api/server/getXrayVersion":{"get":{}}`,
+			`"/panel/api/server/getXrayVersion":{"post":{}}`, 1)
 		fmt.Fprint(w, body)
 	}))
 	defer server.Close()
@@ -73,7 +76,7 @@ func TestDiscoverCapabilitiesReportsMissingMethodOrPath(t *testing.T) {
 	if err != nil {
 		t.Fatalf("DiscoverCapabilities() error = %v", err)
 	}
-	wantMissing := []Capability{CapabilityXrayUpdate, CapabilityXrayRestart}
+	wantMissing := []Capability{CapabilityXrayUpdate, CapabilityXrayRestart, CapabilityXrayVersions}
 	if got := capabilities.Missing(); !reflect.DeepEqual(got, wantMissing) {
 		t.Errorf("Missing() = %v, want %v", got, wantMissing)
 	}

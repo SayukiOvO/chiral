@@ -20,6 +20,13 @@ ROOT = Path(__file__).resolve().parent
 STATE = ROOT / "artifacts/state.json"
 PROJECT_PATTERN = r"chiral-3x-ui-lab-[a-z0-9][a-z0-9-]{0,35}"
 VOLUMES = {"core-data", "agent-data", "three-x-ui-data", "three-x-ui-bin", "three-x-ui-cert"}
+# Keep synchronized with required3XUIShadowCapabilities in core/internal/api/api.go.
+REQUIRED_CAPABILITIES = frozenset({
+    "status", "inbounds_list", "inbounds_add", "inbounds_update", "inbounds_delete",
+    "clients_list", "clients_add", "clients_update", "clients_delete", "client_traffic",
+    "clients_online", "client_ips", "xray_update", "xray_restart", "get_config",
+    "install_xray", "xray_versions",
+})
 
 
 def require(condition, message):
@@ -76,6 +83,14 @@ def validate_interfaces(interfaces):
                 and not interface.get("addr_info"), "Laboratory has a usable non-loopback interface")
 
 
+def validate_capabilities(capabilities):
+    require(isinstance(capabilities, list)
+            and all(isinstance(capability, str) for capability in capabilities)
+            and len(capabilities) == len(REQUIRED_CAPABILITIES)
+            and set(capabilities) == REQUIRED_CAPABILITIES,
+            "Incomplete or unexpected runtime capabilities")
+
+
 class Lab:
     def __init__(self, state):
         self.state = state
@@ -101,6 +116,17 @@ class Lab:
         for name, volume in config["volumes"].items():
             require(not volume.get("external"), "External volumes are forbidden")
             require(volume.get("name") == self.project + "_" + name, "Volume is not project-scoped")
+        # Each service owns only its own state. In particular, the Agent must
+        # never gain access to the backend's database or executable directory.
+        expected_mounts = {
+            "3x-ui": {"/etc/x-ui": ("volume", "three-x-ui-data", False),
+                      "/app/bin": ("volume", "three-x-ui-bin", False),
+                      "/root/cert": ("volume", "three-x-ui-cert", False)},
+            "core": {"/var/lib/chiral": ("volume", "core-data", False)},
+            "agent": {"/var/lib/chiral-agent": ("volume", "agent-data", False),
+                      "/run/secrets/chiral-3x-ui-token":
+                          ("bind", str(ROOT / "secrets/3x-ui.token"), True)},
+        }
         for name, service in config["services"].items():
             expected = "none" if name == "3x-ui" else "service:3x-ui"
             require(service.get("network_mode") == expected, "Invalid laboratory network mode")
@@ -111,13 +137,30 @@ class Lab:
             require(0 < int(service.get("mem_limit", 0)) <= 384 * 1024 * 1024, "Missing memory limit")
             require(0 < float(service.get("cpus", 0)) <= 0.5, "Missing CPU limit")
             require(service.get("pids_limit") == 128, "Missing process limit")
+            mounted_targets = set()
             for mount in service.get("volumes", []):
                 if mount["type"] == "volume":
                     require(mount["source"] in allowed_volumes, "Foreign volume")
+                    source = mount["source"]
                 else:
                     require(name == "agent" and mount["type"] == "bind", "Unexpected host mount")
                     require(Path(mount["source"]).resolve() == ROOT / "secrets/3x-ui.token", "Foreign token mount")
                     require(mount.get("read_only") and not mount.get("bind", {}).get("create_host_path", False), "Unsafe token mount")
+                    source = str(Path(mount["source"]).resolve())
+                target = mount.get("target")
+                require(target in expected_mounts[name] and target not in mounted_targets,
+                        "Unexpected or duplicate service mount target")
+                expected_type, expected_source, expected_read_only = expected_mounts[name][target]
+                require(mount["type"] == expected_type and source == expected_source,
+                        "Unexpected service mount source")
+                require(mount.get("read_only", False) is expected_read_only,
+                        "Unexpected service mount access mode")
+                if source == "three-x-ui-bin":
+                    options = mount.get("volume", {})
+                    require(not options.get("nocopy", False) and not options.get("subpath"),
+                            "Xray binary volume must retain full image copy-up")
+                mounted_targets.add(target)
+            require(mounted_targets == set(expected_mounts[name]), "Required service mount missing")
 
     def inspect(self, service):
         container = self.compose("ps", "--all", "--quiet", service).decode().strip()
@@ -220,7 +263,7 @@ class Lab:
         self.request("/healthz")
         node = self.wait(self.ready, "SHADOW READY")
         require(node.get("runtime_provider") == "3x-ui", "Wrong runtime provider")
-        require(len(node.get("runtime_capabilities", [])) == 16, "Incomplete runtime capabilities")
+        validate_capabilities(node.get("runtime_capabilities"))
         config_before = self.request("/panel/api/server/getConfigJson", provider="3x-ui")
         test_binary = ROOT / "bin/threexui-contract.test"
         require(test_binary.is_file(), "Build bin/threexui-contract.test before verification")

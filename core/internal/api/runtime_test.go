@@ -87,6 +87,36 @@ func TestApplyRuntimeStatusRejectsUnsupported3XUIActiveMode(t *testing.T) {
 	}
 }
 
+func TestApplyRuntimeStatusRequiresEveryAdvertisedOperation(t *testing.T) {
+	for _, missing := range required3XUIShadowCapabilities {
+		t.Run(missing, func(t *testing.T) {
+			var capabilities []string
+			for _, capability := range required3XUIShadowCapabilities {
+				if capability != missing {
+					capabilities = append(capabilities, capability)
+				}
+			}
+			// A duplicate cannot stand in for the missing operation even when
+			// the list length still matches the complete capability count.
+			capabilities = append(capabilities, capabilities[0])
+			at := time.Unix(1777777792, 0)
+			v := nodeView{}
+			applyRuntimeStatus(&v, &chiralv1.RuntimeStatus{
+				Provider:       "3x-ui",
+				Mode:           chiralv1.RuntimeMode_RUNTIME_MODE_SHADOW,
+				Health:         chiralv1.RuntimeHealth_RUNTIME_HEALTH_READY,
+				Capabilities:   capabilities,
+				ContractDigest: strings.Repeat("a", 64),
+				ObservedAtUnix: at.Unix(),
+				XrayState:      chiralv1.XrayState_XRAY_STATE_RUNNING,
+			}, at)
+			if v.RuntimeHealth != "UNKNOWN" || v.RuntimeError != "3x-ui shadow evidence is incomplete" {
+				t.Fatalf("missing %q was accepted as complete evidence: %#v", missing, v)
+			}
+		})
+	}
+}
+
 func TestApplyRuntimeStatusRequiresFreshReadyEvidence(t *testing.T) {
 	v := nodeView{}
 	applyRuntimeStatus(&v, &chiralv1.RuntimeStatus{

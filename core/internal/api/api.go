@@ -495,7 +495,7 @@ func applyRuntimeStatus(v *nodeView, runtime *chiralv1.RuntimeStatus, receivedAt
 var required3XUIShadowCapabilities = []string{
 	"status", "inbounds_list", "inbounds_add", "inbounds_update", "inbounds_delete",
 	"clients_list", "clients_add", "clients_update", "clients_delete", "client_traffic",
-	"clients_online", "client_ips", "xray_update", "xray_restart", "get_config", "install_xray",
+	"clients_online", "client_ips", "xray_update", "xray_restart", "get_config", "xray_versions", "install_xray",
 }
 
 func has3XUIShadowCapabilities(capabilities []string) bool {

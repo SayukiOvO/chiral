@@ -29,6 +29,7 @@ const (
 	CapabilityXrayUpdate     Capability = "xray_update"
 	CapabilityXrayRestart    Capability = "xray_restart"
 	CapabilityGetConfig      Capability = "get_config"
+	CapabilityXrayVersions   Capability = "xray_versions"
 	CapabilityInstallXray    Capability = "install_xray"
 )
 
@@ -56,6 +57,7 @@ var requiredOperations = []struct {
 	{CapabilityXrayUpdate, operation{method: "post", path: "/panel/api/xray/update"}},
 	{CapabilityXrayRestart, operation{method: "post", path: "/panel/api/server/restartXrayService"}},
 	{CapabilityGetConfig, operation{method: "get", path: "/panel/api/server/getConfigJson"}},
+	{CapabilityXrayVersions, operation{method: "get", path: "/panel/api/server/getXrayVersion"}},
 	{CapabilityInstallXray, operation{method: "post", path: "/panel/api/server/installXray/{version}"}},
 }
 

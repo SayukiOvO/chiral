@@ -121,6 +121,91 @@ class ComposeSafetyTests(NoExternalCommands):
                     self.validate(config)
 
 
+    def test_rejects_missing_xray_binary_volume(self):
+        config = safe_config()
+        config["services"]["3x-ui"]["volumes"].pop(1)
+        with self.assertRaisesRegex(RuntimeError, "Required service mount missing"):
+            self.validate(config)
+
+    def test_rejects_backend_binary_volume_on_core_or_agent(self):
+        for service in ("core", "agent"):
+            with self.subTest(service=service):
+                config = safe_config()
+                config["services"][service]["volumes"][0]["source"] = "three-x-ui-bin"
+                with self.assertRaisesRegex(RuntimeError, "service mount source"):
+                    self.validate(config)
+
+    def test_rejects_additional_binary_mount_on_agent(self):
+        config = safe_config()
+        config["services"]["agent"]["volumes"].append(
+            {"type": "volume", "source": "three-x-ui-bin", "target": "/app/bin", "read_only": True})
+        with self.assertRaisesRegex(RuntimeError, "service mount target"):
+            self.validate(config)
+
+    def test_rejects_wrong_mount_targets(self):
+        for service, index in (("3x-ui", 1), ("core", 0), ("agent", 0), ("agent", 1)):
+            with self.subTest(service=service, index=index):
+                config = safe_config()
+                config["services"][service]["volumes"][index]["target"] = "/unexpected"
+                with self.assertRaisesRegex(RuntimeError, "service mount target"):
+                    self.validate(config)
+
+    def test_rejects_read_only_state_or_binary_volumes(self):
+        for service in ("3x-ui", "core", "agent"):
+            for index, mount in enumerate(safe_config()["services"][service]["volumes"]):
+                if mount["type"] != "volume":
+                    continue
+                with self.subTest(service=service, index=index):
+                    config = safe_config()
+                    config["services"][service]["volumes"][index]["read_only"] = True
+                    with self.assertRaisesRegex(RuntimeError, "service mount access mode"):
+                        self.validate(config)
+
+    def test_rejects_duplicate_mount_targets(self):
+        config = safe_config()
+        config["services"]["3x-ui"]["volumes"].append(
+            deepcopy(config["services"]["3x-ui"]["volumes"][1]))
+        with self.assertRaisesRegex(RuntimeError, "duplicate service mount target"):
+            self.validate(config)
+
+    def test_requires_full_xray_binary_volume_copy_up(self):
+        for options in ({"nocopy": True}, {"subpath": "empty"}):
+            with self.subTest(options=options):
+                config = safe_config()
+                config["services"]["3x-ui"]["volumes"][1]["volume"] = options
+                with self.assertRaisesRegex(RuntimeError, "full image copy-up"):
+                    self.validate(config)
+
+    def test_accepts_explicit_xray_binary_volume_copy_up(self):
+        config = safe_config()
+        config["services"]["3x-ui"]["volumes"][1]["volume"] = {"nocopy": False}
+        self.validate(config)
+
+
+class CapabilitySafetyTests(NoExternalCommands):
+    def test_accepts_complete_named_capabilities_in_any_order(self):
+        lab.validate_capabilities(sorted(lab.REQUIRED_CAPABILITIES))
+        lab.validate_capabilities(sorted(lab.REQUIRED_CAPABILITIES, reverse=True))
+
+    def test_rejects_missing_xray_versions(self):
+        with self.assertRaisesRegex(RuntimeError, "runtime capabilities"):
+            lab.validate_capabilities(sorted(lab.REQUIRED_CAPABILITIES - {"xray_versions"}))
+
+    def test_rejects_wrong_names_or_duplicates_even_with_expected_count(self):
+        for replacement in ("unknown_capability", "status"):
+            with self.subTest(replacement=replacement):
+                capabilities = sorted(lab.REQUIRED_CAPABILITIES - {"xray_versions"}) + [replacement]
+                self.assertEqual(len(capabilities), len(lab.REQUIRED_CAPABILITIES))
+                with self.assertRaisesRegex(RuntimeError, "runtime capabilities"):
+                    lab.validate_capabilities(capabilities)
+
+    def test_rejects_malformed_capability_collections(self):
+        for capabilities in (None, "status", {"status": True}, [None], [[]]):
+            with self.subTest(capabilities=capabilities):
+                with self.assertRaisesRegex(RuntimeError, "runtime capabilities"):
+                    lab.validate_capabilities(capabilities)
+
+
 class NetworkInterfaceSafetyTests(NoExternalCommands):
     def loopback(self):
         return {"ifname": "lo", "link_type": "loopback", "operstate": "UNKNOWN",
@@ -224,7 +309,7 @@ class TokenFaultRecoveryTests(NoExternalCommands):
             with self.subTest(error=type(error).__name__):
                 instance = lab.Lab({"project": PROJECT, "base_path": "test-only", "observer_token_id": 12})
                 ready = {"runtime_provider": "3x-ui", "runtime_mode": "SHADOW", "runtime_health": "READY",
-                         "runtime_capabilities": [str(i) for i in range(16)]}
+                         "runtime_capabilities": sorted(lab.REQUIRED_CAPABILITIES)}
                 endpoint = "/panel/api/setting/apiTokens/setEnabled/12"
 
                 def request(path, method="GET", payload=None, provider="core"):

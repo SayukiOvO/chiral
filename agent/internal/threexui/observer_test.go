@@ -51,7 +51,7 @@ func TestObserverReturnsStatusAndStableCapabilitySnapshot(t *testing.T) {
 	if len(observation.MissingCapabilities) != 0 {
 		t.Errorf("MissingCapabilities = %v", observation.MissingCapabilities)
 	}
-	const wantDigest = "b5da71f3309b02a292df369e874c07726accda54cab3478a10e8b9ecb575fd16"
+	const wantDigest = "9f6c27610743b07726933e5bb31ade43aa9871dff45e036d5b5992108e08c08d"
 	if observation.ContractDigest != wantDigest {
 		t.Errorf("ContractDigest = %q, want %q", observation.ContractDigest, wantDigest)
 	}
