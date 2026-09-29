@@ -114,6 +114,25 @@ enum XrayState {
 // Implemented in M3; shape is a draft until then.
 message StatsReport {
   repeated StatEntry entries = 1;
+  // Durable reporters resend the same sequence until StatsAck arrives. Both
+  // fields must be set together; empty/zero retains the legacy delta protocol.
+  // Never send acknowledged reports before receiving StatsPolicy on this stream.
+  string reporter_id = 2;
+  uint64 sequence = 3;
+  // A durable continuity gap, not an ordinary empty sample. Only valid with
+  // no entries; Core persists the marker with its receipt before acknowledging.
+  bool continuity_indeterminate = 4;
+}
+
+message StatsPolicy {
+  bool acknowledged_deltas = 1;
+}
+
+// Sent only after the complete batch, billing, history and receipt commit in
+// one transaction. A reconnect can repeat a batch without charging it twice.
+message StatsAck {
+  string reporter_id = 1;
+  uint64 sequence = 2;
 }
 
 message StatEntry {
@@ -276,6 +295,8 @@ message CoreFrame {
     OnlinePolicy online_policy = 4;
     XrayInstall xray_install = 5;
     XrayChunk xray_chunk = 6;
+    StatsPolicy stats_policy = 7;
+    StatsAck stats_ack = 8;
   }
 }
 

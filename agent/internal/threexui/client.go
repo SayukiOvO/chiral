@@ -253,23 +253,40 @@ func (c *Client) get(ctx context.Context, endpoint string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
+	return c.request(ctx, http.MethodGet, u, nil, "", false)
+}
+
+// request is private so callers cannot use a node admin credential as a generic
+// HTTP proxy. Sensitive operations deliberately suppress remote/transport error
+// text: it can contain configuration private keys or client credentials, not
+// merely the bearer token covered by the read-only observer's diagnostics.
+func (c *Client) request(ctx context.Context, method string, u *url.URL, body io.Reader, contentType string, sensitive bool) ([]byte, error) {
+	requestError := c.safeError
+	if sensitive {
+		requestError = func(prefix string, cause error) error {
+			return &safeWrappedError{message: prefix, cause: cause}
+		}
+	}
+	req, err := http.NewRequestWithContext(ctx, method, u.String(), body)
 	if err != nil {
-		return nil, c.safeError("building a 3x-ui request", err)
+		return nil, requestError("building a 3x-ui request", err)
 	}
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("Authorization", "Bearer "+c.token)
+	if contentType != "" {
+		req.Header.Set("Content-Type", contentType)
+	}
 
 	resp, err := c.http.Do(req)
 	if err != nil {
 		if errors.Is(err, context.DeadlineExceeded) {
-			return nil, c.safeError("3x-ui request timed out", err)
+			return nil, requestError("3x-ui request timed out", err)
 		}
 		var netErr net.Error
 		if errors.As(err, &netErr) && netErr.Timeout() {
-			return nil, c.safeError("3x-ui request timed out", err)
+			return nil, requestError("3x-ui request timed out", err)
 		}
-		return nil, c.safeError("3x-ui request failed", err)
+		return nil, requestError("3x-ui request failed", err)
 	}
 	defer resp.Body.Close()
 
@@ -280,14 +297,14 @@ func (c *Client) get(ctx context.Context, endpoint string) ([]byte, error) {
 	if resp.ContentLength > c.maxResponseBytes {
 		return nil, &ResponseTooLargeError{Limit: c.maxResponseBytes}
 	}
-	body, err := io.ReadAll(io.LimitReader(resp.Body, c.maxResponseBytes+1))
+	responseBody, err := io.ReadAll(io.LimitReader(resp.Body, c.maxResponseBytes+1))
 	if err != nil {
-		return nil, c.safeError("reading the 3x-ui response", err)
+		return nil, requestError("reading the 3x-ui response", err)
 	}
-	if int64(len(body)) > c.maxResponseBytes {
+	if int64(len(responseBody)) > c.maxResponseBytes {
 		return nil, &ResponseTooLargeError{Limit: c.maxResponseBytes}
 	}
-	return body, nil
+	return responseBody, nil
 }
 
 type envelope struct {

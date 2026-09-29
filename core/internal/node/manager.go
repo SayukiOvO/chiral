@@ -218,12 +218,18 @@ func (m *Manager) enqueue(nodeID string, f *chiralv1.CoreFrame) error {
 	if s == nil {
 		return fmt.Errorf("node %s is offline", nodeID)
 	}
+	return s.enqueue(f)
+}
+
+// enqueue targets this exact stream, so a late acknowledgement cannot cross
+// into a replacement connection's capability negotiation.
+func (s *Session) enqueue(f *chiralv1.CoreFrame) error {
 	select {
 	case s.send <- f:
 		return nil
 	case <-s.done:
-		return fmt.Errorf("node %s is offline", nodeID)
+		return fmt.Errorf("node %s is offline", s.nodeID)
 	default:
-		return fmt.Errorf("node %s send queue is full", nodeID)
+		return fmt.Errorf("node %s send queue is full", s.nodeID)
 	}
 }

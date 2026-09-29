@@ -80,6 +80,13 @@ type Client struct {
 	onlineMu     sync.Mutex
 	onlinePolicy *chiralv1.OnlinePolicy
 
+	statsMu           sync.Mutex
+	acknowledgedStats bool
+	// statsPollMu spans the provider's complete cumulative read + journal
+	// sample. A cancelled stream's poll may still be finishing when a new
+	// stream starts; overlapping snapshots can otherwise resemble a reset.
+	statsPollMu sync.Mutex
+
 	// directUpgrade is present only for the legacy direct-Xray runtime;
 	// installs serialises upgrades and routes relay chunks to the active one.
 	directUpgrade *directXrayUpgrade
@@ -307,6 +314,9 @@ func (c *Client) runStream(ctx context.Context, svc chiralv1.AgentServiceClient)
 	c.onlineMu.Lock()
 	c.onlinePolicy = nil
 	c.onlineMu.Unlock()
+	c.statsMu.Lock()
+	c.acknowledgedStats = false
+	c.statsMu.Unlock()
 
 	stream, err := svc.Channel(streamCtx)
 	if err != nil {
@@ -474,6 +484,16 @@ func (c *Client) handleFrame(ctx context.Context, sendCh chan<- *chiralv1.AgentF
 		c.onlineMu.Unlock()
 		c.logger.Info("online policy updated",
 			"enabled", p.GetEnabled(), "interval_seconds", p.GetIntervalSeconds())
+	case *chiralv1.CoreFrame_StatsPolicy:
+		c.statsMu.Lock()
+		c.acknowledgedStats = fr.StatsPolicy.GetAcknowledgedDeltas()
+		c.statsMu.Unlock()
+	case *chiralv1.CoreFrame_StatsAck:
+		if reporter, ok := c.rt.(runtimeprovider.AcknowledgedReporter); ok {
+			if err := reporter.AcknowledgeStats(fr.StatsAck.GetReporterId(), fr.StatsAck.GetSequence()); err != nil {
+				c.logger.Error("could not persist traffic receipt", "err", err)
+			}
+		}
 	case *chiralv1.CoreFrame_XrayInstall:
 		c.logger.Info("kernel install received",
 			"version", fr.XrayInstall.GetVersion(), "activate", fr.XrayInstall.GetActivate())
@@ -509,6 +529,9 @@ func (c *Client) handleFrame(ctx context.Context, sendCh chan<- *chiralv1.AgentF
 // reset by a successful call or not consumed at all by a failed one, and the
 // next tick covers the same ground.
 func (c *Client) statsFrame(ctx context.Context) *chiralv1.AgentFrame {
+	if reporter, ok := c.rt.(runtimeprovider.AcknowledgedReporter); ok {
+		return c.acknowledgedStatsFrame(ctx, reporter)
+	}
 	stats, err := c.rt.Stats(ctx)
 	if err != nil {
 		c.logger.Warn("reading xray stats failed", "err", err)

@@ -177,6 +177,15 @@ func (s *Service) Channel(stream chiralv1.AgentService_ChannelServer) error {
 	// without operator action (the agent skips the apply if it already runs
 	// identical content). Configs rejected by `xray -test` are not re-pushed.
 	s.reconcileConfig(n.ID, sess, -1)
+	// An API runtime must never retry deltas against an older Core which would
+	// charge every replay. Explicitly negotiate receipts on each connection.
+	if s.traffic != nil {
+		if err := sess.enqueue(&chiralv1.CoreFrame{Frame: &chiralv1.CoreFrame_StatsPolicy{
+			StatsPolicy: &chiralv1.StatsPolicy{AcknowledgedDeltas: true},
+		}}); err != nil {
+			return status.Error(codes.Unavailable, "cannot negotiate acknowledged traffic")
+		}
+	}
 
 	// Tell the agent whether to poll. Sent on every connect because the agent
 	// keeps no policy across reconnects — it starts idle, which is the safe
@@ -277,7 +286,11 @@ func (s *Service) handleFrame(nodeID string, sess *Session, f *chiralv1.AgentFra
 		s.logger.Warn("agent event", "node", nodeID, "kind", fr.Event.GetKind(), "message", fr.Event.GetMessage())
 	case *chiralv1.AgentFrame_Stats:
 		sess.touch(nil)
-		s.recordStats(nodeID, fr.Stats)
+		if fr.Stats.GetReporterId() != "" || fr.Stats.GetSequence() != 0 || fr.Stats.GetContinuityIndeterminate() {
+			s.recordAcknowledgedStats(nodeID, sess, fr.Stats)
+		} else {
+			s.recordStats(nodeID, fr.Stats)
+		}
 	case *chiralv1.AgentFrame_Online:
 		sess.touch(nil)
 		s.recordOnline(nodeID, fr.Online)
@@ -365,12 +378,24 @@ func (s *Service) recordStats(nodeID string, report *chiralv1.StatsReport) {
 		up, down := e.GetUplinkBytes(), e.GetDownlinkBytes()
 		// The wire type is unsigned; guard the conversion so a bogus report
 		// cannot turn into a negative delta the store would reject.
-		if up > math.MaxInt64 || down > math.MaxInt64 {
+		if up > math.MaxInt64 || down > math.MaxInt64-up {
 			s.logger.Warn("implausible traffic delta ignored", "node", nodeID, "email", e.GetName())
+			continue
+		}
+		// Legacy reports remain accepted, but cannot bypass the ownership
+		// boundary enforced for acknowledged batches and online observations.
+		_, owner, err := s.st.CredentialOwner(e.GetName())
+		if err != nil && !store.IsNotFound(err) {
+			s.logger.Error("resolving traffic credential failed", "node", nodeID, "err", err)
+			continue
+		}
+		if err == nil && owner != nodeID {
+			s.logger.Warn("traffic credential belongs to another node", "node", nodeID)
 			continue
 		}
 		if err := s.traffic.AddCredentialTraffic(e.GetName(), int64(up), int64(down)); err != nil {
 			s.logger.Error("recording traffic failed", "node", nodeID, "email", e.GetName(), "err", err)
+			continue
 		}
 		s.recordTrafficHistory(nodeID, e.GetName(), int64(up), int64(down))
 	}
@@ -391,6 +416,9 @@ func (s *Service) recordTrafficHistory(nodeID, email string, up, down int64) {
 	}
 	if credNodeID == "" {
 		credNodeID = nodeID
+	}
+	if credNodeID != nodeID {
+		return
 	}
 	if err := s.st.AddTraffic(credNodeID, userID, time.Now(), up, down); err != nil {
 		s.logger.Error("recording traffic history failed", "node", nodeID, "err", err)

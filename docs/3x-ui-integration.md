@@ -29,9 +29,10 @@ Core ↔ Agent 协议所表达的配置版本、流量、在线快照、事件�
 ## 上游约束
 
 3x-ui 采用 [GPL-3.0](https://github.com/MHSanaei/3x-ui/blob/main/LICENSE)。Chiral 只通过
-HTTP API 调用未修改的独立进程或容器，不复制、链接或复刻 3x-ui 内部实现。若将来必须维护
-fork，应把它保留为独立的 GPLv3 仓库和镜像，并履行对应源码提供义务；这是一条工程合规
-边界，不替代法律意见。
+HTTP API 调用未修改的独立进程或容器，不复制、链接或复刻 3x-ui 内部实现。
+2026-09-29，用户已撤回独立增强分支授权：不得修改 3x-ui、维护增强 fork，或通过新增兼容
+服务绕过此限制。3x-ui provider 也不得直接读取 Xray API 或管理本地内核缓存。官方 API 尚
+无法满足的等价门槛必须如实保留为未完成项，不以降低验收标准或重新请求同一增强方案替代。
 
 上游 [README](https://github.com/MHSanaei/3x-ui#disclaimer) 明示项目面向个人使用且不建议
 生产部署，[安全策略](https://github.com/MHSanaei/3x-ui/security/policy) 只为最新版本提供安全
@@ -129,10 +130,71 @@ Agent 与 3x-ui 必须共享可访问的回环通道。当前隔离验证使用 
 - 在线地址继续按绝对快照上报，即使无人在线也发送 `complete=true` 的空集合；
 - 配置版本、审计、告警、金丝雀升级与真实数据路径探测保留原有语义。
 
-3x-ui 的流量值按累计计数读取，Agent 不调用会改变配额语义的 reset API。Agent 为每个外部键
-持久化 watermark 与 runtime epoch，每轮上报 `max(current - previous, 0)`；计数下降、数据库
-恢复或运行时更换时开启新 epoch，不产生负数。切换前先让原 provider 完成最后一次增量上报，
-再以 3x-ui 当前值建立基线，避免重算或漏算。
+3x-ui 的流量值按累计计数读取，Agent 不调用会改变配额语义的 reset API。只读取本节点的
+`inbounds/list` 中 `clientStats`，不使用可能叠加主面板汇总的用户列表流量；同一统计对象
+去重，inbound / outbound 仅作独立遥测，不再次计入用户配额。`total` 为配额，不是流量。
+
+Agent 为每个外部键持久化 watermark 与 runtime epoch。普通轮次取累计差；任一方向下降时
+视作新计数周期，两方向均从当前值起算。已知数据库恢复或实例身份变化时重新建立基线，明确
+上报连续性不确定，不能把历史累计值直接再计费。仅凭累计计数无法识别所有数据库回退，也
+无法恢复上游在两次采样之间清除的字节；可靠投递不能被描述为解决了这些采样缺口。
+
+每次采样的全部 delta 与新 watermark 原子落盘，并按协议限制分批。Agent 在 Core 明确发送
+`StatsPolicy` 后才投递带 `reporter_id` / `sequence` 的批次；每批收到精确 `StatsAck` 前内容
+不变、重试身份不变。Core 将凭证计数、用户倍率用量、图表、inbound / outbound 遥测和去重
+收据放在同一事务中，提交后才确认。ACK 丢失时重放不重复计费；超过边界或跨节点凭证整批
+拒绝。旧格式保留兼容，但不能绕过所属节点检查。共享上限为每批 4096 条、名称 512 字节，
+确保最大消息仍小于默认 gRPC 接收限制。旧 Core 未协商时不读取新 provider 的待投递账本。
+
+新旧计费路径均按每条凭证增量、十进制倍率乘积向上取整一次。倍率沿用现有 SQLite REAL /
+JSON number 存储，以该值可往返还原的最短十进制表示参与精确有理数运算；不使用浮点乘法
+或 epsilon 修补。这样 `100 × 1.1` 精确计为 `110` 字节，1 倍倍率也不会丢失超过 `2^53`
+的整数精度。计费和原始累计计数溢出时事务失败，不允许 SQLite 将整数累计提升成浮点值。
+
+连续性不确定不是一条可丢弃的日志：它作为不含计费 entries 的独立批次参与摘要和确认，
+Core 将固定原因与批次身份写入 `stats_continuity_gaps`，与回执同事务提交。后续普通批次推进
+回执水位也不会删除历史缺口；事件队列满、ACK 后断线不能让缺口证据消失。
+
+迁移 `0030` 尚未发布，开发阶段曾应用较早内容的临时数据库应重新创建，不能复用迁移号
+来推断 schema 已完整。旧实验账本中已经持久化且超限的 pending 批次也不会被静默改写：
+读取明确失败并保留原文件，避免以相同 delivery ID 发送不同内容。这些限制不涉及已部署生产库。
+
+切换前必须让原 provider 完成最后一次增量上报，再以 3x-ui 当前值建立基线，并验证用户
+删除、计数重置和实例恢复的连续性。当前接口与投递基础设施尚未接入 ACTIVE 3x-ui provider，
+不能据此宣称完整生产计费已经验证。
+
+2026-09-29 的 [本机官方 HTTP 写入与数据面验证](../deploy/3x-ui-lab/validation-write-20260929.md)
+已确认基础模板读写及后续请求计费可用，但冷启动首次真实请求未计入 HTTP 用户计数，受管
+client 的合法 `level` 字段也未保留。整体契约测试为 FAIL，尚不具备生产接管条件；不得用
+预热后的计费通过掩盖首次采样损失，也不得将单一受管 client 路径失败夸大为所有官方 HTTP
+配置途径均不可用。
+
+### 原版 3.8.5 的剩余能力差异
+
+除上述实测外，已只读核对官方提交
+[`7ef22f9`](https://github.com/MHSanaei/3x-ui/tree/7ef22f94c950ff09f0870e2295fa65ad5968742c)。
+以下是该版本的源码证据，不是所有未来版本的永久结论；本轮未执行现场升级或数据库恢复。
+
+| 原有要求 | 官方现有能力 | 尚不能证明的等价语义 |
+| --- | --- | --- |
+| 当前在线地址的完整绝对快照 | 在线 email 缓存、历史 IP 查询 | 在线缓存有约 20 秒宽限；IP 记录保留约 30 分钟，不能据此判断某个地址当前仍在线；关闭 fail2ban 时 IP 任务在持久化前返回 |
+| 仅预安装、不激活 | `installXray/:version` 指定版本安装 | 停止现有进程后才下载并覆盖二进制，没有独立预安装或激活接口 |
+| 下载失败保持服务、离线回退旧内核 | 重启及重新安装旧版本 | 下载失败路径不自动重启旧内核；重装旧版本仍需联网，没有 HTTP 可用的旧二进制保留槽位 |
+| 实际节点内核完整配置预校验 | 模板 JSON 校验、最终配置组装、配置应用 | 未发现完整配置的 HTTP dry-run；`getConfigJson` 不是运行进程已接受配置的证明 |
+| 真实代理路径探测 | `testOutbound` 的 real 模式 | 可以发送真实 HTTP，但应单独核对 HTTP 状态；不能选择预安装二进制，也不返回被测二进制摘要 |
+
+在线证据见官方
+[`process.go`](https://github.com/MHSanaei/3x-ui/blob/7ef22f94c950ff09f0870e2295fa65ad5968742c/internal/xray/process.go#L463)、
+[`inbound_node_ips.go`](https://github.com/MHSanaei/3x-ui/blob/7ef22f94c950ff09f0870e2295fa65ad5968742c/internal/web/service/inbound_node_ips.go#L21)
+和 [`check_client_ip_job.go`](https://github.com/MHSanaei/3x-ui/blob/7ef22f94c950ff09f0870e2295fa65ad5968742c/internal/web/job/check_client_ip_job.go#L57)。
+安装证据见官方
+[`server.go`](https://github.com/MHSanaei/3x-ui/blob/7ef22f94c950ff09f0870e2295fa65ad5968742c/internal/web/service/server.go#L1027)，
+真实探测见
+[`probe_http.go`](https://github.com/MHSanaei/3x-ui/blob/7ef22f94c950ff09f0870e2295fa65ad5968742c/internal/web/service/outbound/probe_http.go#L280)。
+
+这些差异不能由 Chiral 的 HTTP 重试、累计计数账本或数据库备份自动补齐。节点级迁移回退到
+direct-Xray 仍是另一条保留路径，不等同于 3x-ui provider 自身完成离线内核回滚。继续保持
+ACTIVE 关闭；在当前授权边界下，不能声称已经具备完整目标状态。
 
 ## 分阶段迁移
 

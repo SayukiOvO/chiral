@@ -95,3 +95,38 @@ sudo python3 lab.py stop
 `verify`、`status` 和 `stop` 均使用 `artifacts/state.json` 中保存的实验项目信息，无须重新指定
 项目或镜像。该文件只属于本次实验，不能复制其他环境的状态覆盖它。更多参数可查看
 `python3 lab.py --help`。
+
+## 本机独立写入与数据面契约测试
+
+`write_contract.py` 可在本机 Docker（包括 Docker Desktop）新建一个独立空实例，不需要
+连接 Turin，也不启动或修改已有 Core、Agent。它仅接受已拉取的官方镜像 digest 和已编译的
+Linux amd64 契约测试二进制。镜像摘要是本次验收输入，不是产品固定版本策略。
+
+```bash
+python3 deploy/3x-ui-lab/write_contract.py \
+  --image 'ghcr.io/mhsanaei/3x-ui@sha256:<resolved-digest>' \
+  --binary '/absolute/path/chiral/deploy/3x-ui-lab/bin/threexui-contract.test' \
+  --output '/private/tmp/chiral-write-<new-unique-directory>'
+```
+
+输出目录必须不存在。运行器拒绝远程 Docker context、已有同名资源、外部挂载和公开端口；
+bootstrap、应用和测试容器均采用随机专属标记、资源限制和权限收缩。应用只有自身回环网络，
+测试容器共享该网络。测试的 token 与二进制只读挂载，使用本机用户 UID 读取私有 token。
+
+写入测试要求空 inbound / client 列表，并保存原模板。只创建随机标识的回环测试入站与用户，
+通过官方 HTTP 验证模板、用户凭证、启用状态、附着关系和删除。独立临时 Xray 客户端仅作为
+测试流量发生器，经 SOCKS → VLESS → 隔离 HTTP 源站上传 32 KiB、校验下载 512 KiB；读取
+用量仍只调用 3x-ui HTTP，不读 Xray 管理接口。严格字段保真子测试会检查合法的 client
+`level` 字段是否保留，不能用基本 CRUD 成功替代完整模板表达力。
+
+测试成功必须同时具有零退出状态、明确 PASS、无 SKIP、临时对象清理和配置恢复证据。
+任何失败都不自动重试写入，也不自动删除现场；运行器只停止归属本次运行的容器，保留卷和
+私有日志。`state.json` 记录精确容器标识与结果，`contract-test.redacted.log` 供诊断；
+原始日志、token 和管理员凭证均在 0700 目录下以 0600 保存，不得提交到 Git。
+
+这个测试不覆盖全部生产 Profile、所有用户订阅等价性、完整实时在线集合或离线内核回滚；
+即使通过，仍不能启用生产接管。
+
+首次官方写入及真实流量验收的结果为整体 FAIL，冷启动漏计与 client 字段保真仍有缺口；
+详见 [本机写入验证记录](validation-write-20260929.md)。冷启动和后续流量分别检查，后者
+通过不能抵消前者失败。

@@ -3,9 +3,11 @@ package client
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
+	"github.com/SayukiOvO/chiral/agent/internal/runtimeprovider"
 	"github.com/SayukiOvO/chiral/agent/internal/xray"
 	chiralv1 "github.com/SayukiOvO/chiral/proto/chiral/v1"
 )
@@ -85,7 +87,8 @@ func (s *installState) deliver(c *chiralv1.XrayChunk) {
 	}
 }
 
-// streamRelay implements xray.Relay over the live stream.
+// streamRelay implements the provider-neutral and legacy relay contracts over
+// the same live stream.
 type streamRelay struct {
 	client *Client
 	send   chan<- *chiralv1.AgentFrame
@@ -126,10 +129,17 @@ func (r *streamRelay) Chunk(ctx context.Context, version string, offset int64) (
 // reporting each phase back to Core.
 func (c *Client) startInstall(ctx context.Context, sendCh chan<- *chiralv1.AgentFrame, req *chiralv1.XrayInstall) {
 	version := req.GetVersion()
-	if c.directUpgrade == nil {
+	if strings.TrimSpace(version) == "" {
 		c.reportInstall(ctx, sendCh, version,
 			chiralv1.XrayInstallPhase_XRAY_INSTALL_PHASE_FAILED,
-			"the configured runtime provider does not support direct Xray binary installs")
+			"Xray installation requires an explicit nonempty version")
+		return
+	}
+	upgrader, supportsUpgrade := c.rt.(runtimeprovider.Upgrader)
+	if c.directUpgrade == nil && !supportsUpgrade {
+		c.reportInstall(ctx, sendCh, version,
+			chiralv1.XrayInstallPhase_XRAY_INSTALL_PHASE_FAILED,
+			"the configured runtime provider does not support Xray upgrades")
 		return
 	}
 	if !c.installs.begin(version) {
@@ -144,9 +154,19 @@ func (c *Client) startInstall(ctx context.Context, sendCh chan<- *chiralv1.Agent
 		progress := func(phase chiralv1.XrayInstallPhase, msg string) {
 			c.reportInstall(ctx, sendCh, version, phase, msg)
 		}
-		phase, msg := c.directUpgrade.installer.Install(ctx, req, relay, progress)
+		var phase chiralv1.XrayInstallPhase
+		var msg string
+		if c.directUpgrade != nil {
+			phase, msg = c.directUpgrade.installer.Install(ctx, req, relay, progress)
+		} else {
+			phase, msg = upgrader.Install(ctx, req, relay, progress)
+		}
 		c.logger.Info("kernel install finished", "version", version, "phase", phase, "detail", msg)
 		c.reportInstall(ctx, sendCh, version, phase, msg)
+		if c.directUpgrade == nil {
+			// API-backed runtimes own artifact retention and rollback themselves.
+			return
+		}
 
 		// Keep the version now running and the one it replaced; drop the rest.
 		// Each is ~66 MB unpacked, and a node that has followed prereleases for
@@ -175,3 +195,4 @@ func (c *Client) reportInstall(ctx context.Context, sendCh chan<- *chiralv1.Agen
 }
 
 var _ xray.Relay = (*streamRelay)(nil)
+var _ runtimeprovider.Relay = (*streamRelay)(nil)
