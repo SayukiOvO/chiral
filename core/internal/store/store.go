@@ -23,6 +23,8 @@ type Store struct {
 	// box encrypts secret variable components at rest. Never nil — a Box
 	// built from an empty key stores values in the clear.
 	box *secret.Box
+	// snapshot is set only by the non-migrating, read-only snapshot opener.
+	snapshot *snapshotState
 }
 
 // Open opens (creating if needed) the SQLite database at path and applies any

@@ -370,6 +370,11 @@ provider，也不降低其余门槛。预安装不激活与离线内核回滚仍
 
 ### 2. 影子验证
 
+离线全用户订阅与节点配置比较工具见[使用说明](offline-equivalence.md)。它仅接受静态
+数据库副本，使用固定时间和现存凭证，不启动 Core 或执行迁移；其合成测试不替代生产
+语料验收。真实在线更新的受限出网及重建验收方案见
+[独立实验计划](../deploy/3x-ui-lab/real-upgrade-plan.md)，当前尚未执行。
+
 - 使用独立 Core、Agent 和 3x-ui 进行隔离验证，入口见
   [`deploy/3x-ui-lab/README.md`](../deploy/3x-ui-lab/README.md)。实验使用新数据卷和凭证，
   不重建生产容器、不复用生产节点身份，也不接管生产 inbound。
