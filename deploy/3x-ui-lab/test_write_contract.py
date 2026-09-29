@@ -194,6 +194,8 @@ class WriteContractTests(unittest.TestCase):
         self.fake.readiness_failures = 2
         self.assertEqual(lab.run(), 0)
         self.assertEqual(lab.state["result"], "PASS")
+        self.assertEqual(lab.state["suite"], "write")
+        self.assertEqual(lab.state["test_name"], "TestLive3XUIWriteContract")
         self.assertEqual(lab.state["test_exit_code"], 0)
         self.assertEqual(len(self.fake.volumes), 4)
         self.assertEqual(len(self.fake.containers), 3)
@@ -211,6 +213,7 @@ class WriteContractTests(unittest.TestCase):
         self.assertEqual(test_info["HostConfig"]["NetworkMode"], "container:" + lab.ids["app"])
         self.assertEqual(test_info["Config"]["User"], f"{os.geteuid()}:{os.getegid()}")
         self.assertIn("-test.timeout=5m", test_info["Config"]["Cmd"])
+        self.assertEqual(flag(test_info["Config"]["Cmd"], "-test.run"), "^TestLive3XUIWriteContract$")
         self.assertIn("CHIRAL_3XUI_TEST_XRAY_BIN=/app/bin/xray-linux-amd64", test_info["Config"]["Env"])
         self.assertTrue(all(not mount["RW"] for mount in test_info["Mounts"] if mount["Type"] == "bind"))
         self.assertEqual((lab.output.stat().st_mode & 0o777), 0o700)
@@ -223,6 +226,46 @@ class WriteContractTests(unittest.TestCase):
             self.assertNotIn(secret, (lab.output / "state.json").read_text())
         self.assertEqual((lab.output / "api.token").read_text().strip(), TOKEN)
         self.assertTrue(all(" stop " in command and " rm " not in command for command in lab.state["cleanup_commands"]))
+
+    def test_update_recovery_suite_runs_only_its_exact_test(self):
+        lab = runner.WriteContract(IMAGE, str(self.binary), str(self.root / "recovery"), suite="update-recovery")
+        self.fake.test_output = b"--- PASS: TestLive3XUIUpdateRecoveryContract (1.0s)\nPASS\n"
+        self.assertEqual(lab.run(), 0)
+        self.assertEqual(lab.state["suite"], "update-recovery")
+        self.assertEqual(lab.state["test_name"], "TestLive3XUIUpdateRecoveryContract")
+        test_info = self.fake.lookup(lab.ids["test"])
+        self.assertEqual(flag(test_info["Config"]["Cmd"], "-test.run"), "^TestLive3XUIUpdateRecoveryContract$")
+        self.assertEqual(test_info["HostConfig"]["NetworkMode"], "container:" + lab.ids["app"])
+        self.assertEqual(self.fake.lookup(lab.ids["app"])["HostConfig"]["NetworkMode"], "none")
+        self.assertEqual(len(self.fake.containers), 3)
+        self.assertTrue(all(not info["State"]["Running"] for info in self.fake.containers.values()))
+
+    def test_update_recovery_rejects_wrong_test_skip_and_nonzero_exit(self):
+        wanted = b"--- PASS: TestLive3XUIUpdateRecoveryContract (1.0s)\nPASS\n"
+        for name, exit_code, output in (
+                ("wrong_test", 0, PASS_LOG),
+                ("prefix_only", 0, b"--- PASS: TestLive3XUIUpdateRecoveryContractExtra (1.0s)\nPASS\n"),
+                ("skip", 0, b"--- SKIP: TestLive3XUIUpdateRecoveryContract (1.0s)\nPASS\n"),
+                ("subtest_skip", 0, b"    --- SKIP: TestLive3XUIUpdateRecoveryContract/data (1.0s)\n" + wanted),
+                ("no_final_pass", 0, b"--- PASS: TestLive3XUIUpdateRecoveryContract (1.0s)\n"),
+                ("nonzero", 1, wanted)):
+            with self.subTest(name=name):
+                lab = runner.WriteContract(IMAGE, str(self.binary), str(self.root / name), suite="update-recovery")
+                fake = FakeDocker()
+                fake.test_exit, fake.test_output = exit_code, output
+                with mock.patch.object(runner, "execute", side_effect=fake):
+                    self.assertEqual(lab.run(), 1)
+                self.assertNotEqual(lab.state["result"], "PASS")
+                starts = [args for args, _, _ in fake.calls if args[3:5] == ["container", "start"] and args[-1] == lab.ids["test"]]
+                self.assertEqual(len(starts), 1)
+
+    def test_suite_is_a_closed_whitelist_before_any_artifact_or_docker_call(self):
+        for suite in ("", "all", "TestLive3XUIWriteContract", "write|update-recovery", ".*"):
+            with self.subTest(suite=suite):
+                with self.assertRaisesRegex(RuntimeError, "Only the write and update-recovery"):
+                    runner.WriteContract(IMAGE, str(self.binary), str(self.root / "invalid-suite"), suite=suite)
+                self.assertFalse((self.root / "invalid-suite").exists())
+                self.assertEqual(self.fake.calls, [])
 
     def test_failure_and_skip_never_count_as_pass_or_retry(self):
         for name, exit_code, output in (("fail", 1, b"--- FAIL: TestLive3XUIWriteContract (0.1s)\nFAIL\n"),

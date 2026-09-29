@@ -18,13 +18,17 @@ import (
 )
 
 type updateFixture struct {
-	mu       sync.Mutex
-	status   Status
-	versions []string
-	install  func(http.ResponseWriter, *http.Request)
-	paths    map[string]any
-	calls    atomic.Int32
-	client   *Client
+	mu          sync.Mutex
+	status      Status
+	versions    []string
+	install     func(http.ResponseWriter, *http.Request)
+	restart     func(http.ResponseWriter, *http.Request)
+	statusHook  func(int32, *Status)
+	paths       map[string]any
+	calls       atomic.Int32
+	restarts    atomic.Int32
+	statusReads atomic.Int32
+	client      *Client
 }
 
 func newUpdateFixture(t *testing.T) *updateFixture {
@@ -36,6 +40,7 @@ func newUpdateFixture(t *testing.T) *updateFixture {
 			"/panel/api/server/status":                map[string]any{"get": map[string]any{}},
 			"/panel/api/server/getXrayVersion":        map[string]any{"get": map[string]any{}},
 			"/panel/api/server/installXray/{version}": map[string]any{"post": map[string]any{}},
+			"/panel/api/server/restartXrayService":    map[string]any{"post": map[string]any{}},
 		},
 	}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -53,8 +58,26 @@ func newUpdateFixture(t *testing.T) *updateFixture {
 			_ = json.NewEncoder(w).Encode(map[string]any{"success": true, "obj": f.versions})
 		case "/panel/api/server/status":
 			f.mu.Lock()
-			defer f.mu.Unlock()
-			_ = json.NewEncoder(w).Encode(map[string]any{"success": true, "obj": f.status})
+			status := f.status
+			f.mu.Unlock()
+			count := f.statusReads.Add(1)
+			if f.statusHook != nil {
+				f.statusHook(count, &status)
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{"success": true, "obj": status})
+		case "/panel/api/server/restartXrayService":
+			f.restarts.Add(1)
+			if r.Method != http.MethodPost {
+				t.Error("restart did not use POST")
+			}
+			if f.restart != nil {
+				f.restart(w, r)
+				return
+			}
+			f.mu.Lock()
+			f.status.Xray.State = "running"
+			f.mu.Unlock()
+			fmt.Fprint(w, `{"success":true}`)
 		case "/panel/api/server/installXray/v26.9.9":
 			f.calls.Add(1)
 			if r.Method != http.MethodPost {
@@ -97,6 +120,7 @@ func openTestUpdates(t *testing.T, path string, client *Client) *XrayUpdates {
 	if err != nil {
 		t.Fatal(err)
 	}
+	u.recoveryPolicy = updateRecoveryPolicy{budget: 100 * time.Millisecond, poll: 5 * time.Millisecond, probe: 10 * time.Millisecond}
 	t.Cleanup(func() { _ = u.Close() })
 	return u
 }
@@ -192,7 +216,7 @@ func TestXrayUpdatesTimeoutDoesNotStopServerOrPermitRedispatch(t *testing.T) {
 	u := openTestUpdates(t, path, f.client)
 	request := updateRequest()
 	result, err := u.Run(context.Background(), request, func(context.Context) error {
-		t.Error("must not probe an installation with no terminal response")
+		// A probe observes service only; it cannot settle the installation.
 		return nil
 	})
 	requireUpdateState(t, result, err, XrayUpdateUnknown)

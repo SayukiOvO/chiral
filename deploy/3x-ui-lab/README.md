@@ -133,3 +133,28 @@ bootstrap、应用和测试容器均采用随机专属标记、资源限制和�
 首次官方写入及真实流量验收的结果为整体 FAIL，冷启动漏计与 client 字段保真仍有缺口；
 详见 [本机写入验证记录](validation-write-20260929.md)。冷启动和后续流量分别检查，后者
 通过不能抵消前者失败。
+
+## 普通更新恢复的隔离故障测试
+
+同一运行器提供 `--suite update-recovery`，使用新的输出目录和全新空实例。默认仍为上述
+完整写入测试，两者分别判定，不得用恢复测试的 PASS 替代配置及计费契约结果。
+
+```bash
+python3 deploy/3x-ui-lab/write_contract.py \
+  --suite update-recovery \
+  --image 'ghcr.io/mhsanaei/3x-ui@sha256:<resolved-digest>' \
+  --binary '/absolute/path/threexui-contract.test' \
+  --output '/private/tmp/chiral-update-recovery-<new-unique-directory>'
+```
+
+此测试仍没有外网、宿主机端口或生产挂载。测试传输层注入可安装版本列表和安装失败／
+响应丢失，**不调用真实安装下载接口**；故障所需的停止以及后续恢复、状态读取均调用
+官方 HTTP API，恢复后的代理可用性以独立客户端的新连接和实际字节验证。故障注入代码
+仅存在于测试中，不是部署组件、兼容服务或修改版 3x-ui。
+
+验收重点是明确失败后只恢复一次、原安装失败与服务恢复分别保留、响应不明时不追加重启
+或安装，以及临时配置清理与模板恢复。真实公网下载、校验替换和容器重建后的版本保持
+不在此项测试证明范围内；这些仍须另行隔离验收，不能将此结果称为完整升级通过。
+
+本机官方原版的三个恢复故障场景已通过，详见
+[恢复验证记录](validation-update-recovery-20260929.md)。

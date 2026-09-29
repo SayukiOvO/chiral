@@ -51,6 +51,16 @@ type XrayUpdateResult struct {
 	State         XrayUpdateState `json:"state"`
 	Reason        string          `json:"reason"`
 	TargetVersion string          `json:"target_version"`
+	// These optional fields are independent, point-in-time service evidence.
+	// They never turn a failed/unknown installation into a successful one.
+	ServiceState   XrayServiceState `json:"service_state,omitempty"`
+	ServiceVersion string           `json:"service_version,omitempty"`
+	ServiceReason  string           `json:"service_reason,omitempty"`
+	// Local observation time in Unix milliseconds, not an upstream sample timestamp. A replayed
+	// reachable result is historical evidence, never current health.
+	ServiceObservedAt int64  `json:"service_observed_at,omitempty"`
+	RecoveryAttempted bool   `json:"recovery_attempted,omitempty"`
+	RecoveryOutcome   string `json:"recovery_outcome,omitempty"`
 }
 
 // XrayUpdateFailure is returned for every retained non-Verified result. It
@@ -65,7 +75,9 @@ func (e *XrayUpdateFailure) Error() string {
 // using the intended credentials. A control-plane ping, process health check,
 // or mere successful socket dial is not an acceptable implementation. The
 // caller owns the credentials; the coordinator never stores them. A nil probe
-// deliberately produces Inconclusive, not Verified.
+// deliberately produces Inconclusive, not Verified. The callback must honor
+// its context deadline; running it in an untracked background goroutine would
+// break the coordinator's bounded recovery and single-writer guarantees.
 type XrayUpdateProbe func(context.Context) error
 
 type updateRecord struct {
@@ -89,7 +101,8 @@ type updateJournal struct {
 // program using a different journal or directly calling the provider API.
 //
 // Results are retained, not evicted: after 128 requests it fails closed. Any
-// result other than Verified or NotStarted closes the automatic update gate. Operator recovery
+// result other than Verified or NotStarted closes the automatic update gate.
+// Bounded Reconcile is available; manual settlement of unknown installations
 // and safe history compaction are intentionally not exposed here. Deleting the
 // journal or changing its path is not recovery and can re-enable unsafe retries.
 type XrayUpdates struct {
@@ -100,6 +113,8 @@ type XrayUpdates struct {
 	journal updateJournal
 	broken  bool
 	write   func(string, []byte) error
+	// Zero values select production bounds. Package tests may shorten them.
+	recoveryPolicy updateRecoveryPolicy
 }
 
 // OpenXrayUpdates opens without dispatching any HTTP request. A crash after the
@@ -190,8 +205,9 @@ func (u *XrayUpdates) Close() error {
 
 // Run dispatches at most once per accepted request identity. Every mutation is
 // preceded by a durable Unknown record. A timeout, transport error, crash, or
-// malformed response preserves that barrier. Even a definite installation
-// failure does not trigger restart, retry, or installation of another version.
+// malformed response preserves that barrier. A definite installation failure
+// permits one bounded service-recovery restart only after confirming that the
+// same provider is stopped. It never installs another version or claims rollback.
 func (u *XrayUpdates) Run(ctx context.Context, request XrayUpdateRequest, probe XrayUpdateProbe) (XrayUpdateResult, error) {
 	u.mu.Lock()
 	defer u.mu.Unlock()
@@ -283,10 +299,16 @@ func (u *XrayUpdates) Run(ctx context.Context, request XrayUpdateRequest, probe 
 			case XrayInstallNotStarted:
 				return finish(XrayUpdateNotStarted, "request_not_dispatched")
 			case XrayInstallFailed:
-				return finish(XrayUpdateFailed, "installation_reported_failure")
+				if result, err := finish(XrayUpdateFailed, "installation_reported_failure"); u.broken {
+					return result, err
+				}
+				return u.reconcileLocked(ctx, request, probe, index)
 			}
 		}
-		return finish(XrayUpdateUnknown, "installation_outcome_unknown")
+		if result, err := finish(XrayUpdateUnknown, "installation_outcome_unknown"); u.broken {
+			return result, err
+		}
+		return u.reconcileLocked(ctx, request, probe, index)
 	}
 	// A definite successful response settles installation, not usability. Save
 	// that distinction before making any read/probe that can itself fail.
@@ -296,32 +318,7 @@ func (u *XrayUpdates) Run(ctx context.Context, request XrayUpdateRequest, probe 
 			return XrayUpdateResult{}, err
 		}
 	}
-	status, err = u.client.Status(ctx)
-	if err != nil {
-		return finish(XrayUpdateInconclusive, "verification_status_unavailable")
-	}
-	if status.PanelGUID != request.ExpectedPanelGUID || status.PanelVersion != request.ExpectedPanelVersion {
-		return finish(XrayUpdateFailed, "verification_provider_changed")
-	}
-	if status.Xray.State != "running" || !sameXrayRelease(status.Xray.Version, request.Version) {
-		return finish(XrayUpdateFailed, "verification_running_target_failed")
-	}
-	if probe == nil {
-		return finish(XrayUpdateInconclusive, "data_path_probe_missing")
-	}
-	if ctx.Err() != nil {
-		return finish(XrayUpdateInconclusive, "verification_cancelled")
-	}
-	if err := probe(ctx); err != nil {
-		if ctx.Err() != nil {
-			return finish(XrayUpdateInconclusive, "verification_cancelled")
-		}
-		return finish(XrayUpdateFailed, "data_path_probe_failed")
-	}
-	if ctx.Err() != nil {
-		return finish(XrayUpdateInconclusive, "verification_cancelled")
-	}
-	return finish(XrayUpdateVerified, "verified")
+	return u.verifyUpdate(ctx, request, probe, index)
 }
 
 // XrayUpdateObservation is a read-only point-in-time observation. Neither bool
@@ -427,6 +424,7 @@ func validUpdateJournal(journal updateJournal) bool {
 	for i, record := range journal.Records {
 		if !validHash(record.IDHash) || !validHash(record.RequestHash) || !validHash(record.ProviderHash) || seen[record.IDHash] ||
 			!validXrayVersion(record.Result.TargetVersion) || reasons[record.Result.Reason] != record.Result.State || record.Result.State == "" ||
+			!validUpdateRecovery(record.Result) ||
 			(i < len(journal.Records)-1 && updateBlocksNext(record.Result.State)) {
 			return false
 		}

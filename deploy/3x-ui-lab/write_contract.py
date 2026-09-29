@@ -24,6 +24,7 @@ ROLE = "io.chiral.write-contract.role"
 IMAGE_RE = r"[A-Za-z0-9][A-Za-z0-9._:/-]*@sha256:[0-9a-f]{64}"
 ID_RE = r"[0-9a-f]{64}"
 TEST_NAME = "TestLive3XUIWriteContract"
+SUITES = {"write": TEST_NAME, "update-recovery": "TestLive3XUIUpdateRecoveryContract"}
 LIMIT = 384 * 1024 * 1024
 VOLUME_TARGETS = {"data": "/etc/x-ui", "bin": "/app/bin", "cert": "/root/cert"}
 
@@ -83,7 +84,9 @@ def redact(text, sensitive):
 
 
 class WriteContract:
-    def __init__(self, image, binary, output):
+    def __init__(self, image, binary, output, suite="write"):
+        require(suite in SUITES, "Only the write and update-recovery contract suites are permitted")
+        self.suite, self.test_name = suite, SUITES[suite]
         require(re.fullmatch(IMAGE_RE, image), "Image must be an explicit repository@sha256 digest")
         supplied = Path(binary).expanduser()
         require(supplied.is_absolute() and not supplied.is_symlink(), "Binary must be an absolute, non-symlink path")
@@ -116,6 +119,7 @@ class WriteContract:
         self.docker_desktop = False
         self.image_id = None
         self.state = {"run_id": self.run_id, "image": image, "output": str(self.output),
+                      "suite": self.suite, "test_name": self.test_name,
                       "containers": {}, "volumes": self.volumes, "result": "NOT_RUN",
                       "test_exit_code": None, "cleanup": {}, "retained": True}
 
@@ -334,7 +338,7 @@ class WriteContract:
                      "test -r /app/bin/geoip.dat && test -r /app/bin/geosite.dat"])
         self.state["test_client_files_readable"] = True
         self.create_container("test", "/run/chiral-write-contract.test",
-                              ["-test.run", "^" + TEST_NAME + "$", "-test.v", "-test.count=1", "-test.timeout=5m"],
+                              ["-test.run", "^" + self.test_name + "$", "-test.v", "-test.count=1", "-test.timeout=5m"],
                               ["CHIRAL_3XUI_TEST_URL=" + url,
                                "CHIRAL_3XUI_TEST_TOKEN_FILE=/run/secrets/chiral-write-token",
                                "CHIRAL_3XUI_TEST_XRAY_BIN=/app/bin/xray-linux-amd64",
@@ -352,7 +356,7 @@ class WriteContract:
         self.state["test_exit_code"] = info["State"].get("ExitCode")
         self.state["docker_test_exit_code"] = result.returncode
         skipped = bool(re.search(r"^\s*--- SKIP:", safe, re.MULTILINE))
-        passed = bool(re.search(r"^--- PASS: " + TEST_NAME + r" \(", safe, re.MULTILINE))
+        passed = bool(re.search(r"^--- PASS: " + re.escape(self.test_name) + r" \(", safe, re.MULTILINE))
         passed = passed and bool(re.search(r"^PASS$", safe, re.MULTILINE))
         self.state["positive_pass"] = passed
         self.state["skipped"] = skipped
@@ -423,10 +427,11 @@ def main():
     parser.add_argument("--image", required=True)
     parser.add_argument("--binary", required=True)
     parser.add_argument("--output", required=True)
+    parser.add_argument("--suite", choices=tuple(SUITES), default="write")
     args = parser.parse_args()
     os.umask(0o077)
     try:
-        return WriteContract(args.image, args.binary, args.output).run()
+        return WriteContract(args.image, args.binary, args.output, suite=args.suite).run()
     except (RuntimeError, OSError) as exc:
         print(json.dumps({"result": "ERROR", "error": str(exc)}), file=sys.stderr)
         return 1
