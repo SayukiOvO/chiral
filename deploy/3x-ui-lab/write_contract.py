@@ -28,6 +28,7 @@ SUITES = {
     "write": TEST_NAME,
     "update-recovery": "TestLive3XUIUpdateRecoveryContract",
     "raw-projection": "TestLive3XUIRawProjectionContract",
+    "http-probe": "TestLive3XUIHTTPProbeContract",
 }
 LIMIT = 384 * 1024 * 1024
 VOLUME_TARGETS = {"data": "/etc/x-ui", "bin": "/app/bin", "cert": "/root/cert"}

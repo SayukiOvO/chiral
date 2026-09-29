@@ -301,6 +301,35 @@ class WriteContractTests(unittest.TestCase):
                 self.assertEqual(len(starts), 1)
                 self.assertTrue(all(not info["State"]["Running"] for info in fake.containers.values()))
 
+    def test_http_probe_suite_keeps_isolation_and_exact_success_gate(self):
+        expected = b"--- PASS: TestLive3XUIHTTPProbeContract (1.0s)\nPASS\n"
+        cases = (
+            ("pass", 0, expected, 0),
+            ("wrong_suite", 0, PASS_LOG, 1),
+            ("no_test", 0, b"testing: warning: no tests to run\nPASS\n", 1),
+            ("skip", 0, b"--- SKIP: TestLive3XUIHTTPProbeContract/negative (0.1s)\n" + expected, 1),
+            ("failure", 1, b"--- FAIL: TestLive3XUIHTTPProbeContract (1.0s)\nFAIL\n", 1),
+            ("nonzero", 1, expected, 1),
+        )
+        for name, exit_code, output, wanted in cases:
+            with self.subTest(name=name):
+                lab = runner.WriteContract(IMAGE, str(self.binary), str(self.root / ("probe-" + name)), suite="http-probe")
+                fake = FakeDocker()
+                fake.test_exit, fake.test_output = exit_code, output
+                with mock.patch.object(runner, "execute", side_effect=fake):
+                    self.assertEqual(lab.run(), wanted)
+                self.assertEqual(lab.state["suite"], "http-probe")
+                self.assertEqual(lab.state["test_name"], "TestLive3XUIHTTPProbeContract")
+                test_info = fake.lookup(lab.ids["test"])
+                self.assertEqual(flag(test_info["Config"]["Cmd"], "-test.run"), "^TestLive3XUIHTTPProbeContract$")
+                self.assertEqual(test_info["HostConfig"]["NetworkMode"], "container:" + lab.ids["app"])
+                self.assertEqual(fake.lookup(lab.ids["app"])["HostConfig"]["NetworkMode"], "none")
+                self.assertEqual(len(fake.containers), 3)
+                self.assertEqual(lab.state["result"] == "PASS", wanted == 0)
+                starts = [args for args, _, _ in fake.calls if args[3:5] == ["container", "start"] and args[-1] == lab.ids["test"]]
+                self.assertEqual(len(starts), 1)
+                self.assertTrue(all(not info["State"]["Running"] for info in fake.containers.values()))
+
     def test_failure_and_skip_never_count_as_pass_or_retry(self):
         for name, exit_code, output in (("fail", 1, b"--- FAIL: TestLive3XUIWriteContract (0.1s)\nFAIL\n"),
                                        ("skip", 0, b"--- SKIP: TestLive3XUIWriteContract (0.1s)\nPASS\n"),
