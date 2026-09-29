@@ -30,6 +30,7 @@ SUITES = {
     "raw-projection": "TestLive3XUIRawProjectionContract",
     "http-probe": "TestLive3XUIHTTPProbeContract",
     "billing-bootstrap": "TestLive3XUIBillingBootstrapContract",
+    "shadow-observation": "TestLive3XUIReadOnlyContract",
 }
 LIMIT = 384 * 1024 * 1024
 VOLUME_TARGETS = {"data": "/etc/x-ui", "bin": "/app/bin", "cert": "/root/cert"}
@@ -364,6 +365,12 @@ class WriteContract:
         skipped = bool(re.search(r"^\s*--- SKIP:", safe, re.MULTILINE))
         passed = bool(re.search(r"^--- PASS: " + re.escape(self.test_name) + r" \(", safe, re.MULTILINE))
         passed = passed and bool(re.search(r"^PASS$", safe, re.MULTILINE))
+        if self.suite == "shadow-observation":
+            # The old test had the same name but performed lifecycle-bearing
+            # config reads. Its PASS cannot certify the new request boundary.
+            allowlist_verified = "shadow_request_allowlist_verified=true" in safe
+            self.state["shadow_request_allowlist_verified"] = allowlist_verified
+            passed = passed and allowlist_verified
         self.state["positive_pass"] = passed
         self.state["skipped"] = skipped
         self.state["result"] = "SKIP" if skipped else "FAIL"

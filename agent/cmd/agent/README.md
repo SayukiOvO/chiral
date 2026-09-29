@@ -21,7 +21,8 @@ SIGINT / SIGTERM 为止。
 | `CHIRAL_3XUI_ALLOW_PUBLIC` | 关闭 | 设为 `1` 时才允许非回环地址，且非回环必须使用 HTTPS；默认只连接节点本机。 |
 
 `3x-ui-shadow` 并不是可写的 3x-ui provider。启用后，Agent 只读取 3x-ui 状态、OpenAPI
-能力和最终 config（用于验证 token 的只读权限）；配置下发、用户增删、重启、流量与在线
+能力和已持久化的出站计数（用于验证该读取权限）；不自动调用可能触发用户生命周期维护
+的最终配置组装或模板读取。配置下发、用户增删、重启、流量与在线
 快照、安装和回滚仍全部交给 `direct-xray`。
 因此不得将其设为部署默认值，也不得把它作为 3x-ui 已完成接管的依据。切换到未来的
 `ACTIVE` 模式前，必须通过 [`docs/3x-ui-integration.md`](../../../docs/3x-ui-integration.md)

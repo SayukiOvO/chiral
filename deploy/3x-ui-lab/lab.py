@@ -264,7 +264,6 @@ class Lab:
         node = self.wait(self.ready, "SHADOW READY")
         require(node.get("runtime_provider") == "3x-ui", "Wrong runtime provider")
         validate_capabilities(node.get("runtime_capabilities"))
-        config_before = self.request("/panel/api/server/getConfigJson", provider="3x-ui")
         test_binary = ROOT / "bin/threexui-contract.test"
         require(test_binary.is_file(), "Build bin/threexui-contract.test before verification")
         env = {**os.environ,
@@ -274,6 +273,8 @@ class Lab:
                       "-test.run", "^TestLive3XUIReadOnlyContract$", "-test.v", "-test.count=1"], env=env)
         require(b"--- PASS: TestLive3XUIReadOnlyContract" in output and b"SKIP" not in output,
                 "Live contract test did not positively pass")
+        require(b"shadow_request_allowlist_verified=true" in output,
+                "Live contract did not confirm its observational request allowlist")
         save(ROOT / "artifacts/contract-test.log", output)
         print(output.decode(), flush=True)
         token_id = self.state["observer_token_id"]
@@ -290,13 +291,13 @@ class Lab:
         finally:
             self.request(endpoint, "POST", {"enabled": True, "expectedScope": "admin"}, "3x-ui")
         node = self.wait(self.ready, "SHADOW recovery after token restoration")
-        config_after = self.request("/panel/api/server/getConfigJson", provider="3x-ui")
-        require(config_before == config_after, "Observer changed 3x-ui configuration")
         self.verify_isolation()
         report = {"project": self.project, "services": identities, "network": "isolated-loopback-only",
                   "runtime": {k: v for k, v in node.items() if k.startswith("runtime_")},
                   "live_contract_test": "PASS", "revocation_and_recovery": "PASS",
-                  "provider_config_unchanged": True, "last_verified_at": int(time.time())}
+                  "shadow_request_allowlist": "PASS",
+                  "provider_config_comparison": "not_performed_avoids_lifecycle_read",
+                  "last_verified_at": int(time.time())}
         save_json(ROOT / "artifacts/verification.json", report)
         print(json.dumps(report, indent=2), flush=True)
 

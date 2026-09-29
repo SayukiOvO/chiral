@@ -11,7 +11,7 @@ Xray 执行后端：应用下发的 config.json、在线增删用户、上报心
 - `internal/client/` — 到 Core 的 gRPC 双向流：注册、重连、帧收发
 - `internal/runtimeprovider/` — Core ↔ Agent 运行时语义与 provider 接口
 - `internal/xray/` — Xray-core 进程与 config 管理，以及经 `xray api` 子命令驱动的管理 API（增删用户、流量、在线地址）
-- `internal/threexui/` — 节点本地 3x-ui 的窄类型只读 API client、状态/最终 config 读取与 OpenAPI 能力发现
+- `internal/threexui/` — 节点本地 3x-ui 的窄类型 HTTP client；只读 SHADOW 与尚未接管的候选写入、计费和更新组件
 - `internal/collector/` — 宿主机系统指标（gopsutil）
 
 ## 构建
@@ -30,7 +30,8 @@ go build -o ../bin/chiral-agent ./cmd/agent
 ## 3x-ui 第一阶段：只读 SHADOW
 
 `CHIRAL_RUNTIME_PROVIDER=3x-ui-shadow` 只增加对 3x-ui 的只读观察：Agent 读取运行状态、版本、
-最终 config 权限和实时 OpenAPI 能力，并把兼容状态报告给 Core。`ConfigPush`、`UserOp`、重启、流量与在线快照、
+已存储出站计数的读取权限和实时 OpenAPI 能力，并把兼容状态报告给 Core。它不调用可能
+触发上游用户生命周期维护的最终配置组装或模板读取。`ConfigPush`、`UserOp`、重启、流量与在线快照、
 内核安装及回滚等现有路径仍全部由 `direct-xray` 执行。该模式不能视为迁移完成，也不得设为
 默认值或用于宣称 3x-ui 已接管生产流量。
 

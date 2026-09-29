@@ -304,6 +304,43 @@ class FreshProjectTests(NoExternalCommands):
 
 
 class TokenFaultRecoveryTests(NoExternalCommands):
+    def test_verification_avoids_lifecycle_reads_and_requires_allowlist_evidence(self):
+        for marker in (True, False):
+            with self.subTest(marker=marker):
+                instance = lab.Lab({"project": PROJECT, "base_path": "test-only", "observer_token_id": 12})
+                ready = {"runtime_provider": "3x-ui", "runtime_mode": "SHADOW", "runtime_health": "READY",
+                         "runtime_capabilities": sorted(lab.REQUIRED_CAPABILITIES)}
+                output = b"--- PASS: TestLive3XUIReadOnlyContract\n"
+                if marker:
+                    output += b"shadow_request_allowlist_verified=true\n"
+
+                def request(path, method="GET", payload=None, provider="core"):
+                    if provider == "3x-ui":
+                        self.assertEqual(path, "/panel/api/setting/apiTokens/setEnabled/12")
+                        self.assertEqual(method, "POST")
+                    return "ok"
+
+                with mock.patch.object(instance, "verify_isolation", return_value={}), \
+                     mock.patch.object(instance, "pid", return_value=12345), \
+                     mock.patch.object(instance, "wait", return_value=ready), \
+                     mock.patch.object(instance, "request", side_effect=request) as calls, \
+                     mock.patch.object(Path, "is_file", return_value=True), \
+                     mock.patch.object(lab, "run", return_value=output), \
+                     mock.patch.object(lab, "save"), mock.patch.object(lab, "save_json") as reports, \
+                     mock.patch("builtins.print"):
+                    if marker:
+                        instance.verify()
+                        report = reports.call_args.args[1]
+                        self.assertNotIn("provider_config_unchanged", report)
+                        self.assertEqual(report["provider_config_comparison"], "not_performed_avoids_lifecycle_read")
+                        self.assertEqual(report["shadow_request_allowlist"], "PASS")
+                        self.assertEqual(calls.call_count, 3)
+                    else:
+                        with self.assertRaisesRegex(RuntimeError, "allowlist"):
+                            instance.verify()
+                        reports.assert_not_called()
+                        self.assertEqual(calls.call_count, 1)
+
     def test_restores_observer_token_when_revocation_response_is_lost(self):
         for error in (RuntimeError("revocation response lost"), subprocess.TimeoutExpired("simulated request", 8)):
             with self.subTest(error=type(error).__name__):
@@ -315,14 +352,15 @@ class TokenFaultRecoveryTests(NoExternalCommands):
                 def request(path, method="GET", payload=None, provider="core"):
                     if path == endpoint and payload["enabled"] is False:
                         raise error
-                    return {"inbounds": []} if "getConfigJson" in path else "ok"
+                    self.assertNotIn("getConfigJson", path)
+                    return "ok"
 
                 with mock.patch.object(instance, "verify_isolation", return_value={}), \
                      mock.patch.object(instance, "pid", return_value=12345), \
                      mock.patch.object(instance, "wait", return_value=ready), \
                      mock.patch.object(instance, "request", side_effect=request) as calls, \
                      mock.patch.object(Path, "is_file", return_value=True), \
-                     mock.patch.object(lab, "run", return_value=b"--- PASS: TestLive3XUIReadOnlyContract\n"), \
+                     mock.patch.object(lab, "run", return_value=b"shadow_request_allowlist_verified=true\n--- PASS: TestLive3XUIReadOnlyContract\n"), \
                      mock.patch.object(lab, "save"), mock.patch("builtins.print"):
                     with self.assertRaises(type(error)):
                         instance.verify()

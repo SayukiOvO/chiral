@@ -2,6 +2,7 @@ package threexui
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -79,20 +80,30 @@ func TestObserverDoesNotRefreshCachedContractTimestamp(t *testing.T) {
 	}
 }
 
-func TestObserverReadsLargeFinalConfigOnlyOncePerPanelVersion(t *testing.T) {
+func TestObserverOnlyReadsObservationalEndpointsAcrossDiscoveryLifecycle(t *testing.T) {
 	clock := &fakeClock{now: time.Unix(1_000, 0)}
-	var openAPIRequests, configRequests atomic.Int32
+	var statusRequests, openAPIRequests, canaryRequests, forbiddenRequests atomic.Int32
+	var version atomic.Value
+	version.Store("v3.7.0")
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet || r.Header.Get("Authorization") != "Bearer "+testToken {
+			forbiddenRequests.Add(1)
+			http.Error(w, "unexpected method or authentication", http.StatusBadRequest)
+			return
+		}
 		switch r.URL.Path {
 		case "/panel/api/server/status":
-			fmt.Fprint(w, `{"success":true,"msg":"","obj":{"panelVersion":"v3.7.0","xray":{"state":"running"}}}`)
+			statusRequests.Add(1)
+			fmt.Fprintf(w, `{"success":true,"msg":"","obj":{"panelVersion":%q,"xray":{"state":"running"}}}`, version.Load().(string))
 		case "/panel/api/openapi.json":
 			openAPIRequests.Add(1)
 			fmt.Fprint(w, completeOpenAPIDocument)
-		case "/panel/api/server/getConfigJson":
-			configRequests.Add(1)
-			fmt.Fprint(w, `{"success":true,"msg":"","obj":{"inbounds":[]}}`)
+		case "/panel/api/xray/getOutboundsTraffic":
+			canaryRequests.Add(1)
+			fmt.Fprint(w, `{"success":true,"msg":"","obj":[]}`)
 		default:
+			// Includes assembled/template GETs as well as every mutation path.
+			forbiddenRequests.Add(1)
 			http.NotFound(w, r)
 		}
 	}))
@@ -101,18 +112,34 @@ func TestObserverReadsLargeFinalConfigOnlyOncePerPanelVersion(t *testing.T) {
 		SuccessTTL: 5 * time.Minute,
 		Now:        clock.Now,
 	})
-	if observation := observer.Observe(context.Background()); observation.Error != nil {
-		t.Fatal(observation.Error)
-	}
-	clock.Advance(5 * time.Minute)
-	if observation := observer.Observe(context.Background()); observation.Error != nil {
-		t.Fatal(observation.Error)
-	}
-	if got := openAPIRequests.Load(); got != 2 {
-		t.Fatalf("OpenAPI requests = %d, want 2", got)
-	}
-	if got := configRequests.Load(); got != 1 {
-		t.Fatalf("final config requests = %d, want 1", got)
+	for i, phase := range []struct {
+		name     string
+		advance  time.Duration
+		version  string
+		openAPIs int32
+		canaries int32
+	}{
+		{name: "cold", openAPIs: 1, canaries: 1},
+		{name: "cached", advance: time.Minute, openAPIs: 1, canaries: 1},
+		{name: "refresh", advance: 4 * time.Minute, openAPIs: 2, canaries: 1},
+		{name: "version change", version: "v3.8.0", openAPIs: 3, canaries: 2},
+	} {
+		t.Run(phase.name, func(t *testing.T) {
+			clock.Advance(phase.advance)
+			if phase.version != "" {
+				version.Store(phase.version)
+			}
+			observation := observer.Observe(context.Background())
+			if observation.Error != nil {
+				t.Fatal(observation.Error)
+			}
+			if len(RequiredCapabilities()) != 17 || !reflect.DeepEqual(observation.SupportedCapabilities, RequiredCapabilities()) || len(observation.MissingCapabilities) != 0 {
+				t.Fatalf("the existing 17 route-shape gates changed: %#v", observation)
+			}
+			if statusRequests.Load() != int32(i+1) || openAPIRequests.Load() != phase.openAPIs || canaryRequests.Load() != phase.canaries || forbiddenRequests.Load() != 0 {
+				t.Fatalf("request counts: status=%d openapi=%d canary=%d forbidden=%d", statusRequests.Load(), openAPIRequests.Load(), canaryRequests.Load(), forbiddenRequests.Load())
+			}
+		})
 	}
 }
 
@@ -166,8 +193,8 @@ func TestObserverRediscoversContractImmediatelyWhenPanelVersionChanges(t *testin
 		case "/panel/api/openapi.json":
 			openAPIRequests.Add(1)
 			fmt.Fprint(w, completeOpenAPIDocument)
-		case "/panel/api/server/getConfigJson":
-			fmt.Fprint(w, `{"success":true,"msg":"","obj":{"inbounds":[]}}`)
+		case "/panel/api/xray/getOutboundsTraffic":
+			fmt.Fprint(w, `{"success":true,"msg":"","obj":[]}`)
 		default:
 			http.NotFound(w, r)
 		}
@@ -239,14 +266,14 @@ func TestObserverRetriesFailedDiscoveryAfterShortCache(t *testing.T) {
 	}
 }
 
-func TestObserverVerifiesTokenCanReadFinalConfig(t *testing.T) {
+func TestObserverRejectsTokenDeniedPersistedCounterRead(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/panel/api/server/status":
 			fmt.Fprint(w, `{"success":true,"msg":"","obj":{"panelVersion":"v3.7.0","xray":{"state":"stopped"}}}`)
 		case "/panel/api/openapi.json":
 			fmt.Fprint(w, completeOpenAPIDocument)
-		case "/panel/api/server/getConfigJson":
+		case "/panel/api/xray/getOutboundsTraffic":
 			w.WriteHeader(http.StatusForbidden)
 		default:
 			http.NotFound(w, r)
@@ -259,6 +286,62 @@ func TestObserverVerifiesTokenCanReadFinalConfig(t *testing.T) {
 		t.Fatalf("restricted token looked compatible: %#v", observation)
 	}
 	assertNoToken(t, observation.Error)
+	if observation.ContractDigest != "" || len(observation.SupportedCapabilities) != 0 || !observation.ContractObservedAt.IsZero() {
+		t.Fatalf("denied initial canary published a successful contract: %#v", observation)
+	}
+}
+
+func TestObserverRejectsInvalidCanarySchemaAndRetriesAfterFailureCache(t *testing.T) {
+	for name, response := range map[string]string{
+		"missing object":          `{"success":true}`,
+		"object instead of array": `{"success":true,"obj":{}}`,
+		"missing counters":        `{"success":true,"obj":[{"id":1,"tag":"outbound"}]}`,
+		"negative counters":       `{"success":true,"obj":[{"id":1,"tag":"outbound","up":-1,"down":0}]}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			clock := &fakeClock{now: time.Unix(3_000, 0)}
+			var canaryRequests, forbiddenRequests atomic.Int32
+			var canaryResponse atomic.Value
+			canaryResponse.Store(response)
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.Method != http.MethodGet {
+					forbiddenRequests.Add(1)
+					http.Error(w, "unexpected method", http.StatusBadRequest)
+					return
+				}
+				switch r.URL.Path {
+				case "/panel/api/server/status":
+					fmt.Fprint(w, `{"success":true,"obj":{"panelVersion":"v3.8.5","xray":{"state":"running"}}}`)
+				case "/panel/api/openapi.json":
+					fmt.Fprint(w, completeOpenAPIDocument)
+				case "/panel/api/xray/getOutboundsTraffic":
+					canaryRequests.Add(1)
+					fmt.Fprint(w, canaryResponse.Load().(string))
+				default:
+					forbiddenRequests.Add(1)
+					http.NotFound(w, r)
+				}
+			}))
+			defer server.Close()
+			observer := newTestObserver(t, server.URL, ObserverConfig{FailureTTL: 30 * time.Second, Now: clock.Now})
+			for range 2 {
+				observation := observer.Observe(context.Background())
+				var contractError *ContractError
+				if !errors.As(observation.Error, &contractError) || observation.ContractDigest != "" || len(observation.SupportedCapabilities) != 0 || !observation.ContractObservedAt.IsZero() {
+					t.Fatalf("invalid canary looked compatible: %#v", observation)
+				}
+			}
+			if canaryRequests.Load() != 1 {
+				t.Fatalf("canary requests during failure cache = %d, want 1", canaryRequests.Load())
+			}
+			canaryResponse.Store(`{"success":true,"obj":null}`)
+			clock.Advance(30 * time.Second)
+			observation := observer.Observe(context.Background())
+			if observation.Error != nil || observation.ContractDigest == "" || !reflect.DeepEqual(observation.SupportedCapabilities, RequiredCapabilities()) || canaryRequests.Load() != 2 || forbiddenRequests.Load() != 0 {
+				t.Fatalf("failed canary did not recover safely: observation=%#v canaries=%d forbidden=%d", observation, canaryRequests.Load(), forbiddenRequests.Load())
+			}
+		})
+	}
 }
 
 func TestObserverCoalescesConcurrentCapabilityDiscovery(t *testing.T) {
@@ -354,8 +437,8 @@ func newObserverServer(
 		case "/panel/api/openapi.json":
 			openAPIRequests.Add(1)
 			serveOpenAPI(w, r)
-		case "/panel/api/server/getConfigJson":
-			fmt.Fprint(w, `{"success":true,"msg":"","obj":{"inbounds":[]}}`)
+		case "/panel/api/xray/getOutboundsTraffic":
+			fmt.Fprint(w, `{"success":true,"msg":"","obj":[]}`)
 		default:
 			http.NotFound(w, r)
 		}

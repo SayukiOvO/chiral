@@ -119,7 +119,8 @@ func (c *Client) UpdateXrayTemplate(ctx context.Context, template XrayTemplate) 
 // database with the stricter diagnostics needed by a mutating reconciler. It
 // does not assert that the running process accepted it: upstream can retain an
 // older running configuration after a failed or partially applied update.
-// ConfigJSON remains the existing read-only SHADOW observer entrypoint.
+// Upstream can repair stored templates and perform client lifecycle maintenance
+// during assembly. This GET is not side-effect-free and is excluded from SHADOW.
 func (c *Client) ReadAssembledConfig(ctx context.Context) (json.RawMessage, error) {
 	u, err := c.endpointURL(configEndpoint)
 	if err != nil {

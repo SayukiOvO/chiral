@@ -307,8 +307,14 @@ class WriteContractTests(unittest.TestCase):
     def test_billing_bootstrap_suite_keeps_isolation_and_exact_success_gate(self):
         self.assert_suite_isolation_and_success_gate("billing-bootstrap", "TestLive3XUIBillingBootstrapContract")
 
+    def test_shadow_observation_suite_keeps_isolation_and_exact_success_gate(self):
+        self.assert_suite_isolation_and_success_gate("shadow-observation", "TestLive3XUIReadOnlyContract")
+
     def assert_suite_isolation_and_success_gate(self, suite, test_name):
         expected = f"--- PASS: {test_name} (1.0s)\nPASS\n".encode()
+        legacy_pass = expected
+        if suite == "shadow-observation":
+            expected = b"    shadow_request_allowlist_verified=true\n" + expected
         cases = (
             ("pass", 0, expected, 0),
             ("wrong_suite", 0, PASS_LOG, 1),
@@ -317,6 +323,8 @@ class WriteContractTests(unittest.TestCase):
             ("failure", 1, f"--- FAIL: {test_name} (1.0s)\nFAIL\n".encode(), 1),
             ("nonzero", 1, expected, 1),
         )
+        if suite == "shadow-observation":
+            cases += (("old_binary_without_allowlist", 0, legacy_pass, 1),)
         for name, exit_code, output, wanted in cases:
             with self.subTest(name=name):
                 lab = runner.WriteContract(IMAGE, str(self.binary), str(self.root / (suite + "-" + name)), suite=suite)

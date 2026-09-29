@@ -34,8 +34,9 @@ type Observation struct {
 	MissingCapabilities   []Capability
 	ContractDigest        string
 	// ContractObservedAt is when the OpenAPI document was actually read. The
-	// final-config permission was also verified for this panel version before
-	// a successful snapshot is exposed. A status poll must not make an old
+	// persisted-outbound-counter read was also verified for this panel version
+	// before a successful snapshot is exposed. This does not prove permission
+	// to read or write configuration. A status poll must not make an old
 	// contract look freshly verified.
 	ContractObservedAt time.Time
 	Error              error
@@ -62,9 +63,10 @@ type Observer struct {
 	discoveryPanelVersion string
 	contractObservedAt    time.Time
 	// A successful OpenAPI fetch already rechecks this credential on every
-	// discovery. The much larger final config is read once per panel version
-	// (and Agent process), avoiding a multi-megabyte transfer every five minutes.
-	configReadPanelVersion string
+	// discovery. Persisted outbound counters provide an additional read canary
+	// once per panel version and Agent process, without asking upstream to
+	// assemble configuration and run its client lifecycle maintenance.
+	canaryReadPanelVersion string
 	nextDiscovery          time.Time
 	discoveryDone          chan struct{}
 }
@@ -101,7 +103,9 @@ func NewObserver(client *Client, cfg ObserverConfig) (*Observer, error) {
 }
 
 // Observe fetches current 3x-ui status and joins it with the latest capability
-// handshake. It never invokes a mutating API operation.
+// handshake. Only status, OpenAPI and persisted outbound counters are read;
+// assembled configuration and template reads are deliberately excluded because
+// the official provider can perform lifecycle or legacy-storage maintenance.
 func (o *Observer) Observe(ctx context.Context) Observation {
 	status, statusErr := o.client.Status(ctx)
 	capabilities, hasCapabilities, contractObservedAt, discoveryErr := o.observeCapabilities(ctx, status.PanelVersion)
@@ -160,18 +164,18 @@ func (o *Observer) observeCapabilities(ctx context.Context, panelVersion string)
 
 		done := make(chan struct{})
 		o.discoveryDone = done
-		needsConfigRead := panelVersion != "" && panelVersion != o.configReadPanelVersion
+		needsCanaryRead := panelVersion != "" && panelVersion != o.canaryReadPanelVersion
 		o.mu.Unlock()
 
 		capabilities, err := o.client.DiscoverCapabilities(ctx)
-		configReadVerified := false
-		if err == nil && capabilities.Supports(CapabilityGetConfig) && needsConfigRead {
-			// OpenAPI describes routes independently of token scope. A safe read
-			// of the assembled config proves this credential crosses the minimum
-			// admin boundary Chiral's eventual reconciler requires, without
-			// probing a mutating operation in SHADOW mode.
-			_, err = o.client.ConfigJSON(ctx)
-			configReadVerified = err == nil
+		canaryReadVerified := false
+		if err == nil && needsCanaryRead {
+			// In the audited official version, this endpoint reads only the
+			// persisted outbound-counter table and requires admin scope. Its
+			// success proves this read only, not configuration permissions or
+			// future write semantics. Keep the 17 route-shape gates separate.
+			_, err = o.client.OutboundTraffics(ctx)
+			canaryReadVerified = err == nil
 		}
 
 		o.mu.Lock()
@@ -181,8 +185,8 @@ func (o *Observer) observeCapabilities(ctx context.Context, panelVersion string)
 			o.hasCapabilities = true
 			o.discoveryErr = nil
 			o.contractObservedAt = o.now()
-			if configReadVerified {
-				o.configReadPanelVersion = panelVersion
+			if canaryReadVerified {
+				o.canaryReadPanelVersion = panelVersion
 			}
 			o.nextDiscovery = o.now().Add(o.successTTL)
 		} else {
