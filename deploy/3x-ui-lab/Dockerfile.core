@@ -1,0 +1,6 @@
+# The base contributes only the runtime, bundled Xray and geofiles. Application
+# code is built on the operator's workstation, not on the production host.
+ARG CHIRAL_LAB_CORE_BASE_IMAGE
+FROM ${CHIRAL_LAB_CORE_BASE_IMAGE}
+COPY --chmod=0555 bin/chiral-core /usr/local/bin/chiral-core
+ENTRYPOINT ["/usr/local/bin/chiral-core"]

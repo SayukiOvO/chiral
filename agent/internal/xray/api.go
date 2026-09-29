@@ -195,13 +195,6 @@ func (m *Manager) Stats(ctx context.Context) ([]Stat, error) {
 	return parseStats(out)
 }
 
-// Stat is one counter Xray reported.
-type Stat struct {
-	// Name is Xray's raw key, e.g. "user>>>alice@p.node>>>traffic>>>uplink".
-	Name  string
-	Value int64
-}
-
 func parseStats(out string) ([]Stat, error) {
 	// The response may be preceded by log lines; start at the JSON object.
 	start := strings.Index(out, "{")
@@ -227,56 +220,6 @@ func parseStats(out string) ([]Stat, error) {
 		stats = append(stats, Stat{Name: s.Name, Value: s.Value})
 	}
 	return stats, nil
-}
-
-// UserTraffic is one credential's traffic since the last read.
-type UserTraffic struct {
-	Email string
-	Up    int64
-	Down  int64
-}
-
-// UserTrafficFrom folds raw counters into per-user deltas, dropping the
-// inbound/outbound ones Core does not attribute to a user.
-func UserTrafficFrom(stats []Stat) []UserTraffic {
-	byEmail := map[string]*UserTraffic{}
-	order := []string{}
-	for _, s := range stats {
-		// user>>>{email}>>>traffic>>>{uplink|downlink}
-		parts := strings.Split(s.Name, ">>>")
-		if len(parts) != 4 || parts[0] != "user" || parts[2] != "traffic" {
-			continue
-		}
-		email := parts[1]
-		t, ok := byEmail[email]
-		if !ok {
-			t = &UserTraffic{Email: email}
-			byEmail[email] = t
-			order = append(order, email)
-		}
-		switch parts[3] {
-		case "uplink":
-			t.Up += s.Value
-		case "downlink":
-			t.Down += s.Value
-		}
-	}
-	out := make([]UserTraffic, 0, len(order))
-	for _, e := range order {
-		t := byEmail[e]
-		// A user with no traffic this interval is not worth a report.
-		if t.Up == 0 && t.Down == 0 {
-			continue
-		}
-		out = append(out, *t)
-	}
-	return out
-}
-
-// OnlineUser is one credential's currently-connected source addresses.
-type OnlineUser struct {
-	Email string
-	IPs   map[string]int64 // address -> last-seen unix seconds
 }
 
 // OnlineUsers reports who is connected right now and from where.

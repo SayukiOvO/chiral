@@ -6,6 +6,39 @@
 
 一条受限目的地 = **名字 + 若干 CIDR + 若干域名后缀 + 生效节点 + 获准用户**。装配时在生效节点的 config 里插入路由规则：目的地命中且 email 属于**未获准**用户 → `chiral-blocked`（blackhole）。入口天然知道目的地——代理目标是客户端明着发来的——所以不依赖 sniffing。
 
+## Xray 的最后一跳也必须精确放行
+
+当前 Xray 的 Freedom 出站有服务端兜底安全策略：来自 VLESS、VMess、Trojan、Shadowsocks、
+Hysteria 或 WireGuard inbound 的流量，默认不能访问私有及保留地址；VLESS reverse 则默认阻止
+所有目标。此策略在 `26.7.28` 上做过真机验证，规则与配置格式见 Xray 官方的
+[`finalRules` 文档](https://xtls.github.io/config/outbounds/freedom.html#finalruleobject)。因此「节点的操作系统能到
+DN42」还不够；出口节点的 Freedom `settings.finalRules` 也要只放行实际需要的网段，例如：
+
+```json
+{
+  "protocol": "freedom",
+  "tag": "direct",
+  "settings": {
+    "finalRules": [
+      {
+        "action": "allow",
+        "network": "tcp,udp",
+        "ip": ["172.20.0.0/14", "fd00::/8"]
+      }
+    ]
+  }
+}
+```
+
+这是两道不同的门：`finalRules` 决定这个出口是否允许碰该网段；Chiral 的受限目的地规则决定
+哪些用户可以走到那里。当前 Chiral **不会自动注入这条 allow**；管理员必须把它手工合并进每个
+实际承载该私网最后一跳的出口节点骨架。仅填写受限目的地的域名后缀也不够：`finalRules` 在最终
+IP 上匹配，`ip` 必须覆盖该域名解析到的私网 CIDR。
+
+Chiral 不会把骨架改成无条件 `{"action":"allow"}`，因为那会一并撤掉 loopback、云元数据地址
+和其它私网的上游保护，也会让不经过 Chiral 凭证与路由规则的手写 inbound 失去这道 Xray
+兜底。生产配置应精确到需要的 `network`、`ip`，能确定端口时再加 `port`。
+
 ## 为什么存白名单（全面板唯一的例外）
 
 其它权限都存拒绝，方向由「漏掉一个的代价」决定：漏在拒绝表外的节点是「多一个人能用」，运维看得见、改得掉；漏在拒绝表外的**私网**是「向所有订阅者敞开」，没人会注意，直到它被逛遍。所以这张表存**获准者**，默认谁都不许——新建的目的地先描述网段，再各自决定生效节点和放行的人，三件事分开做。

@@ -3,9 +3,11 @@ package client
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
+	"github.com/SayukiOvO/chiral/agent/internal/runtimeprovider"
 	"github.com/SayukiOvO/chiral/agent/internal/xray"
 	chiralv1 "github.com/SayukiOvO/chiral/proto/chiral/v1"
 )
@@ -17,6 +19,14 @@ import (
 // panel to fetch the archive from GitHub on the first request, short enough
 // that a silent peer becomes a reportable failure rather than a stall.
 const relayTimeout = 3 * time.Minute
+
+// directXrayUpgrade deliberately sits beside, rather than inside, the runtime
+// provider contract. It is the legacy side-by-side binary installer and the
+// Manager that owns activation/rollback. API-backed runtimes leave this nil.
+type directXrayUpgrade struct {
+	owner     *xray.Manager
+	installer *xray.Installer
+}
 
 // installState tracks the one install allowed at a time, and the relay replies
 // that belong to it.
@@ -77,7 +87,8 @@ func (s *installState) deliver(c *chiralv1.XrayChunk) {
 	}
 }
 
-// streamRelay implements xray.Relay over the live stream.
+// streamRelay implements the provider-neutral and legacy relay contracts over
+// the same live stream.
 type streamRelay struct {
 	client *Client
 	send   chan<- *chiralv1.AgentFrame
@@ -118,6 +129,19 @@ func (r *streamRelay) Chunk(ctx context.Context, version string, offset int64) (
 // reporting each phase back to Core.
 func (c *Client) startInstall(ctx context.Context, sendCh chan<- *chiralv1.AgentFrame, req *chiralv1.XrayInstall) {
 	version := req.GetVersion()
+	if strings.TrimSpace(version) == "" {
+		c.reportInstall(ctx, sendCh, version,
+			chiralv1.XrayInstallPhase_XRAY_INSTALL_PHASE_FAILED,
+			"Xray installation requires an explicit nonempty version")
+		return
+	}
+	upgrader, supportsUpgrade := c.rt.(runtimeprovider.Upgrader)
+	if c.directUpgrade == nil && !supportsUpgrade {
+		c.reportInstall(ctx, sendCh, version,
+			chiralv1.XrayInstallPhase_XRAY_INSTALL_PHASE_FAILED,
+			"the configured runtime provider does not support Xray upgrades")
+		return
+	}
 	if !c.installs.begin(version) {
 		c.reportInstall(ctx, sendCh, version,
 			chiralv1.XrayInstallPhase_XRAY_INSTALL_PHASE_FAILED,
@@ -130,14 +154,28 @@ func (c *Client) startInstall(ctx context.Context, sendCh chan<- *chiralv1.Agent
 		progress := func(phase chiralv1.XrayInstallPhase, msg string) {
 			c.reportInstall(ctx, sendCh, version, phase, msg)
 		}
-		phase, msg := c.inst.Install(ctx, req, relay, progress)
+		var phase chiralv1.XrayInstallPhase
+		var msg string
+		if c.directUpgrade != nil {
+			phase, msg = c.directUpgrade.installer.Install(ctx, req, relay, progress)
+		} else {
+			phase, msg = upgrader.Install(ctx, req, relay, progress)
+		}
 		c.logger.Info("kernel install finished", "version", version, "phase", phase, "detail", msg)
 		c.reportInstall(ctx, sendCh, version, phase, msg)
+		if c.directUpgrade == nil {
+			// API-backed runtimes own artifact retention and rollback themselves.
+			return
+		}
 
 		// Keep the version now running and the one it replaced; drop the rest.
 		// Each is ~66 MB unpacked, and a node that has followed prereleases for
 		// a year would otherwise carry gigabytes nothing will ever start again.
-		c.inst.Prune(c.xr.RunningVersion(), c.xr.BinaryVersion(), version)
+		c.directUpgrade.installer.Prune(
+			c.directUpgrade.owner.RunningVersion(),
+			c.directUpgrade.owner.BinaryVersion(),
+			version,
+		)
 	}()
 }
 
@@ -150,10 +188,11 @@ func (c *Client) reportInstall(ctx context.Context, sendCh chan<- *chiralv1.Agen
 			AtUnix:  time.Now().Unix(),
 			// Carried with the verdict so Core need not wait for the next
 			// heartbeat to believe it. The whole judgement hangs on these two.
-			RunningVersion:   c.xr.RunningVersion(),
-			InstalledVersion: c.xr.BinaryVersion(),
+			RunningVersion:   c.rt.RunningVersion(),
+			InstalledVersion: c.rt.InstalledVersion(),
 		},
 	}})
 }
 
 var _ xray.Relay = (*streamRelay)(nil)
+var _ runtimeprovider.Relay = (*streamRelay)(nil)

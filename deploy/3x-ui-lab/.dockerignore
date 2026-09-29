@@ -1,0 +1,7 @@
+**
+!Dockerfile.core
+!Dockerfile.agent
+!bin/
+bin/*
+!bin/chiral-core
+!bin/chiral-agent

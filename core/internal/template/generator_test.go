@@ -160,7 +160,11 @@ func TestMLKEM768MatchesXrayDerivation(t *testing.T) {
 		t.Skipf("this xray build does not support `mlkem768 -i`: %v", err)
 	}
 	kv := parseKV(string(out))
-	if got, want := g.Components["client"], kv["Client"]; want != "" && got != want {
+	want := kv["Client"]
+	if want == "" {
+		t.Fatalf("could not find the client half in xray output:\n%s", out)
+	}
+	if got := g.Components["client"]; got != want {
 		t.Errorf("encapsulation key mismatch:\n ours %s\nxray %s", got, want)
 	}
 	// Xray's third value ("Hash32") is intentionally not emitted — see

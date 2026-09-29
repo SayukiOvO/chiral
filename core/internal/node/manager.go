@@ -26,6 +26,7 @@ type Session struct {
 	lastSeen time.Time
 	hello    *chiralv1.Hello
 	lastHB   *chiralv1.Heartbeat
+	lastHBAt time.Time
 	// lastPushVersion/lastPushAt throttle heartbeat-driven config
 	// reconciliation so a slow agent is not flooded with duplicate pushes.
 	lastPushVersion int64
@@ -37,9 +38,11 @@ func (s *Session) close() { s.doneOnce.Do(func() { close(s.done) }) }
 func (s *Session) touch(hb *chiralv1.Heartbeat) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.lastSeen = time.Now()
+	now := time.Now()
+	s.lastSeen = now
 	if hb != nil {
 		s.lastHB = hb
+		s.lastHBAt = now
 	}
 }
 
@@ -92,6 +95,9 @@ type NodeState struct {
 	LastSeen  time.Time
 	Hello     *chiralv1.Hello
 	Heartbeat *chiralv1.Heartbeat
+	// HeartbeatAt is distinct from LastSeen: stats, acks and events prove the
+	// stream is alive but must not make an old runtime observation look fresh.
+	HeartbeatAt time.Time
 }
 
 func (m *Manager) State(nodeID string) NodeState {
@@ -104,10 +110,11 @@ func (m *Manager) State(nodeID string) NodeState {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return NodeState{
-		Online:    time.Since(s.lastSeen) < m.hbTimeout,
-		LastSeen:  s.lastSeen,
-		Hello:     s.hello,
-		Heartbeat: s.lastHB,
+		Online:      time.Since(s.lastSeen) < m.hbTimeout,
+		LastSeen:    s.lastSeen,
+		Hello:       s.hello,
+		Heartbeat:   s.lastHB,
+		HeartbeatAt: s.lastHBAt,
 	}
 }
 
@@ -211,12 +218,18 @@ func (m *Manager) enqueue(nodeID string, f *chiralv1.CoreFrame) error {
 	if s == nil {
 		return fmt.Errorf("node %s is offline", nodeID)
 	}
+	return s.enqueue(f)
+}
+
+// enqueue targets this exact stream, so a late acknowledgement cannot cross
+// into a replacement connection's capability negotiation.
+func (s *Session) enqueue(f *chiralv1.CoreFrame) error {
 	select {
 	case s.send <- f:
 		return nil
 	case <-s.done:
-		return fmt.Errorf("node %s is offline", nodeID)
+		return fmt.Errorf("node %s is offline", s.nodeID)
 	default:
-		return fmt.Errorf("node %s send queue is full", nodeID)
+		return fmt.Errorf("node %s send queue is full", s.nodeID)
 	}
 }

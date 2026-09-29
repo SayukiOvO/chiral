@@ -116,6 +116,52 @@ macOS 上开着 TUN + SNI 嗅探的代理会按 SNI 把到自建节点的连接�
 
 设计与逐条理由见 [`user-groups.md`](user-groups.md)。
 
+## M8 — 3x-ui 节点执行后端迁移 🚧 第一阶段进行中
+
+目标是把 Xray 的节点侧执行适配逐步交给独立 3x-ui 进程，同时保持 Chiral Core 对用户、
+授权、Profile、凭证、订阅、配额、审计和配置历史的唯一控制权。完整架构、合规边界、调和
+流程与回滚标准见 [`3x-ui-integration.md`](3x-ui-integration.md)。
+
+当前只交付只读 `SHADOW` 基础设施：
+
+- [x] 引入运行时 provider 接口；`direct-xray` 保持默认值和完整写入能力。
+- [x] 增加窄类型 3x-ui API client，读取运行状态、版本、最终 config 权限及实时 OpenAPI 能力，
+  不提供通用 API 转发。
+- [x] 增量上报 provider、模式、3x-ui 版本、能力与 OpenAPI 摘要，供 Core 和控制台观察。
+- [x] 固定观察模式配置：`CHIRAL_RUNTIME_PROVIDER=direct-xray|3x-ui-shadow`（默认
+  `direct-xray`）、`CHIRAL_3XUI_URL`、`CHIRAL_3XUI_TOKEN_FILE` 与显式放宽地址限制的
+  `CHIRAL_3XUI_ALLOW_PUBLIC=1`。token 只从文件读取，不进入命令行或环境变量。
+
+`3x-ui-shadow` 当前只读。即使启用它，`ConfigPush`、`UserOp`、重启、流量和在线快照、Xray
+安装与回滚仍全部由 `direct-xray` 接收和执行。它不能视为迁移完成，不能默认启用，也不代表
+3x-ui 已接管生产 inbound。
+
+第二阶段基础组件（尚未接管生产）：
+
+- [x] 官方 HTTP 的模板、inbound 和独立 client 窄类型写入接口，包含敏感响应脱敏。
+- [x] 本地累计计数读取、原子计费日志与可恢复分批投递；Core 事务去重与持久化 ACK。
+- [x] 旧 Core 协商保护、跨节点凭证校验、队列重放、计数重置及持久化故障回归。
+- [x] 提供空隔离实例的配置/用户写入和真实客户端流量测试，以及本机 Docker 安全运行器。
+  提供测试入口不等于现场验收通过；默认 CI 不执行需要显式写授权的测试。
+- [x] 在本机官方 3x-ui 3.8.5 隔离实例完成首轮写入及真实流量取证：基础模板与后续计费通过，
+  冷启动首次漏计及受管 client 的 `level` 丢失导致整体 FAIL；保留
+  [实际验证记录](../deploy/3x-ui-lab/validation-write-20260929.md)，不将该项取证完成视为功能等价。
+
+后续阶段尚未完成：
+
+- [ ] 把 Chiral 期望状态声明式投影为 3x-ui 基础模板、inbound 与独立 credential client，
+  并实现 ownership、最终配置回读、语义对比与失败补偿。
+- [ ] 将累计流量账本接入候选 provider，并验证删除、迁移及上游采样连续性；保持在线地址
+  的绝对快照语义，不将缓存或历史 IP 当作完整实时集合。
+- [ ] 复现原有配置校验、真实数据面探活、内核安装回滚、配置确认和审计语义。
+- [ ] 用受支持的官方 3x-ui 镜像建立契约测试矩阵，逐操作验证认证、关键 schema、权限与语义；
+  现有 SHADOW 只验证路径/方法形状和一次最终 config 安全读取。
+- [ ] 在生产数据库副本和真实配置语料上，逐字节比较所有用户、所有客户端类型的订阅输出，
+  再完成单节点金丝雀与节点级回滚演练。
+- [ ] 只有 [`3x-ui-integration.md`](3x-ui-integration.md#调和与功能等价门槛) 中全部功能等价
+  门槛通过后，才允许设计并评审 `ACTIVE` 切换；删除 `direct-xray` 或改变默认 provider 需
+  另行决策。
+
 ## Backlog（额外建议，未排期）
 - SQLite 定期备份 / 恢复；时序数据保留策略（聚合 + 有限窗口原始数据）。
 - 规模上来后评估迁 PostgreSQL（ORM 层留抽象）。

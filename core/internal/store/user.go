@@ -468,8 +468,8 @@ func (s *Store) DeleteCredentialsNotEntitled(userID string) error {
 // `statsquery -reset`, so a kernel restart yields a smaller delta rather than
 // the negative jump a "remember the last value" scheme would produce.
 func (s *Store) AddCredentialTraffic(email string, up, down int64) error {
-	if up < 0 || down < 0 {
-		return fmt.Errorf("traffic delta must not be negative (up=%d down=%d)", up, down)
+	if up < 0 || down < 0 || up > math.MaxInt64-down {
+		return fmt.Errorf("traffic delta must be non-negative and within the supported range")
 	}
 	if up == 0 && down == 0 {
 		return nil
@@ -486,13 +486,16 @@ func (s *Store) AddCredentialTraffic(email string, up, down int64) error {
 	// paid for; otherwise the node.
 	var userID string
 	var rate float64
+	var oldUp, oldDown, oldUsage int64
 	if err := tx.QueryRow(`
-		SELECT c.user_id, COALESCE(x.traffic_rate, r.traffic_rate, n.traffic_rate, 1.0)
+		SELECT c.user_id, COALESCE(x.traffic_rate, r.traffic_rate, n.traffic_rate, 1.0),
+		c.up_bytes, c.down_bytes, u.used_bytes
 		FROM credentials c
 		JOIN nodes n ON n.id = c.node_id
+		JOIN users u ON u.id = c.user_id
 		LEFT JOIN external_proxies x ON x.id = c.exit_proxy_id
 		LEFT JOIN node_relays r ON r.id = c.exit_relay_id
-		WHERE c.email = ?`, email).Scan(&userID, &rate); err != nil {
+		WHERE c.email = ?`, email).Scan(&userID, &rate, &oldUp, &oldDown, &oldUsage); err != nil {
 		// An unknown email is not an error worth failing the whole report
 		// over: it is normal right after a credential is revoked, while the
 		// node still had in-flight traffic for it.
@@ -501,16 +504,31 @@ func (s *Store) AddCredentialTraffic(email string, up, down int64) error {
 		}
 		return err
 	}
-	if _, err := tx.Exec(
-		`UPDATE credentials SET up_bytes = up_bytes + ?, down_bytes = down_bytes + ? WHERE email = ?`,
-		up, down, email); err != nil {
+	// Use the same decimal rounding contract as acknowledged batches, so
+	// switching providers cannot introduce float rounding differences.
+	billed, err := billedTrafficBytes(up, down, rate)
+	if err != nil {
 		return err
 	}
-	// Rounded up, so a rate above 1 can never bill less than the bytes that
-	// moved, and a trickle on an expensive node still costs something.
-	billed := int64(math.Ceil(float64(up+down) * rate))
+	newUp, err := checkedTrafficSum(oldUp, up)
+	if err != nil {
+		return err
+	}
+	newDown, err := checkedTrafficSum(oldDown, down)
+	if err != nil {
+		return err
+	}
+	newUsage, err := checkedTrafficSum(oldUsage, billed)
+	if err != nil {
+		return err
+	}
 	if _, err := tx.Exec(
-		`UPDATE users SET used_bytes = used_bytes + ? WHERE id = ?`, billed, userID); err != nil {
+		`UPDATE credentials SET up_bytes = ?, down_bytes = ? WHERE email = ?`,
+		newUp, newDown, email); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(
+		`UPDATE users SET used_bytes = ? WHERE id = ?`, newUsage, userID); err != nil {
 		return err
 	}
 	return tx.Commit()

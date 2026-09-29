@@ -10,6 +10,7 @@ import { IconButton } from "./ui";
 import { CheckIcon, ChevronIcon, PencilIcon, RestartIcon, SlidersIcon, TrashIcon } from "./icons";
 import { NodeNameDialog } from "./NodeNameDialog";
 import { useT } from "../lib/i18n";
+import { runtimeHealthPresentation } from "../lib/runtime";
 
 export function NodeRoster({
   nodes,
@@ -179,6 +180,9 @@ function NodeCard({
       </div>
 
       <div className="mt-4 flex flex-wrap items-end gap-x-8 gap-y-3 pl-[22px]">
+        <Field label={t("运行时")}>
+          <RuntimeProvider node={node} />
+        </Field>
         <Field label={t("内核")}>
           <KernelState
             state={node.xray_state}
@@ -227,6 +231,62 @@ function NodeCard({
         <NodeNameDialog node={node} onClose={() => setRenaming(false)} onSaved={onChanged} />
       )}
     </article>
+  );
+}
+
+function RuntimeProvider({ node }: { node: Node }) {
+  const { t } = useT();
+  const health = runtimeHealthPresentation(node);
+  const capabilities = node.runtime_capabilities?.join(", ") ?? "";
+  const contract = node.runtime_contract_digest
+    ? `OpenAPI SHA-256 ${node.runtime_contract_digest}`
+    : "";
+  const observed = node.runtime_observed_at
+    ? t("观测于 {when}").replace("{when}", relativeTime(node.runtime_observed_at))
+    : "";
+  const shadowState =
+    node.runtime_xray_state === "RUNNING"
+      ? "运行中"
+      : node.runtime_xray_state === "STOPPED"
+        ? "已停止"
+        : node.runtime_xray_state === "ERROR"
+          ? "异常"
+          : "状态未知";
+  const shadowXray = node.runtime_mode === "SHADOW" && node.runtime_xray_state
+    ? `${t("影子内核")} ${t(shadowState)}${node.runtime_xray_version ? ` · ${node.runtime_xray_version}` : ""}`
+    : "";
+  const title =
+    [node.runtime_error, shadowXray, capabilities, contract, observed].filter(Boolean).join("\n") || undefined;
+  return (
+    <span
+      className={cn(
+        "font-mono text-sm",
+        health.tone === "danger"
+          ? "text-danger"
+          : health.tone === "unknown"
+            ? "text-muted"
+            : "text-ink",
+      )}
+      title={title}
+    >
+      {node.runtime_provider || "—"}
+      {node.runtime_mode === "SHADOW" && (
+        <span className="font-sans text-xs text-muted"> · {t("影子")}</span>
+      )}
+      {node.runtime_version && (
+        <span className="text-xs text-faint"> · {node.runtime_version}</span>
+      )}
+      <span
+        className={cn(
+          "font-sans text-xs",
+          health.tone === "ready" && "text-online",
+          health.tone === "unknown" && "text-muted",
+        )}
+      >
+        {" · "}
+        {t(health.label)}
+      </span>
+    </span>
   );
 }
 
