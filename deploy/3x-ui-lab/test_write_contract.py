@@ -262,10 +262,44 @@ class WriteContractTests(unittest.TestCase):
     def test_suite_is_a_closed_whitelist_before_any_artifact_or_docker_call(self):
         for suite in ("", "all", "TestLive3XUIWriteContract", "write|update-recovery", ".*"):
             with self.subTest(suite=suite):
-                with self.assertRaisesRegex(RuntimeError, "Only the write and update-recovery"):
+                with self.assertRaisesRegex(RuntimeError, "Only an explicitly supported contract suite"):
                     runner.WriteContract(IMAGE, str(self.binary), str(self.root / "invalid-suite"), suite=suite)
                 self.assertFalse((self.root / "invalid-suite").exists())
                 self.assertEqual(self.fake.calls, [])
+
+    def test_raw_projection_suite_preserves_isolation_and_exact_selection(self):
+        lab = runner.WriteContract(IMAGE, str(self.binary), str(self.root / "projection"), suite="raw-projection")
+        self.fake.test_output = b"--- PASS: TestLive3XUIRawProjectionContract (1.0s)\nPASS\n"
+        self.assertEqual(lab.run(), 0)
+        self.assertEqual(lab.state["suite"], "raw-projection")
+        self.assertEqual(lab.state["test_name"], "TestLive3XUIRawProjectionContract")
+        test_info = self.fake.lookup(lab.ids["test"])
+        self.assertEqual(flag(test_info["Config"]["Cmd"], "-test.run"), "^TestLive3XUIRawProjectionContract$")
+        self.assertEqual(test_info["HostConfig"]["NetworkMode"], "container:" + lab.ids["app"])
+        self.assertEqual(self.fake.lookup(lab.ids["app"])["HostConfig"]["NetworkMode"], "none")
+        self.assertEqual(len(self.fake.containers), 3)
+        self.assertTrue(all(not info["State"]["Running"] for info in self.fake.containers.values()))
+
+    def test_raw_projection_failure_or_unrelated_pass_cannot_pass_suite(self):
+        wanted = b"--- PASS: TestLive3XUIRawProjectionContract (1.0s)\nPASS\n"
+        cases = (
+            ("wrong_suite", 0, PASS_LOG),
+            ("no_matching_test", 0, b"testing: warning: no tests to run\nPASS\n"),
+            ("failed_billing", 1, b"    --- FAIL: TestLive3XUIRawProjectionContract/cold_billing (1.0s)\nFAIL\n"),
+            ("skipped_billing", 0, b"    --- SKIP: TestLive3XUIRawProjectionContract/cold_billing (1.0s)\n" + wanted),
+            ("nonzero", 1, wanted),
+        )
+        for name, exit_code, output in cases:
+            with self.subTest(name=name):
+                lab = runner.WriteContract(IMAGE, str(self.binary), str(self.root / ("projection-" + name)), suite="raw-projection")
+                fake = FakeDocker()
+                fake.test_exit, fake.test_output = exit_code, output
+                with mock.patch.object(runner, "execute", side_effect=fake):
+                    self.assertEqual(lab.run(), 1)
+                self.assertNotEqual(lab.state["result"], "PASS")
+                starts = [args for args, _, _ in fake.calls if args[3:5] == ["container", "start"] and args[-1] == lab.ids["test"]]
+                self.assertEqual(len(starts), 1)
+                self.assertTrue(all(not info["State"]["Running"] for info in fake.containers.values()))
 
     def test_failure_and_skip_never_count_as_pass_or_retry(self):
         for name, exit_code, output in (("fail", 1, b"--- FAIL: TestLive3XUIWriteContract (0.1s)\nFAIL\n"),

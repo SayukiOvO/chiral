@@ -110,3 +110,44 @@ func TestDiscoverCapabilitiesRejectsInvalidDocument(t *testing.T) {
 		})
 	}
 }
+
+func TestDiscoverOptionalOutboundProbeDoesNotWidenShadowGate(t *testing.T) {
+	for _, test := range []struct {
+		name      string
+		operation string
+		want      bool
+	}{
+		{"absent", ``, false},
+		{"exact post", `,"/panel/api/xray/testOutbound":{"post":{}}`, true},
+		{"wrong method", `,"/panel/api/xray/testOutbound":{"get":{}}`, false},
+		{"null operation", `,"/panel/api/xray/testOutbound":{"post":null}`, false},
+		{"scalar operation", `,"/panel/api/xray/testOutbound":{"post":true}`, false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			body := strings.TrimSuffix(completeOpenAPIDocument, "}}") + test.operation + "}}"
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				fmt.Fprint(w, body)
+			}))
+			defer server.Close()
+			client, err := New(Config{BaseURL: server.URL, Token: testToken})
+			if err != nil {
+				t.Fatal(err)
+			}
+			capabilities, err := client.DiscoverCapabilities(context.Background())
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := capabilities.Supports(CapabilityOutboundProbe); got != test.want {
+				t.Fatalf("outbound probe support = %v, want %v", got, test.want)
+			}
+			if missing := capabilities.Missing(); len(missing) != 0 {
+				t.Fatalf("optional probe changed SHADOW gate: %v", missing)
+			}
+			for _, required := range RequiredCapabilities() {
+				if required == CapabilityOutboundProbe {
+					t.Fatal("candidate probe is required by SHADOW")
+				}
+			}
+		})
+	}
+}

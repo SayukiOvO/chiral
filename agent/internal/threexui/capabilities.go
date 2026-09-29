@@ -31,6 +31,7 @@ const (
 	CapabilityGetConfig      Capability = "get_config"
 	CapabilityXrayVersions   Capability = "xray_versions"
 	CapabilityInstallXray    Capability = "install_xray"
+	CapabilityOutboundProbe  Capability = "outbound_probe"
 )
 
 type operation struct {
@@ -59,6 +60,16 @@ var requiredOperations = []struct {
 	{CapabilityGetConfig, operation{method: "get", path: "/panel/api/server/getConfigJson"}},
 	{CapabilityXrayVersions, operation{method: "get", path: "/panel/api/server/getXrayVersion"}},
 	{CapabilityInstallXray, operation{method: "post", path: "/panel/api/server/installXray/{version}"}},
+}
+
+// Candidate-only operations are discovered without widening the deployed
+// read-only SHADOW gate. A candidate caller must explicitly require its own
+// capability before use; route presence alone does not prove semantics.
+var optionalOperations = []struct {
+	capability Capability
+	operation  operation
+}{
+	{CapabilityOutboundProbe, operation{method: "post", path: "/panel/api/xray/testOutbound"}},
 }
 
 // Capabilities is a snapshot derived from the panel's own OpenAPI document.
@@ -91,7 +102,7 @@ func (c Capabilities) Missing() []Capability {
 	return missing
 }
 
-// RequiredCapabilities returns the capability set this adapter understands.
+// RequiredCapabilities returns the existing SHADOW gate's capability set.
 func RequiredCapabilities() []Capability {
 	result := make([]Capability, 0, len(requiredOperations))
 	for _, required := range requiredOperations {
@@ -127,7 +138,8 @@ func (c *Client) DiscoverCapabilities(ctx context.Context) (Capabilities, error)
 		DocumentSHA256: fmt.Sprintf("%x", digest),
 		supported:      make(map[Capability]bool, len(requiredOperations)),
 	}
-	for _, required := range requiredOperations {
+	operations := append(requiredOperations[:len(requiredOperations):len(requiredOperations)], optionalOperations...)
+	for _, required := range operations {
 		methods := document.Paths[required.operation.path]
 		operationBody, ok := methods[required.operation.method]
 		if !ok {

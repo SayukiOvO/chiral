@@ -24,7 +24,11 @@ ROLE = "io.chiral.write-contract.role"
 IMAGE_RE = r"[A-Za-z0-9][A-Za-z0-9._:/-]*@sha256:[0-9a-f]{64}"
 ID_RE = r"[0-9a-f]{64}"
 TEST_NAME = "TestLive3XUIWriteContract"
-SUITES = {"write": TEST_NAME, "update-recovery": "TestLive3XUIUpdateRecoveryContract"}
+SUITES = {
+    "write": TEST_NAME,
+    "update-recovery": "TestLive3XUIUpdateRecoveryContract",
+    "raw-projection": "TestLive3XUIRawProjectionContract",
+}
 LIMIT = 384 * 1024 * 1024
 VOLUME_TARGETS = {"data": "/etc/x-ui", "bin": "/app/bin", "cert": "/root/cert"}
 
@@ -85,7 +89,7 @@ def redact(text, sensitive):
 
 class WriteContract:
     def __init__(self, image, binary, output, suite="write"):
-        require(suite in SUITES, "Only the write and update-recovery contract suites are permitted")
+        require(suite in SUITES, "Only an explicitly supported contract suite is permitted")
         self.suite, self.test_name = suite, SUITES[suite]
         require(re.fullmatch(IMAGE_RE, image), "Image must be an explicit repository@sha256 digest")
         supplied = Path(binary).expanduser()
