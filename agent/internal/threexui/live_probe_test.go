@@ -266,16 +266,23 @@ func liveHTTPProbeUpdateRecovery(t *testing.T, ctx context.Context, client *Clie
 }
 
 type liveHTTPProbeOrigin struct {
-	address string
-	server  *http.Server
-	done    chan error
-	status  atomic.Int64
-	hits    atomic.Int64
-	invalid atomic.Int64
+	address     string
+	server      *http.Server
+	done        chan error
+	status      atomic.Int64
+	hits        atomic.Int64
+	invalid     atomic.Int64
+	written     atomic.Int64
+	writeErrors atomic.Int64
 }
 
 func liveHTTPProbeStartOrigin(t *testing.T, expectedHost, expectedPath string) *liveHTTPProbeOrigin {
+	return liveHTTPProbeStartOriginWithBody(t, expectedHost, expectedPath, []byte("chiral-isolated-http-probe"))
+}
+
+func liveHTTPProbeStartOriginWithBody(t *testing.T, expectedHost, expectedPath string, body []byte) *liveHTTPProbeOrigin {
 	t.Helper()
+	body = append([]byte(nil), body...)
 	listener, err := net.Listen("tcp4", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal("cannot create the isolated loopback HTTP origin")
@@ -294,9 +301,16 @@ func liveHTTPProbeStartOrigin(t *testing.T, expectedHost, expectedPath string) *
 		origin.hits.Add(1)
 		status := int(origin.status.Load())
 		w.Header().Set("Content-Type", "text/plain")
+		if status != http.StatusNoContent {
+			w.Header().Set("Content-Length", strconv.Itoa(len(body)))
+		}
 		w.WriteHeader(status)
 		if status != http.StatusNoContent {
-			_, _ = w.Write([]byte("chiral-isolated-http-probe"))
+			n, err := w.Write(body)
+			origin.written.Add(int64(n))
+			if err != nil || n != len(body) {
+				origin.writeErrors.Add(1)
+			}
 		}
 	})}
 	go func() { origin.done <- origin.server.Serve(listener) }()

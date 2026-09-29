@@ -29,6 +29,7 @@ SUITES = {
     "update-recovery": "TestLive3XUIUpdateRecoveryContract",
     "raw-projection": "TestLive3XUIRawProjectionContract",
     "http-probe": "TestLive3XUIHTTPProbeContract",
+    "billing-bootstrap": "TestLive3XUIBillingBootstrapContract",
 }
 LIMIT = 384 * 1024 * 1024
 VOLUME_TARGETS = {"data": "/etc/x-ui", "bin": "/app/bin", "cert": "/root/cert"}
