@@ -10,24 +10,21 @@ Core 在「新增节点」时渲染的 compose 模板，注入 `PANEL_URL` / `JO
 
 **状态**：M1–M7 已落地；M8 目前只有不会接管写入的 3x-ui SHADOW 基础设施。
 
-## 可选：3x-ui SHADOW 观测
+## 3x-ui SHADOW 隔离验证
 
-生成的 compose 保持 `direct-xray` 安全默认值。要在迁移测试节点旁路观察一个已独立部署的
-3x-ui，可叠加 [`docker-compose.3x-ui-shadow.yml`](docker-compose.3x-ui-shadow.yml)：
+生成的 Compose 保持 `direct-xray` 默认值。需要在现有节点主机上验证 3x-ui 且不能中断连接时，
+使用 [`../3x-ui-lab/`](../3x-ui-lab/README.md) 的独立 Compose 项目。该项目包含官方 3x-ui、
+独立 Core 和 Agent，使用无外部网络的共享回环命名空间、项目专属数据卷和新生成的实验凭证；
+不复用生产节点身份，也不接入生产 Core。3x-ui 作为独立进程接受只读观测，不接管生产配置或流量。
 
-```bash
-sudo install -d -m 700 /srv/chiral
-sudo touch /srv/chiral/3x-ui.token
-sudo chmod 600 /srv/chiral/3x-ui.token
-sudoedit /srv/chiral/3x-ui.token
-export CHIRAL_3XUI_URL=http://127.0.0.1:2053
-export CHIRAL_3XUI_TOKEN_FILE_HOST=/srv/chiral/3x-ui.token
-docker compose -f docker-compose.yml -f docker-compose.3x-ui-shadow.yml up -d
-```
+[`docker-compose.3x-ui-shadow.yml`](docker-compose.3x-ui-shadow.yml) 仅适用于专用测试节点，
+或已明确安排中断的节点。将它叠加到现有 Agent 后执行 `docker compose up`，会因环境变量与挂载
+变更而重建 Agent；Agent 退出时会停止其管理的 Xray 子进程，已有连接随之中断。`SHADOW` 的
+“只读”仅描述 3x-ui API 调用，不能作为部署过程零中断的保证。要求保留现有连接时，不得对
+生产 Agent 应用该 override，也不得直接在宿主机网络中启动实验 3x-ui。
 
-两容器部署时，3x-ui 也应使用 host network，才能让 Agent 通过回环地址访问它。非回环地址
-默认被拒绝；确有需要时必须使用 HTTPS 并显式设置 `CHIRAL_3XUI_ALLOW_PUBLIC=1`。这个 override
-只挂载 token 并启用只读观测，所有生产写入仍由 direct-Xray 处理。
+Agent 默认只接受回环地址的 3x-ui API，token 文件必须仅对所属用户可读写。实验环境中的
+地址、token 与初始化步骤见隔离项目说明；验证结果须以本次实际检查和退出状态为准。
 
 ## 数据卷（不能省）
 

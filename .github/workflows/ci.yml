@@ -49,6 +49,8 @@ jobs:
         run: |
           go build -o bin/chiral-core ./core/cmd/core
           go build -o bin/chiral-agent ./agent/cmd/agent
+      - name: Isolated 3x-ui laboratory safety tests
+        run: python3 -m unittest discover -s deploy/3x-ui-lab -p test_lab.py -v
       - name: test (real Xray integrations required)
         env:
           CHIRAL_XRAY_BIN: ${{ runner.temp }}/xray/xray

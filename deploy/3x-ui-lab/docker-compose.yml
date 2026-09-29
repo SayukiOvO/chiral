@@ -1,0 +1,130 @@
+# Isolated contract laboratory. Every service shares the network namespace of
+# 3x-ui, which has only its own loopback interface and no host port mappings.
+# Always use an explicit, unique Compose project name for this laboratory.
+x-lab-common: &lab-common
+  restart: "no"
+  cap_drop:
+    - ALL
+  security_opt:
+    - no-new-privileges:true
+  pids_limit: 128
+  logging:
+    driver: json-file
+    options:
+      max-size: "5m"
+      max-file: "2"
+  labels:
+    io.chiral.lab: "3x-ui-shadow"
+
+services:
+  3x-ui:
+    <<: *lab-common
+    image: ${CHIRAL_LAB_3XUI_IMAGE:?set the resolved official 3x-ui image digest}
+    network_mode: none
+    # The upstream entrypoint starts fail2ban and cron. Neither belongs in an
+    # isolated API-contract test; start the unmodified application directly.
+    entrypoint: ["/app/x-ui"]
+    command: []
+    environment:
+      XUI_ENABLE_FAIL2BAN: "false"
+      XUI_IN_DOCKER: "true"
+      XUI_MAIN_FOLDER: /app
+      XUI_DB_TYPE: sqlite
+      XUI_DB_DSN: ""
+      TZ: UTC
+    mem_limit: 384m
+    cpus: 0.5
+    volumes:
+      - type: volume
+        source: three-x-ui-data
+        target: /etc/x-ui
+      - type: volume
+        source: three-x-ui-bin
+        target: /app/bin
+        # A new volume must receive the image's bundled Xray and geofiles.
+        volume:
+          nocopy: false
+      - type: volume
+        source: three-x-ui-cert
+        target: /root/cert
+
+  core:
+    <<: *lab-common
+    image: ${CHIRAL_LAB_CORE_IMAGE:?set a unique local laboratory Core image tag}
+    build:
+      context: .
+      dockerfile: Dockerfile.core
+      args:
+        CHIRAL_LAB_CORE_BASE_IMAGE: ${CHIRAL_LAB_CORE_BASE_IMAGE:?set the existing Core image digest}
+    network_mode: service:3x-ui
+    depends_on:
+      - 3x-ui
+    env_file:
+      - ./secrets/core.env
+    environment:
+      CHIRAL_DB_PATH: /var/lib/chiral/chiral.db
+      CHIRAL_HTTP_LISTEN: "127.0.0.1:26080"
+      CHIRAL_GRPC_LISTEN: "127.0.0.1:26443"
+      CHIRAL_GRPC_PUBLIC_ADDR: "127.0.0.1:26443"
+      CHIRAL_PUBLIC_URL: "http://127.0.0.1:26080"
+      CHIRAL_ADMIN_USER: lab-admin
+      CHIRAL_PORTAL_MODE: "off"
+      CHIRAL_ONLINE_RECORD: "off"
+      CHIRAL_XRAY_BIN: /usr/local/bin/xray
+      CHIRAL_KERNEL_DIR: /var/lib/chiral/kernels
+      CHIRAL_TLS_CERT: ""
+      CHIRAL_TLS_KEY: ""
+      CHIRAL_SMTP_HOST: ""
+      CHIRAL_GITHUB_TOKEN: ""
+      CHIRAL_TRUSTED_PROXY: ""
+    mem_limit: 256m
+    cpus: 0.25
+    volumes:
+      - type: volume
+        source: core-data
+        target: /var/lib/chiral
+
+  agent:
+    <<: *lab-common
+    image: ${CHIRAL_LAB_AGENT_IMAGE:?set a unique local laboratory Agent image tag}
+    build:
+      context: .
+      dockerfile: Dockerfile.agent
+      args:
+        CHIRAL_LAB_AGENT_BASE_IMAGE: ${CHIRAL_LAB_AGENT_BASE_IMAGE:?set the existing Agent image digest}
+    network_mode: service:3x-ui
+    depends_on:
+      - 3x-ui
+      - core
+    env_file:
+      - ./secrets/agent.env
+    environment:
+      PANEL_URL: "127.0.0.1:26443"
+      CHIRAL_INSECURE: "1"
+      CHIRAL_STATE_DIR: /var/lib/chiral-agent
+      CHIRAL_XRAY_BIN: /usr/local/bin/xray
+      CHIRAL_RUNTIME_PROVIDER: 3x-ui-shadow
+      CHIRAL_3XUI_URL: "http://127.0.0.1:2053/${CHIRAL_LAB_3XUI_BASE_PATH:?set the random laboratory base-path segment}/"
+      CHIRAL_3XUI_TOKEN_FILE: /run/secrets/chiral-3x-ui-token
+      CHIRAL_3XUI_ALLOW_PUBLIC: "0"
+    mem_limit: 192m
+    cpus: 0.25
+    volumes:
+      - type: volume
+        source: agent-data
+        target: /var/lib/chiral-agent
+      - type: bind
+        source: ./secrets/3x-ui.token
+        target: /run/secrets/chiral-3x-ui-token
+        read_only: true
+        bind:
+          create_host_path: false
+
+# No explicit volume names or external volumes: Compose scopes every name to
+# this laboratory's project. Never substitute a production volume here.
+volumes:
+  core-data:
+  agent-data:
+  three-x-ui-data:
+  three-x-ui-bin:
+  three-x-ui-cert:

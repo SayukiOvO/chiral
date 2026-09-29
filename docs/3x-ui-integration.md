@@ -9,7 +9,14 @@ Agent 继续主动连接 Core，并在本机调用 3x-ui API。这样不要求�
 
 当前第一阶段尚未切换执行权：`direct-xray` 仍是唯一接收写入并服务订阅者的 ACTIVE provider，
 `3x-ui-shadow` 只在旁路读取状态和契约。两者可以同时运行，但一次只能有一个 ACTIVE owner；
-本阶段没有任何配置、用户、流量或生命周期操作发给 3x-ui。
+本阶段 Agent 不向 3x-ui 发送任何配置、用户、流量或生命周期写操作。
+
+`SHADOW` 的只读边界不等于部署过程零中断。为现有 Agent 添加环境变量或 token 挂载会重建
+容器；Agent 退出时会停止其管理的 Xray 子进程，已有连接随之中断。要求保留现有连接和数据时，
+应使用 [`deploy/3x-ui-lab`](../deploy/3x-ui-lab/README.md) 的独立实验项目，不修改生产 Agent。
+实验项目包含官方 3x-ui、全新 Core 和 Agent，采用无外部网络的共享回环命名空间与专属数据卷，
+不接入生产控制面，不读取生产凭证。实验验证仅能证明实际覆盖的契约与上报行为，不能代替下述
+生产接管门槛。
 
 3x-ui 是节点侧的执行后端，不是第二个控制面。日常管理仍在 Chiral 完成；不把用户跳转到
 3x-ui，也不把 3x-ui 页面嵌入 Chiral。破窗排障只能通过 SSH 端口转发访问只监听本机的
@@ -95,9 +102,11 @@ admin token，但必须同时满足：
 - 禁用 3x-ui 自带订阅服务和节点间同步，避免第二条管理链路；
 - 不需要 IP 封禁时禁用 fail2ban，并移除 `NET_ADMIN` / `NET_RAW` 能力。
 
-节点采用 Docker 时，动态 inbound 端口使 `network_mode: host` 比逐项发布端口可靠。Agent 与
-3x-ui 必须共享可访问的本机回环通道。3x-ui 数据库、证书以及 Xray / geofile 目录都要持久化；
-容器重建前记录镜像 digest 和实际内核版本，不能依赖浮动的 `latest` 恢复现场。
+Agent 与 3x-ui 必须共享可访问的回环通道。当前隔离验证使用 3x-ui 的 `network_mode: none`，
+实验 Core 与 Agent 使用 `network_mode: service:3x-ui`，不发布宿主机端口，也不使用生产网络。
+未来接管节点动态 inbound 时可以评估 host network，但必须先完成端口归属核对与迁移评审，
+不能将其用于要求不中断生产连接的并行实验。3x-ui 数据库、证书以及 Xray / geofile 目录均应
+使用独立持久化卷；容器重建前记录镜像 digest 和实际内核版本，不能依赖浮动的 `latest` 恢复现场。
 
 ## 调和与功能等价门槛
 
@@ -136,7 +145,9 @@ admin token，但必须同时满足：
 
 ### 2. 影子验证
 
-- 在测试环境或独立端口启动 3x-ui，不接管生产 inbound。
+- 使用独立 Core、Agent 和 3x-ui 进行隔离验证，入口见
+  [`deploy/3x-ui-lab/README.md`](../deploy/3x-ui-lab/README.md)。实验使用新数据卷和凭证，
+  不重建生产容器、不复用生产节点身份，也不接管生产 inbound。
 - 将同一 Chiral 期望状态投影到 3x-ui，读取最终 config，与原生 provider 的配置做语义对比。
 - 用真实配置语料覆盖全部传输、密钥、线路和路由组合，并比较所有用户、所有客户端格式的
   订阅输出。
