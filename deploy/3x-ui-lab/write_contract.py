@@ -204,11 +204,11 @@ class WriteContract:
         return {target: ("volume", self.volumes[key], True) for key, target in VOLUME_TARGETS.items()}
 
     def create_container(self, role, entrypoint, command, environment=()):
-        network = "container:" + self.ids["app"] if role == "test" else "none"
+        network = self.expected_network(role)
         # A 0600 macOS/Linux bind-mounted token may retain the host UID. With
         # all capabilities dropped, container root cannot override that DAC
         # boundary. Only the test client runs as the artifact owner's UID.
-        user = f"{os.geteuid()}:{os.getegid()}" if role == "test" else "0:0"
+        user = self.expected_user(role)
         args = ["container", "create", "--pull=never", "--platform=linux/amd64", "--name", self.names[role],
                 "--label", LABEL + "=" + self.run_id, "--label", ROLE + "=" + role,
                 "--network", network, "--cap-drop", "ALL", "--security-opt", "no-new-privileges:true",
@@ -218,6 +218,7 @@ class WriteContract:
                 "--entrypoint", entrypoint]
         if role == "bootstrap":
             args.append("--interactive")
+        args += self.container_options(role)
         for target, (kind, source, writable) in self.expected_mounts(role).items():
             spec = f"type={kind},source={source},target={target}"
             if not writable:
@@ -235,6 +236,15 @@ class WriteContract:
         self.state["containers"][role] = {"id": identity, "name": self.names[role]}
         self.save_state()
         self.verify_container(role)
+
+    def expected_network(self, role):
+        return "container:" + self.ids["app"] if role == "test" else "none"
+
+    def expected_user(self, role):
+        return f"{os.geteuid()}:{os.getegid()}" if role == "test" else "0:0"
+
+    def container_options(self, role):
+        return []
 
     def inspect_owned(self, role):
         info = self.inspect(self.ids.get(role, self.names[role]))
@@ -265,7 +275,7 @@ class WriteContract:
         info = self.inspect_owned(role)
         entrypoint, command, environment = self.launches[role]
         config = info.get("Config") or {}
-        user = f"{os.geteuid()}:{os.getegid()}" if role == "test" else "0:0"
+        user = self.expected_user(role)
         require(config.get("User") == user, "Unexpected container filesystem identity")
         require(config.get("Entrypoint") == [entrypoint] and (config.get("Cmd") or []) == command,
                 "Unexpected container executable or arguments")
@@ -273,7 +283,7 @@ class WriteContract:
         require(all(effective_env.get(key) == value for key, value in
                     (entry.split("=", 1) for entry in environment)), "Unexpected test opt-in or endpoint")
         host = info.get("HostConfig") or {}
-        network = "container:" + self.ids["app"] if role == "test" else "none"
+        network = self.expected_network(role)
         require(host.get("NetworkMode") == network and not host.get("PortBindings") and not host.get("PublishAllPorts"),
                 "Unsafe container network or published ports")
         require(not any(host.get(k) for k in ("Privileged", "CapAdd", "Devices", "DeviceRequests", "VolumesFrom", "Links", "PidMode")),

@@ -87,7 +87,7 @@ SHADOW 契约测试只允许状态、OpenAPI 和已存储出站计数的固定 G
 的请求白名单验证标志才接受 PASS；旧同名测试程序不能充当加固验收。报告不再声称通过
 该观测证明了配置逐字节不变，配置等价性仍由明确授权的候选写入实验另行验收。
 
-必须记录检查的成功信号和命令退出状态。实验无互联网出站，不能据此宣称真实公网代理、
+必须记录检查的成功信号和命令退出状态。上述 SHADOW Compose 实验无互联网出站，不能据此宣称真实公网代理、
 内核下载或完整迁移等价性已经通过。当前按完整名称集合核对 17 项能力（包含只读版本列表
 `xray_versions`），而非仅检查数量；这些能力来自实时 OpenAPI 声明匹配，不代表已经执行
 其中的配置、用户、计费或内核升级写入操作。生产状态比较应区分静态凭证、授权与正常增长
@@ -169,6 +169,42 @@ python3 deploy/3x-ui-lab/write_contract.py \
 
 本机官方原版的三个恢复故障场景已通过，详见
 [恢复验证记录](validation-update-recovery-20260929.md)。
+
+## 官方真实在线更新隔离实验
+
+`real_upgrade.py` 是独立的受限出网运行器，只在全新本机空实例上通过官方未修改的 3x-ui
+HTTP API 验证版本目录、在线安装、容器重建与真实回环数据路径；它不放宽上述无网络运行器。
+完整边界见[验收计划](real-upgrade-plan.md)。该运行器不连接 Turin，不接触生产数据或凭证，
+不启用 ACTIVE provider，也不验证已暂缓的预安装不激活或离线旧内核回滚。
+
+先构建 Linux/amd64 契约测试和受限 CONNECT 代理两个二进制。镜像必须已按精确 digest
+存在于本机；`DOCKER_HOST` 必须固定为本机 Unix socket，输出目录必须是尚不存在的新私有目录：
+
+```bash
+CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go test -c \
+  -o '/absolute/private/path/threexui-contract.test' ./agent/internal/threexui
+CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath \
+  -o '/absolute/private/path/chiral-egress-proxy' ./deploy/3x-ui-lab/egress-proxy
+
+DOCKER_HOST='unix:///absolute/path/to/local-docker.sock' \
+python3 deploy/3x-ui-lab/real_upgrade.py \
+  --image 'ghcr.io/mhsanaei/3x-ui@sha256:<resolved-digest>' \
+  --binary '/absolute/private/path/threexui-contract.test' \
+  --proxy-binary '/absolute/private/path/chiral-egress-proxy' \
+  --output '/private/tmp/chiral-real-upgrade-<new-unique-directory>'
+```
+
+运行器拒绝远程 Docker endpoint、已有输出目录、镜像拉取、外部资源接管及不精确的挂载或
+网络身份。它只为版本目录及官方 release 下载域名提供受限 CONNECT 出站，保留 TLS 校验，
+并拒绝非公网解析结果。测试输出包含管理员凭证、token、完整状态和原始日志；目录须保持
+`0700`、文件须保持 `0600`，不得提交或复制到共享日志。运行器只停止本轮容器，保留容器、
+命名卷、网络及私有证据供诊断。
+
+2026-09-30 的三次现场运行均以 `INCOMPLETE`、退出码 1 结束。后两次执行前置隔离与 HTTP
+检查后进入版本目录查询，但前置检查没有独立 PASS 标志；3x-ui 获取 GitHub 官方版本目录时
+被下载代理以 HTTP 502 拒绝，安装未派发，后三阶段未执行，本轮无完整阶段通过。这不是实际
+安装、版本保持或容器重建通过记录；详见
+[验证记录](validation-real-upgrade-20260930.md)。
 
 ## 原始模板与计费记录的候选投影实验
 
