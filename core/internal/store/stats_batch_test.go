@@ -48,6 +48,7 @@ func statsBatchSnapshot(t *testing.T, st *Store) string {
 	queries := []string{
 		`SELECT id, used_bytes FROM users ORDER BY id`,
 		`SELECT email, up_bytes, down_bytes FROM credentials ORDER BY email`,
+		`SELECT email, credential_id, user_id, node_id, traffic_rate, up_bytes, down_bytes, retired_at FROM credential_traffic_owners ORDER BY email`,
 		`SELECT bucket_start, node_id, user_id, up_bytes, down_bytes FROM traffic_buckets ORDER BY bucket_start, node_id, user_id`,
 		`SELECT node_id, scope, name, up_bytes, down_bytes FROM runtime_traffic_totals ORDER BY node_id, scope, name`,
 		`SELECT node_id, reporter_id, sequence, digest, continuity_indeterminate, received_at FROM stats_receipts ORDER BY node_id, reporter_id`,

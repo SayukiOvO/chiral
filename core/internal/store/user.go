@@ -375,7 +375,45 @@ func (s *Store) PutCredential(c Credential) (Credential, error) {
 	} else if !IsNotFound(err) {
 		return Credential{}, err
 	}
-	c.ID = NewID()
+	retiredEmail, err := s.credentialEmailRetired(c.Email)
+	if err != nil {
+		return Credential{}, err
+	}
+	// StatsEmailForExit is deterministic, so revoking and later restoring the
+	// same entitlement proposes the old email again. That name may still be in
+	// an Agent's durable accounting outbox. Reusing it would let the delayed
+	// batch charge this new credential, so only the retired-key case receives a
+	// fresh, short stats identity. Existing live credentials and ordinary new
+	// credentials retain their established email byte-for-byte.
+	const maxCredentialIDAttempts = 8
+	allocated := false
+	for attempt := 0; attempt < maxCredentialIDAttempts; attempt++ {
+		c.ID = NewID()
+		candidate := c.Email
+		if retiredEmail {
+			candidate = fmt.Sprintf("credential-%s@chiral.invalid", c.ID)
+		}
+		var collision bool
+		query := `SELECT EXISTS(SELECT 1 FROM credential_traffic_owners WHERE credential_id = ?)`
+		args := []any{c.ID}
+		if retiredEmail {
+			query = `SELECT EXISTS(SELECT 1 FROM credential_traffic_owners WHERE credential_id = ? OR email = ?)`
+			args = append(args, candidate)
+		}
+		if err := s.db.QueryRow(query, args...).Scan(&collision); err != nil {
+			return Credential{}, err
+		}
+		if !collision {
+			c.Email = candidate
+			allocated = true
+			break
+		}
+		// A random id collision is vanishingly unlikely, but retrying keeps the
+		// historical uniqueness invariant explicit rather than relying on it.
+	}
+	if !allocated {
+		return Credential{}, fmt.Errorf("allocate a unique credential accounting identity after %d attempts", maxCredentialIDAttempts)
+	}
 	c.CreatedAt = time.Now().Unix()
 	sealed, err := s.box.Seal(credentialAAD(c.ID), c.Secret)
 	if err != nil {
@@ -390,6 +428,18 @@ func (s *Store) PutCredential(c Credential) (Credential, error) {
 		return Credential{}, err
 	}
 	return c, nil
+}
+
+func (s *Store) credentialEmailRetired(email string) (bool, error) {
+	var retiredAt sql.NullInt64
+	err := s.db.QueryRow(`SELECT retired_at FROM credential_traffic_owners WHERE email = ?`, email).Scan(&retiredAt)
+	if err == sql.ErrNoRows {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return retiredAt.Valid, nil
 }
 
 // FindCredential looks one up by its full identity. An exit is at most one of

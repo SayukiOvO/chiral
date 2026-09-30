@@ -25,8 +25,10 @@ type TrafficDelta struct {
 const statsContinuityGapReason = "provider identity or snapshot epoch changed; new baseline excludes unverified historical usage"
 
 // RecordStatsBatch commits billing, chart data and a replay receipt atomically.
-// Unknown (revoked or machine) credentials never charge a human. An email owned
-// by another node is rejected, rather than trusting an agent's attribution.
+// Only known live or retired accounting identities can charge a human. Retired
+// identities preserve billing attribution, never access authorization. Unknown
+// or machine credentials do not charge a human. An identity owned by another
+// node is rejected, rather than trusting an agent's attribution.
 // applied is false for an already committed sequence, including old replays.
 func (s *Store) RecordStatsBatch(nodeID, reporterID string, sequence uint64, entries []TrafficDelta, continuityIndeterminate bool, at time.Time) (applied bool, err error) {
 	if !chiralv1.ValidStatsIdentity(reporterID, sequence) {
@@ -170,6 +172,14 @@ func recordCredentialDelta(tx *sql.Tx, nodeID string, entry TrafficDelta, at tim
 			return err
 		}
 		if _, err := tx.Exec(`UPDATE users SET used_bytes = ? WHERE id = ?`, usage, userID); err != nil {
+			return err
+		}
+	} else {
+		// A queued, acknowledged batch may arrive after revocation removed the
+		// serving credential. Resolve it only through the secret-free identity
+		// captured locally before deletion, never by trusting a claimed owner.
+		userID, err = recordRetiredCredentialDelta(tx, nodeID, entry)
+		if err != nil {
 			return err
 		}
 	}
