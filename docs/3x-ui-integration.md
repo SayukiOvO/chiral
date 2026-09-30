@@ -292,7 +292,7 @@ IP 接口的限制应分开描述：不执行限流时，扁平 IP 表会替换�
 回退到 direct-Xray 是另一条保留路径，不等同于 3x-ui provider 自身完成离线内核回滚。
 继续保持 ACTIVE 关闭；普通更新的源码可行性不证明整个迁移已经完成。
 
-### 当前目标逐项验收（2026-09-29）
+### 当前目标逐项验收（2026-09-30）
 
 | 要求 | 当前权威证据 | 未完成或阻断 |
 | --- | --- | --- |
@@ -303,6 +303,36 @@ IP 接口的限制应分开描述：不执行限流时，扁平 IP 表会替换�
 | 普通更新和故障恢复 | 官方 HTTP 探测、停止/恢复及持久化防重放通过；第 05 次真实安装 v26.9.8、配置／凭证保持及重建后卷内版本持久性通过 | v26.9.9 更新及第 06 次基线安装均成为未知、服务不可达；没有 target rebuild 或四阶段整体 PASS，未接 Core 自动调度 |
 | 订阅、授权和计费权威不迁出 Core | 代码边界与既有本地回归保留 | 未在生产库副本上逐字节验收所有用户、所有客户端与真实配置语料 |
 | Docker、PR 与生产接管 | 独立 Compose / 本机运行器已具备；分支及现有 PR 保留 | ACTIVE 关闭，未合并 main 或部署生产；不得用测试组件交付冒充整体迁移完成 |
+
+### 当前上游复核与实施边界（2026-09-30）
+
+本轮重新查询官方发布及主线，而非假定先前实验版本已经过时：最新正式版仍为
+[v3.8.5](https://github.com/MHSanaei/3x-ui/releases/tag/v3.8.5)，本次将官方主线解析到固定提交
+[`8c023d13dc9d01a72bf8be6fa409c6af392b8088`](https://github.com/MHSanaei/3x-ui/commit/8c023d13dc9d01a72bf8be6fa409c6af392b8088)
+（提交时间 2026-09-28 11:57:30 UTC，较 v3.8.5 超前 70 个提交）。只读取公开源码，未检出、
+修改、构建或部署该主线。此处是源码复核，不是该主线镜像的运行验收。
+
+- [当前 `AddUser` 与 `GetTraffic`](https://github.com/MHSanaei/3x-ui/blob/8c023d13dc9d01a72bf8be6fa409c6af392b8088/internal/xray/api.go)
+  仍分别存在运行时用户不设置 `Level`、空计数基线下首批非空采样不计入增量的行为。
+  因而不能用“更新到最新原版”替代已失败的字段及首笔计费验收。
+- [当前在线 HTTP 路由](https://github.com/MHSanaei/3x-ui/blob/8c023d13dc9d01a72bf8be6fa409c6af392b8088/internal/web/controller/client.go)
+  仍经服务读取在线 email 和已存储 IP 数据；
+  [按 GUID 查询](https://github.com/MHSanaei/3x-ui/blob/8c023d13dc9d01a72bf8be6fa409c6af392b8088/internal/web/service/inbound_node_ips.go)
+  从数据库读取并按时间窗口过滤，不返回全体用户同轮扫描完成标记。
+  [IP 任务](https://github.com/MHSanaei/3x-ui/blob/8c023d13dc9d01a72bf8be6fa409c6af392b8088/internal/web/job/check_client_ip_job.go)
+  在 fail2ban 关闭时仍在持久化前返回；任务内部调用实时接口不等于 HTTP 消费者拥有完整快照。
+- Chiral 还有独立的删除收尾缺口：`core/internal/api/user.go` 的解绑流程发送移除操作后删除
+  credential，而 `core/internal/profile/enforce.go` 明确只保证入队，不保证节点已完成。
+  `core/internal/store/stats_batch.go` 的现有策略不会将未知／已撤销凭证计入用户额度。
+  因此，解绑后迟到的批次可能仅进入节点历史；可靠 ACK 并不恢复已删除的归属。
+  接入前需设计撤权与最终计费确认的顺序或专用计费归属保留机制，不能为计费保留有效访问权，
+  也不能简单将所有未知 email 重新计入自然人。此项为静态调用链证据，尚未交付修复。
+
+现阶段不得把候选原语直接接到 `Runtime.Apply`／`AddUser` 并据 HTTP 成功返回生产确认。
+继续编写只能在模拟接口或缩减字段下通过的调和器，不能证明原始目标已经推进到可接管状态。
+在保持“官方未修改、仅 HTTP、全部功能等价”的要求时，上述上游能力差异仍须解决；接受
+原版的较弱语义属于需要 Mai 明确确认的范围调整，不由实现者代为决定。既有 direct-Xray
+节点、访问授权、订阅与数据保持不变，生产接管继续关闭；不恢复任何增强分支授权。
 
 首次开放的有限组合现已通过 [独立隔离实验](../deploy/3x-ui-lab/validation-bootstrap-20260929.md)：
 先仅开放私有探针，以实际 HTTP 计费增量确认预热，再增加完整的新用户入站，用户第一笔
