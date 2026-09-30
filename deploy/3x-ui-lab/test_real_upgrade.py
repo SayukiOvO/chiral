@@ -223,9 +223,9 @@ class RealUpgradeTests(unittest.TestCase):
             patch.start()
             self.addCleanup(patch.stop)
 
-    def instance(self):
+    def instance(self, **kwargs):
         self.counter += 1
-        return runner.RealUpgrade(IMAGE, str(self.binary), str(self.proxy), str(self.root / f"result-{self.counter}"))
+        return runner.RealUpgrade(IMAGE, str(self.binary), str(self.proxy), str(self.root / f"result-{self.counter}"), **kwargs)
 
     def commands(self, kind=None, operation=None):
         commands = [args[3:] for args, _, _ in self.fake.calls if args[:3] == ["docker", "--host", SOCKET]]
@@ -296,6 +296,53 @@ class RealUpgradeTests(unittest.TestCase):
         self.assertFalse(self.fake.pending_endpoints)
         self.assertEqual(tuple(lab.state["stages"]), runner.STAGES)
         self.assertTrue(all(stage["result"] == "PASS" for stage in lab.state["stages"].values()))
+
+    def test_explicit_dns_is_proxy_only_and_default_remains_unchanged(self):
+        for kwargs in ({}, {"proxy_dns": None}, {"proxy_dns": "1.1.1.1"}):
+            with self.subTest(kwargs=kwargs):
+                self.fake.calls.clear()
+                lab = self.instance(**kwargs)
+                self.assertEqual(lab.run(), 0)
+                self.assertEqual(lab.state["result"], "PASS")
+                creates = self.commands("container", "create")
+                self.assertEqual(len(creates), 9)
+                for command in creates:
+                    role = dict(value.split("=", 1) for value in flags(command, "--label"))[base.ROLE]
+                    expected = (["127.0.0.1"] if role.startswith("app-") else
+                                ["1.1.1.1"] if role == "proxy" and kwargs.get("proxy_dns") else [])
+                    self.assertEqual(flags(command, "--dns"), expected, role)
+                    self.assertEqual(self.fake.lookup(lab.ids[role])["HostConfig"]["Dns"], expected, role)
+
+    def test_other_proxy_dns_values_are_rejected_before_docker(self):
+        for value in ("", "8.8.8.8", "127.0.0.1", "::1", "one.one.one.one", "1.1.1.1,8.8.8.8",
+                      " 1.1.1.1", "1.1.1.1 ", "https://1.1.1.1", True, 1, ["1.1.1.1"], {"dns": "1.1.1.1"}):
+            with self.subTest(value=value):
+                with self.assertRaisesRegex(RuntimeError, "Only the explicit laboratory public DNS resolver"):
+                    self.instance(proxy_dns=value)
+                self.assertEqual(self.fake.calls, [])
+
+    def test_proxy_dns_changes_are_rejected_before_and_after_start(self):
+        cases = (("1.1.1.1", ["8.8.8.8"]), ("1.1.1.1", ["1.1.1.1", "8.8.8.8"]),
+                 ("1.1.1.1", []), ("1.1.1.1", None), (None, ["1.1.1.1"]), (None, ["8.8.8.8"]))
+        for timing in ("after_create", "after_start"):
+            for selected, changed in cases:
+                with self.subTest(timing=timing, selected=selected, changed=changed):
+                    def tamper(info):
+                        if self.fake.role(info) == "proxy":
+                            if changed is None:
+                                info["HostConfig"].pop("Dns")
+                            else:
+                                info["HostConfig"]["Dns"] = changed.copy()
+
+                    self.fake.after_create = tamper if timing == "after_create" else None
+                    self.fake.after_start = tamper if timing == "after_start" else None
+                    lab = self.instance(proxy_dns=selected)
+                    self.assertEqual(lab.run(), 1)
+                    self.assertEqual(lab.state["error"], "Proxy DNS configuration changed")
+                    self.assertEqual(lab.state["stages"], {})
+                    self.assertNotIn("app-0", lab.ids)
+                    starts = [command for command in self.starts("proxy") if command[-1] == lab.ids["proxy"]]
+                    self.assertEqual(len(starts), 0 if timing == "after_create" else 1)
 
     def test_created_proxy_requires_the_exact_requested_static_address(self):
         self.fake.defer_endpoints = True

@@ -200,6 +200,14 @@ python3 deploy/3x-ui-lab/real_upgrade.py \
 `0700`、文件须保持 `0600`，不得提交或复制到共享日志。运行器只停止本轮容器，保留容器、
 命名卷、网络及私有证据供诊断。
 
+如果宿主继承的解析路径为 GitHub 返回非公网地址，可在另一全新实验中显式传入
+`--proxy-dns 1.1.1.1`。此选项只为新建的 CONNECT 代理设置容器级 DNS，并在创建和运行时
+核对；不修改宿主、Docker daemon、应用容器或既有实例。默认仍不覆盖 DNS，也不在失败后
+自动切换解析器。该地址是 [Cloudflare 公共解析器](https://developers.cloudflare.com/1.1.1.1/ip-addresses/)，
+仅用于解析允许名单中的公开下载域名；容器级选项见
+[Docker DNS 文档](https://docs.docker.com/engine/network/#dns-services)。网络环境仍可能拦截 DNS，
+因此设置该参数不等于解析或下载验收成功；非公网结果仍被拒绝，TLS 校验和下载目标限制不变。
+
 2026-09-30 的三次现场运行均以 `INCOMPLETE`、退出码 1 结束。后两次执行前置隔离与 HTTP
 检查后进入版本目录查询，但前置检查没有独立 PASS 标志；3x-ui 获取 GitHub 官方版本目录时
 被下载代理以 HTTP 502 拒绝，安装未派发，后三阶段未执行，本轮无完整阶段通过。这不是实际

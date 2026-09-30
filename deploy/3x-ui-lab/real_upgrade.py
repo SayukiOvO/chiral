@@ -21,6 +21,7 @@ from write_contract import WriteContract, LABEL, ROLE, ID_RE, private_write, req
 
 STAGES = ("prepare", "baseline-rebuilt", "upgrade", "target-rebuilt")
 TEST_NAME = "TestLive3XUIRealUpgrade"
+PUBLIC_DNS = "1.1.1.1"
 SYSCTLS = {"net.ipv4.ip_forward": "0", "net.ipv6.conf.all.disable_ipv6": "1"}
 PROXY_ENV = ("HTTP_PROXY=", "http_proxy=", "HTTPS_PROXY=", "https_proxy=",
              "ALL_PROXY=", "all_proxy=", "NO_PROXY=", "no_proxy=")
@@ -50,7 +51,9 @@ def stage_passed(stage, data, exit_code):
 
 
 class RealUpgrade(WriteContract):
-    def __init__(self, image, binary, proxy_binary, output):
+    def __init__(self, image, binary, proxy_binary, output, proxy_dns=None):
+        require(proxy_dns is None or proxy_dns == PUBLIC_DNS, "Only the explicit laboratory public DNS resolver is permitted")
+        self.proxy_dns = proxy_dns
         self.proxy_binary = executable(proxy_binary)
         super().__init__(image, binary, output)
         roles = ["bootstrap", "proxy", "app-0", "app-1", "app-2"] + ["test-" + stage for stage in STAGES]
@@ -66,6 +69,7 @@ class RealUpgrade(WriteContract):
         self.test_state.chmod(0o700)
         self.state.update(suite="real-upgrade", test_name=TEST_NAME, networks={}, stages={},
                           test_state=str(self.test_state), real_downloads=True,
+                          proxy_dns=proxy_dns or "daemon-default",
                           scope="new local laboratory only; not production acceptance")
 
     def preflight(self):
@@ -155,6 +159,8 @@ class RealUpgrade(WriteContract):
                 options += ["--sysctl", key + "=" + value]
             if role == "proxy":
                 options += ["--ip", self.proxy_ip]
+                if self.proxy_dns:
+                    options += ["--dns", self.proxy_dns]
             else:
                 # Downloads resolve at the proxy. Do not give the application
                 # an independent external DNS path through Docker's resolver.
@@ -196,6 +202,8 @@ class RealUpgrade(WriteContract):
                     require(address in self.network_subnets[network_role], "Container address is outside the laboratory subnet")
             require(set(normalized) == wanted, "Container joined an unexpected network")
             if role == "proxy":
+                expected_dns = [self.proxy_dns] if self.proxy_dns else []
+                require((host.get("Dns") or []) == expected_dns, "Proxy DNS configuration changed")
                 endpoint = normalized[self.network_names["internal"]]
                 configured = (endpoint.get("IPAMConfig") or {}).get("IPv4Address")
                 actual = endpoint.get("IPAddress")
@@ -381,10 +389,12 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     for flag in ("image", "binary", "proxy-binary", "output"):
         parser.add_argument("--" + flag, required=True)
+    parser.add_argument("--proxy-dns", choices=[PUBLIC_DNS],
+                        help="Set DNS only for the new egress proxy; never changes host or application DNS")
     args = parser.parse_args()
     os.umask(0o077)
     try:
-        return RealUpgrade(args.image, args.binary, args.proxy_binary, args.output).run()
+        return RealUpgrade(args.image, args.binary, args.proxy_binary, args.output, proxy_dns=args.proxy_dns).run()
     except (RuntimeError, OSError):
         print(json.dumps({"result": "ERROR", "error": "Cannot initialize private real-upgrade laboratory"}), file=sys.stderr)
         return 1
