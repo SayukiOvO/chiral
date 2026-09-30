@@ -7,7 +7,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"net/http"
 	"os"
 	"reflect"
 	"slices"
@@ -261,11 +260,11 @@ func TestLive3XUIWriteContract(t *testing.T) {
 		if err := client.UpdateClient(ctx, email, liveWriteJSON(t, account)); err != nil {
 			t.Fatalf("re-enable isolated client: %v", err)
 		}
-		if err := liveWriteAttachment(ctx, client, email, created[1].ID, true); err != nil {
+		if err := client.AttachClient(ctx, email, []int64{created[1].ID}); err != nil {
 			t.Fatalf("attach isolated client to second owned inbound: %v", err)
 		}
 		liveWriteCheckClient(t, ctx, client, account, []int64{created[0].ID, created[1].ID}, created)
-		if err := liveWriteAttachment(ctx, client, email, created[0].ID, false); err != nil {
+		if err := client.DetachClient(ctx, email, []int64{created[0].ID}); err != nil {
 			t.Fatalf("detach isolated client from first owned inbound: %v", err)
 		}
 		liveWriteCheckClient(t, ctx, client, account, []int64{created[1].ID}, created)
@@ -405,27 +404,6 @@ func liveWriteRequireArrayMember(t *testing.T, raw, member json.RawMessage, scop
 		}
 	}
 	t.Fatalf("%s is missing or changed", scope)
-}
-
-func liveWriteAttachment(ctx context.Context, client *Client, email string, id int64, attach bool) error {
-	// This test-only helper exposes exactly the official attachment operation,
-	// not a production generic HTTP proxy or an alternate control plane.
-	u, err := client.clientEndpoint("panel/api/clients", email)
-	if err != nil {
-		return err
-	}
-	suffix := "/detach"
-	if attach {
-		suffix = "/attach"
-	}
-	u.Path, u.RawPath = u.Path+suffix, u.EscapedPath()+suffix
-	body, err := marshalSensitive(struct {
-		InboundIDs []int64 `json:"inboundIds"`
-	}{[]int64{id}})
-	if err != nil {
-		return err
-	}
-	return client.sensitiveEnvelope(ctx, http.MethodPost, u, body, "application/json", nil)
 }
 
 func liveWriteCheckClient(t *testing.T, ctx context.Context, client *Client, account map[string]any, expectedIDs []int64, ownedInbounds []Inbound) {

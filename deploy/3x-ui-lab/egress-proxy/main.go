@@ -409,7 +409,7 @@ func validateListenAddress(raw string) (string, error) {
 	return address.String(), nil
 }
 
-func run(ctx context.Context, listenAddress string, logger *log.Logger) error {
+func run(ctx context.Context, listenAddress string, dnsOverTLS bool, logger *log.Logger) error {
 	listenAddress, err := validateListenAddress(listenAddress)
 	if err != nil {
 		return err
@@ -419,7 +419,7 @@ func run(ctx context.Context, listenAddress string, logger *log.Logger) error {
 		return errors.New("proxy listener could not start")
 	}
 	dialer := &net.Dialer{Timeout: dialTimeout, KeepAlive: 30 * time.Second}
-	proxy := newConnectProxy(net.DefaultResolver, dialer, logger)
+	proxy := newConnectProxy(dnsResolver(dnsOverTLS), dialer, logger)
 	server := &http.Server{
 		Handler:           proxy,
 		ReadHeaderTimeout: 10 * time.Second,
@@ -445,11 +445,12 @@ func run(ctx context.Context, listenAddress string, logger *log.Logger) error {
 
 func main() {
 	listenAddress := flag.String("listen", "", "canonical private IPv4 listen address on port 3128")
+	dnsOverTLS := flag.Bool("dns-over-tls", false, "resolve through the fixed certificate-verified laboratory DNS-over-TLS endpoint")
 	flag.Parse()
 	logger := log.New(os.Stdout, "", 0)
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	if err := run(ctx, *listenAddress, logger); err != nil {
+	if err := run(ctx, *listenAddress, *dnsOverTLS, logger); err != nil {
 		logger.Printf("domain=proxy decision=reject reason=%s bytes=0", reasonStartupFailed)
 		os.Exit(1)
 	}

@@ -111,43 +111,59 @@ func TestDiscoverCapabilitiesRejectsInvalidDocument(t *testing.T) {
 	}
 }
 
-func TestDiscoverOptionalOutboundProbeDoesNotWidenShadowGate(t *testing.T) {
-	for _, test := range []struct {
-		name      string
-		operation string
-		want      bool
+func TestDiscoverOptionalCandidateOperationsDoNotWidenShadowGate(t *testing.T) {
+	candidates := []struct {
+		name       string
+		capability Capability
+		path       string
 	}{
-		{"absent", ``, false},
-		{"exact post", `,"/panel/api/xray/testOutbound":{"post":{}}`, true},
-		{"wrong method", `,"/panel/api/xray/testOutbound":{"get":{}}`, false},
-		{"null operation", `,"/panel/api/xray/testOutbound":{"post":null}`, false},
-		{"scalar operation", `,"/panel/api/xray/testOutbound":{"post":true}`, false},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			body := strings.TrimSuffix(completeOpenAPIDocument, "}}") + test.operation + "}}"
-			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-				fmt.Fprint(w, body)
-			}))
-			defer server.Close()
-			client, err := New(Config{BaseURL: server.URL, Token: testToken})
-			if err != nil {
-				t.Fatal(err)
-			}
-			capabilities, err := client.DiscoverCapabilities(context.Background())
-			if err != nil {
-				t.Fatal(err)
-			}
-			if got := capabilities.Supports(CapabilityOutboundProbe); got != test.want {
-				t.Fatalf("outbound probe support = %v, want %v", got, test.want)
-			}
-			if missing := capabilities.Missing(); len(missing) != 0 {
-				t.Fatalf("optional probe changed SHADOW gate: %v", missing)
-			}
-			for _, required := range RequiredCapabilities() {
-				if required == CapabilityOutboundProbe {
-					t.Fatal("candidate probe is required by SHADOW")
+		{"outbound probe", CapabilityOutboundProbe, "/panel/api/xray/testOutbound"},
+		{"Xray template read", CapabilityXrayTemplateRead, "/panel/api/xray/"},
+		{"client attach", CapabilityClientsAttach, "/panel/api/clients/{email}/attach"},
+		{"client detach", CapabilityClientsDetach, "/panel/api/clients/{email}/detach"},
+	}
+	required := RequiredCapabilities()
+	if len(required) != 17 {
+		t.Fatalf("SHADOW capability count = %d, want 17", len(required))
+	}
+	for _, candidate := range candidates {
+		for _, test := range []struct {
+			name      string
+			operation string
+			want      bool
+		}{
+			{"absent", ``, false},
+			{"exact post", fmt.Sprintf(`,%q:{"post":{}}`, candidate.path), true},
+			{"wrong method", fmt.Sprintf(`,%q:{"get":{}}`, candidate.path), false},
+			{"null operation", fmt.Sprintf(`,%q:{"post":null}`, candidate.path), false},
+			{"scalar operation", fmt.Sprintf(`,%q:{"post":true}`, candidate.path), false},
+		} {
+			t.Run(candidate.name+"/"+test.name, func(t *testing.T) {
+				body := strings.TrimSuffix(completeOpenAPIDocument, "}}") + test.operation + "}}"
+				server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+					fmt.Fprint(w, body)
+				}))
+				defer server.Close()
+				client, err := New(Config{BaseURL: server.URL, Token: testToken})
+				if err != nil {
+					t.Fatal(err)
 				}
+				capabilities, err := client.DiscoverCapabilities(context.Background())
+				if err != nil {
+					t.Fatal(err)
+				}
+				if got := capabilities.Supports(candidate.capability); got != test.want {
+					t.Fatalf("%s support = %v, want %v", candidate.name, got, test.want)
+				}
+				if missing := capabilities.Missing(); len(missing) != 0 {
+					t.Fatalf("optional capability changed SHADOW gate: %v", missing)
+				}
+			})
+		}
+		for _, capability := range required {
+			if capability == candidate.capability {
+				t.Fatalf("candidate capability %q is required by SHADOW", candidate.capability)
 			}
-		})
+		}
 	}
 }

@@ -51,9 +51,12 @@ def stage_passed(stage, data, exit_code):
 
 
 class RealUpgrade(WriteContract):
-    def __init__(self, image, binary, proxy_binary, output, proxy_dns=None):
+    def __init__(self, image, binary, proxy_binary, output, proxy_dns=None, proxy_dns_tls=False):
         require(proxy_dns is None or proxy_dns == PUBLIC_DNS, "Only the explicit laboratory public DNS resolver is permitted")
+        require(isinstance(proxy_dns_tls, bool) and not (proxy_dns_tls and proxy_dns is not None),
+                "DNS modes must be explicit and mutually exclusive")
         self.proxy_dns = proxy_dns
+        self.proxy_dns_tls = proxy_dns_tls
         self.proxy_binary = executable(proxy_binary)
         super().__init__(image, binary, output)
         roles = ["bootstrap", "proxy", "app-0", "app-1", "app-2"] + ["test-" + stage for stage in STAGES]
@@ -69,7 +72,7 @@ class RealUpgrade(WriteContract):
         self.test_state.chmod(0o700)
         self.state.update(suite="real-upgrade", test_name=TEST_NAME, networks={}, stages={},
                           test_state=str(self.test_state), real_downloads=True,
-                          proxy_dns=proxy_dns or "daemon-default",
+                          proxy_dns="tls:1.1.1.1:853" if proxy_dns_tls else proxy_dns or "daemon-default",
                           scope="new local laboratory only; not production acceptance")
 
     def preflight(self):
@@ -159,8 +162,8 @@ class RealUpgrade(WriteContract):
                 options += ["--sysctl", key + "=" + value]
             if role == "proxy":
                 options += ["--ip", self.proxy_ip]
-                if self.proxy_dns:
-                    options += ["--dns", self.proxy_dns]
+                for resolver in self.expected_proxy_dns():
+                    options += ["--dns", resolver]
             else:
                 # Downloads resolve at the proxy. Do not give the application
                 # an independent external DNS path through Docker's resolver.
@@ -168,6 +171,11 @@ class RealUpgrade(WriteContract):
         if role == "proxy" or role.startswith("test-"):
             options += ["--read-only", "--tmpfs", "/tmp:rw,noexec,nosuid,size=32m,mode=1777"]
         return options
+
+    def expected_proxy_dns(self):
+        # TLS resolution dials a fixed public address directly. Disable the
+        # container's ambient resolver instead of leaving a fallback path.
+        return ["127.0.0.1"] if self.proxy_dns_tls else [self.proxy_dns] if self.proxy_dns else []
 
     def verify_container(self, role):
         info = super().verify_container(role)
@@ -202,8 +210,7 @@ class RealUpgrade(WriteContract):
                     require(address in self.network_subnets[network_role], "Container address is outside the laboratory subnet")
             require(set(normalized) == wanted, "Container joined an unexpected network")
             if role == "proxy":
-                expected_dns = [self.proxy_dns] if self.proxy_dns else []
-                require((host.get("Dns") or []) == expected_dns, "Proxy DNS configuration changed")
+                require((host.get("Dns") or []) == self.expected_proxy_dns(), "Proxy DNS configuration changed")
                 endpoint = normalized[self.network_names["internal"]]
                 configured = (endpoint.get("IPAMConfig") or {}).get("IPv4Address")
                 actual = endpoint.get("IPAddress")
@@ -241,7 +248,10 @@ class RealUpgrade(WriteContract):
             self.verify_network(network)
 
     def start_proxy(self):
-        self.create_container("proxy", "/run/chiral-egress-proxy", ["--listen", self.proxy_ip + ":3128"], PROXY_ENV)
+        command = ["--listen", self.proxy_ip + ":3128"]
+        if self.proxy_dns_tls:
+            command += ["--dns-over-tls"]
+        self.create_container("proxy", "/run/chiral-egress-proxy", command, PROXY_ENV)
         self.docker(["network", "connect", self.network_ids["egress"], self.ids["proxy"]])
         self.proxy_connected = True
         self.verify_container("proxy")
@@ -389,12 +399,16 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     for flag in ("image", "binary", "proxy-binary", "output"):
         parser.add_argument("--" + flag, required=True)
-    parser.add_argument("--proxy-dns", choices=[PUBLIC_DNS],
-                        help="Set DNS only for the new egress proxy; never changes host or application DNS")
+    dns = parser.add_mutually_exclusive_group()
+    dns.add_argument("--proxy-dns", choices=[PUBLIC_DNS],
+                     help="Set DNS only for the new egress proxy; never changes host or application DNS")
+    dns.add_argument("--proxy-dns-over-tls", dest="proxy_dns_tls", action="store_true",
+                     help="Use fixed authenticated public DNS over TLS in the new egress proxy only")
     args = parser.parse_args()
     os.umask(0o077)
     try:
-        return RealUpgrade(args.image, args.binary, args.proxy_binary, args.output, proxy_dns=args.proxy_dns).run()
+        return RealUpgrade(args.image, args.binary, args.proxy_binary, args.output,
+                           proxy_dns=args.proxy_dns, proxy_dns_tls=args.proxy_dns_tls).run()
     except (RuntimeError, OSError):
         print(json.dumps({"result": "ERROR", "error": "Cannot initialize private real-upgrade laboratory"}), file=sys.stderr)
         return 1

@@ -176,6 +176,7 @@ func TestLive3XUIRealUpgrade(t *testing.T) {
 	if err := probe(ctx); err != nil {
 		t.Fatal("pre-stage official HTTP proxy-path verification failed")
 	}
+	t.Logf("real_upgrade_preflight_verified=%s http_probe=reachable", stage)
 	journalPath := filepath.Join(directory, "updates.json")
 	if stage != "prepare" {
 		for _, path := range []string{journalPath, journalPath + ".lock"} {

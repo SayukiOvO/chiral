@@ -57,6 +57,7 @@ type Inbound struct {
 type GlobalClient struct {
 	ID         int64           `json:"id"`
 	Email      string          `json:"email"`
+	Comment    string          `json:"comment"`
 	InboundIDs []int64         `json:"inboundIds"`
 	Raw        json.RawMessage `json:"-"`
 }
@@ -248,15 +249,8 @@ func (c *Client) AddClient(ctx context.Context, account json.RawMessage, inbound
 	if _, err := clientEmail(account); err != nil {
 		return err
 	}
-	if len(inboundIDs) == 0 {
-		return fmt.Errorf("3x-ui client requires at least one inbound")
-	}
-	seen := make(map[int64]bool, len(inboundIDs))
-	for _, id := range inboundIDs {
-		if id <= 0 || seen[id] {
-			return fmt.Errorf("invalid or duplicate 3x-ui client inbound ID")
-		}
-		seen[id] = true
+	if err := validateInboundIDs(inboundIDs); err != nil {
+		return err
 	}
 	payload := struct {
 		Client     json.RawMessage `json:"client"`
@@ -304,6 +298,54 @@ func (c *Client) DeleteClient(ctx context.Context, email string, keepTraffic boo
 	}
 	u.RawQuery = url.Values{"keepTraffic": {keep}}.Encode()
 	return c.sensitiveEnvelope(ctx, http.MethodPost, u, nil, "", nil)
+}
+
+// AttachClient adds an existing global client to the selected inbounds. The
+// upstream operation can partially apply a multi-inbound request before
+// reporting failure; callers must read the attachment set back before deciding
+// whether a retry is safe.
+func (c *Client) AttachClient(ctx context.Context, email string, inboundIDs []int64) error {
+	return c.changeClientAttachments(ctx, email, inboundIDs, "attach")
+}
+
+// DetachClient removes an existing global client from the selected inbounds.
+// As with AttachClient, a failed multi-inbound response is not evidence that no
+// attachment changed.
+func (c *Client) DetachClient(ctx context.Context, email string, inboundIDs []int64) error {
+	return c.changeClientAttachments(ctx, email, inboundIDs, "detach")
+}
+
+func (c *Client) changeClientAttachments(ctx context.Context, email string, inboundIDs []int64, action string) error {
+	if err := validateInboundIDs(inboundIDs); err != nil {
+		return err
+	}
+	u, err := c.clientEndpoint("panel/api/clients", email)
+	if err != nil {
+		return err
+	}
+	suffix := "/" + action
+	u.Path, u.RawPath = u.Path+suffix, u.EscapedPath()+suffix
+	body, err := marshalSensitive(struct {
+		InboundIDs []int64 `json:"inboundIds"`
+	}{InboundIDs: inboundIDs})
+	if err != nil {
+		return err
+	}
+	return c.sensitiveEnvelope(ctx, http.MethodPost, u, body, "application/json", nil)
+}
+
+func validateInboundIDs(inboundIDs []int64) error {
+	if len(inboundIDs) == 0 {
+		return fmt.Errorf("3x-ui client requires at least one inbound")
+	}
+	seen := make(map[int64]bool, len(inboundIDs))
+	for _, id := range inboundIDs {
+		if id <= 0 || seen[id] {
+			return fmt.Errorf("invalid or duplicate 3x-ui client inbound ID")
+		}
+		seen[id] = true
+	}
+	return nil
 }
 
 // RestartXray requests an unconditional upstream restart. It may interrupt

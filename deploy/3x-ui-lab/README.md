@@ -191,6 +191,7 @@ python3 deploy/3x-ui-lab/real_upgrade.py \
   --image 'ghcr.io/mhsanaei/3x-ui@sha256:<resolved-digest>' \
   --binary '/absolute/private/path/threexui-contract.test' \
   --proxy-binary '/absolute/private/path/chiral-egress-proxy' \
+  --proxy-dns-over-tls \
   --output '/private/tmp/chiral-real-upgrade-<new-unique-directory>'
 ```
 
@@ -208,10 +209,20 @@ python3 deploy/3x-ui-lab/real_upgrade.py \
 [Docker DNS 文档](https://docs.docker.com/engine/network/#dns-services)。网络环境仍可能拦截 DNS，
 因此设置该参数不等于解析或下载验收成功；非公网结果仍被拒绝，TLS 校验和下载目标限制不变。
 
-2026-09-30 的三次现场运行均以 `INCOMPLETE`、退出码 1 结束。后两次执行前置隔离与 HTTP
-检查后进入版本目录查询，但前置检查没有独立 PASS 标志；3x-ui 获取 GitHub 官方版本目录时
-被下载代理以 HTTP 502 拒绝，安装未派发，后三阶段未执行，本轮无完整阶段通过。这不是实际
-安装、版本保持或容器重建通过记录；详见
+`--proxy-dns-over-tls` 是另一个互斥的 opt-in，不能与 `--proxy-dns` 同时使用。它只让新建
+CONNECT 代理通过固定的 `1.1.1.1:853` 解析，TLS SNI 为 `one.one.one.one`，最低 TLS 1.2，
+启用正常证书验证且没有明文 DNS fallback。该模式仅把代理容器的显式 DNS 设置为
+`127.0.0.1`，避免 Docker 环境解析成为隐式兜底；不修改全局 DNS、宿主、Docker daemon、
+应用容器、3x-ui 或生产配置。默认不启用任何 DNS 覆盖。
+固定服务地址与 TLS 名称依据 [Cloudflare 官方 DoT 文档](https://developers.cloudflare.com/1.1.1.1/encryption/dns-over-tls/)。
+
+2026-09-30 的六次现场运行整体均以 `INCOMPLETE`、退出码 1 结束。第 04 次即使显式使用
+`--proxy-dns 1.1.1.1` 仍得到 `dns_non_public`，没有安装派发。第 05 次使用 DoT 后，
+`prepare` 与 `baseline-rebuilt` 均明确 PASS、退出码 0：从内置 26.9.9 的镜像真实安装
+v26.9.8，一次派发且零重放，HTTP 数据探针、配置和凭证保持及新容器的卷内版本持久性均通过。
+随后 v26.9.9 更新成为 unknown／unreachable，`target-rebuilt` 未执行；第 06 次 prepare 也以
+unknown／unreachable 结束。两次未知操作都未重试，本轮创建的所有容器已停止并保留。本轮没有
+四阶段整体 PASS，不能宣称目标更新、更新后版本保持或完整在线更新验收通过；详见
 [验证记录](validation-real-upgrade-20260930.md)。
 
 ## 原始模板与计费记录的候选投影实验

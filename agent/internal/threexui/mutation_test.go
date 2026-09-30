@@ -173,11 +173,11 @@ func TestInboundMutationsPreserveNestedFieldsAndReadback(t *testing.T) {
 func TestClientMutationsEncodeIdentityAndKeepTraffic(t *testing.T) {
 	email := "alice?query=1#fragment%2f@node"
 	account, _ := json.Marshal(map[string]any{"email": email, "id": "secret-uuid", "enable": false, "future": map[string]any{"raw": "preserved-in-transit"}})
-	var created, updated, deleted atomic.Bool
+	var created, updated, attached, detached, deleted atomic.Bool
 	client, _ := mutationClient(t, func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/base/panel/api/clients/list":
-			fmt.Fprint(w, `{"success":true,"obj":[{"id":12,"email":"alice@node","uuid":"private-uuid","inboundIds":[7],"unknown":{"preserve":1}}]}`)
+			fmt.Fprint(w, `{"success":true,"obj":[{"id":12,"email":"alice@node","comment":"chiral-owner","uuid":"private-uuid","inboundIds":[7],"unknown":{"preserve":1}}]}`)
 		case "/base/panel/api/clients/add":
 			created.Store(true)
 			var payload struct {
@@ -205,6 +205,14 @@ func TestClientMutationsEncodeIdentityAndKeepTraffic(t *testing.T) {
 				t.Error("client update payload changed")
 			}
 			fmt.Fprint(w, `{"success":true}`)
+		case "/base/panel/api/clients/" + email + "/attach":
+			attached.Store(true)
+			checkClientAttachmentRequest(t, r, email, []int64{7, 9})
+			fmt.Fprint(w, `{"success":true,"obj":{"pendingNode":false}}`)
+		case "/base/panel/api/clients/" + email + "/detach":
+			detached.Store(true)
+			checkClientAttachmentRequest(t, r, email, []int64{7})
+			fmt.Fprint(w, `{"success":true,"obj":{"pendingNode":false}}`)
 		case "/base/panel/api/clients/del/" + email:
 			deleted.Store(true)
 			if r.URL.Query().Get("keepTraffic") != "1" || len(r.URL.Query()) != 1 {
@@ -223,7 +231,7 @@ func TestClientMutationsEncodeIdentityAndKeepTraffic(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(rows) != 1 || rows[0].ID != 12 || !strings.Contains(string(rows[0].Raw), `"unknown"`) || !strings.Contains(string(rows[0].Raw), `"uuid"`) {
+	if len(rows) != 1 || rows[0].ID != 12 || rows[0].Comment != "chiral-owner" || !strings.Contains(string(rows[0].Raw), `"unknown"`) || !strings.Contains(string(rows[0].Raw), `"uuid"`) {
 		t.Fatal("client readback evidence lost")
 	}
 	if err := client.AddClient(context.Background(), account, []int64{7}); err != nil {
@@ -232,11 +240,43 @@ func TestClientMutationsEncodeIdentityAndKeepTraffic(t *testing.T) {
 	if err := client.UpdateClient(context.Background(), email, account); err != nil {
 		t.Fatal(err)
 	}
+	if err := client.AttachClient(context.Background(), email, []int64{7, 9}); err != nil {
+		t.Fatal(err)
+	}
+	if err := client.DetachClient(context.Background(), email, []int64{7}); err != nil {
+		t.Fatal(err)
+	}
 	if err := client.DeleteClient(context.Background(), email, true); err != nil {
 		t.Fatal(err)
 	}
-	if !created.Load() || !updated.Load() || !deleted.Load() {
+	if !created.Load() || !updated.Load() || !attached.Load() || !detached.Load() || !deleted.Load() {
 		t.Fatal("not every client mutation succeeded")
+	}
+}
+
+func checkClientAttachmentRequest(t *testing.T, r *http.Request, email string, wantIDs []int64) {
+	t.Helper()
+	if r.URL.RawQuery != "" || r.URL.Fragment != "" {
+		t.Error("client identity escaped into URL query or fragment")
+	}
+	wantSuffix := "/" + url.PathEscape(email)
+	if strings.HasSuffix(r.URL.Path, "/attach") {
+		wantSuffix += "/attach"
+	} else {
+		wantSuffix += "/detach"
+	}
+	if !strings.HasSuffix(r.URL.EscapedPath(), wantSuffix) {
+		t.Errorf("client attachment identity was not one encoded segment: %q", r.URL.EscapedPath())
+	}
+	var payload struct {
+		InboundIDs []int64 `json:"inboundIds"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+		t.Error(err)
+		return
+	}
+	if !reflect.DeepEqual(payload.InboundIDs, wantIDs) {
+		t.Errorf("attachment inbound IDs = %v, want %v", payload.InboundIDs, wantIDs)
 	}
 }
 
@@ -257,6 +297,9 @@ func TestMutationValidationFailsBeforeHTTP(t *testing.T) {
 		func() error { return client.AddClient(ctx, valid, nil) },
 		func() error { return client.AddClient(ctx, valid, []int64{1, 1}) },
 		func() error { return client.AddClient(ctx, valid, []int64{-1}) },
+		func() error { return client.AttachClient(ctx, "alice@node", nil) },
+		func() error { return client.AttachClient(ctx, "alice@node", []int64{1, 1}) },
+		func() error { return client.DetachClient(ctx, "alice@node", []int64{0}) },
 		func() error { return client.UpdateClient(ctx, "different@node", valid) },
 		func() error { return client.AddClient(ctx, json.RawMessage(`{"email":"alice@node"}`), []int64{1}) },
 		func() error {
@@ -267,6 +310,7 @@ func TestMutationValidationFailsBeforeHTTP(t *testing.T) {
 	for _, email := range []string{"", ".", "..", "../", "alice/bob", "alice\\bob", "alice\n", "alice bob"} {
 		email := email
 		checks = append(checks, func() error { return client.DeleteClient(ctx, email, true) })
+		checks = append(checks, func() error { return client.AttachClient(ctx, email, []int64{1}) })
 	}
 	for i, check := range checks {
 		if check() == nil {
@@ -294,6 +338,31 @@ func TestMutationErrorsNeverIncludeResponseSecrets(t *testing.T) {
 			}
 			if strings.Contains(err.Error(), secret) || strings.Contains(err.Error(), testToken) {
 				t.Fatal("mutation error leaked a secret")
+			}
+		})
+	}
+}
+
+func TestClientAttachmentErrorsNeverIncludeResponseSecrets(t *testing.T) {
+	const secret = "sensitive-private-client-key"
+	for _, operation := range []struct {
+		name string
+		run  func(*Client) error
+	}{
+		{name: "attach", run: func(client *Client) error {
+			return client.AttachClient(context.Background(), "alice@node", []int64{7})
+		}},
+		{name: "detach", run: func(client *Client) error {
+			return client.DetachClient(context.Background(), "alice@node", []int64{7})
+		}},
+	} {
+		t.Run(operation.name, func(t *testing.T) {
+			client, _ := mutationClient(t, func(w http.ResponseWriter, _ *http.Request) {
+				fmt.Fprint(w, `{"success":false,"msg":"`+secret+`"}`)
+			})
+			err := operation.run(client)
+			if err == nil || strings.Contains(err.Error(), secret) || strings.Contains(err.Error(), testToken) {
+				t.Fatal("client attachment error was accepted or leaked a secret")
 			}
 		})
 	}
