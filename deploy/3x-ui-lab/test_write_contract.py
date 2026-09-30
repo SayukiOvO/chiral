@@ -310,11 +310,29 @@ class WriteContractTests(unittest.TestCase):
     def test_shadow_observation_suite_keeps_isolation_and_exact_success_gate(self):
         self.assert_suite_isolation_and_success_gate("shadow-observation", "TestLive3XUIReadOnlyContract")
 
+    def test_recent_online_suite_keeps_isolation_and_exact_success_gate(self):
+        suite, test_name = "recent-online", "TestLive3XUIRecentOnlineContract"
+        self.assert_suite_isolation_and_success_gate(suite, test_name)
+        markers = runner.EVIDENCE_MARKERS[suite]
+        for missing in markers:
+            with self.subTest(missing=missing):
+                present = [marker for marker in markers if marker != missing]
+                output = (("    " + " ".join(marker + "=true" for marker in present) + "\n")
+                          + f"--- PASS: {test_name} (1.0s)\nPASS\n").encode()
+                lab = runner.WriteContract(IMAGE, str(self.binary),
+                                           str(self.root / ("recent-online-missing-" + missing)), suite=suite)
+                fake = FakeDocker()
+                fake.test_output = output
+                with mock.patch.object(runner, "execute", side_effect=fake):
+                    self.assertEqual(lab.run(), 1)
+                self.assertFalse(lab.state[missing])
+                self.assertNotEqual(lab.state["result"], "PASS")
+                self.assertTrue(all(not info["State"]["Running"] for info in fake.containers.values()))
+
     def assert_suite_isolation_and_success_gate(self, suite, test_name):
-        expected = f"--- PASS: {test_name} (1.0s)\nPASS\n".encode()
-        legacy_pass = expected
-        if suite == "shadow-observation":
-            expected = b"    shadow_request_allowlist_verified=true\n" + expected
+        legacy_pass = f"--- PASS: {test_name} (1.0s)\nPASS\n".encode()
+        marker_line = " ".join(marker + "=true" for marker in runner.EVIDENCE_MARKERS.get(suite, ()))
+        expected = (("    " + marker_line + "\n").encode() if marker_line else b"") + legacy_pass
         cases = (
             ("pass", 0, expected, 0),
             ("wrong_suite", 0, PASS_LOG, 1),
@@ -323,7 +341,7 @@ class WriteContractTests(unittest.TestCase):
             ("failure", 1, f"--- FAIL: {test_name} (1.0s)\nFAIL\n".encode(), 1),
             ("nonzero", 1, expected, 1),
         )
-        if suite == "shadow-observation":
+        if suite in runner.EVIDENCE_MARKERS:
             cases += (("old_binary_without_allowlist", 0, legacy_pass, 1),)
         for name, exit_code, output, wanted in cases:
             with self.subTest(name=name):
@@ -340,6 +358,8 @@ class WriteContractTests(unittest.TestCase):
                 self.assertEqual(fake.lookup(lab.ids["app"])["HostConfig"]["NetworkMode"], "none")
                 self.assertEqual(len(fake.containers), 3)
                 self.assertEqual(lab.state["result"] == "PASS", wanted == 0)
+                if name == "pass":
+                    self.assertTrue(all(lab.state[marker] for marker in runner.EVIDENCE_MARKERS.get(suite, ())))
                 starts = [args for args, _, _ in fake.calls if args[3:5] == ["container", "start"] and args[-1] == lab.ids["test"]]
                 self.assertEqual(len(starts), 1)
                 self.assertTrue(all(not info["State"]["Running"] for info in fake.containers.values()))

@@ -31,6 +31,23 @@ SUITES = {
     "http-probe": "TestLive3XUIHTTPProbeContract",
     "billing-bootstrap": "TestLive3XUIBillingBootstrapContract",
     "shadow-observation": "TestLive3XUIReadOnlyContract",
+    "recent-online": "TestLive3XUIRecentOnlineContract",
+}
+EVIDENCE_MARKERS = {
+    # The previous read-only test used the same Go test name while permitting
+    # lifecycle-bearing reads. Its PASS is insufficient without this marker.
+    "shadow-observation": ("shadow_request_allowlist_verified",),
+    # Keep this suite narrower than Agent/Core integration: it certifies the
+    # official HTTP reader, its requested-credential boundary and the meaning
+    # of an absent observation inside the isolated fixture only.
+    "recent-online": (
+        "recent_online_positive_verified",
+        "recent_online_whitelist_verified",
+        "recent_online_absence_is_unknown",
+        "http_only_control",
+        "official_http_probe_used",
+        "cleanup_verified",
+    ),
 }
 LIMIT = 384 * 1024 * 1024
 VOLUME_TARGETS = {"data": "/etc/x-ui", "bin": "/app/bin", "cert": "/root/cert"}
@@ -375,12 +392,11 @@ class WriteContract:
         skipped = bool(re.search(r"^\s*--- SKIP:", safe, re.MULTILINE))
         passed = bool(re.search(r"^--- PASS: " + re.escape(self.test_name) + r" \(", safe, re.MULTILINE))
         passed = passed and bool(re.search(r"^PASS$", safe, re.MULTILINE))
-        if self.suite == "shadow-observation":
-            # The old test had the same name but performed lifecycle-bearing
-            # config reads. Its PASS cannot certify the new request boundary.
-            allowlist_verified = "shadow_request_allowlist_verified=true" in safe
-            self.state["shadow_request_allowlist_verified"] = allowlist_verified
-            passed = passed and allowlist_verified
+        for marker in EVIDENCE_MARKERS.get(self.suite, ()):
+            verified = bool(re.search(r"(?:^|\s)" + re.escape(marker) + r"=true(?:\s|$)", safe,
+                                      re.MULTILINE))
+            self.state[marker] = verified
+            passed = passed and verified
         self.state["positive_pass"] = passed
         self.state["skipped"] = skipped
         self.state["result"] = "SKIP" if skipped else "FAIL"
