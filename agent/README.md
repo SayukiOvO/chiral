@@ -36,6 +36,11 @@ go build -o ../bin/chiral-agent ./cmd/agent
 默认值或用于宣称 3x-ui 已接管生产流量。
 
 进入 `ACTIVE` 前，必须实现 3x-ui 写入调和，并通过
-[`docs/3x-ui-integration.md`](../docs/3x-ui-integration.md) 规定的全部功能等价门槛，包括最终配置
-回读、在线绝对快照、增量计费、真实数据面探活、安装回滚和所有订阅输出逐字节不变。任何一项
-未通过，都应继续使用 `direct-xray`。
+[`docs/3x-ui-integration.md`](../docs/3x-ui-integration.md) 规定的现行接管门槛，包括全字段配置
+保真、日常用户操作无额外中断、失败配置不影响旧运行态、增量可靠投递、真实数据面探活、
+普通更新的保守恢复和所有订阅输出逐字节不变。在线信息允许明确标注的近似值，计费接受
+原版初始化首批基线缺口；预安装不激活与离线内核回滚暂缓，不再作为新 provider 的门槛。
+尚未证明满足其余要求时，继续使用 `direct-xray`。
+
+[`agent/cmd/3xui-audit`](../docs/3x-ui-compatibility-audit.md) 可对私有本地配置副本做离线字段
+盘点，不连接节点、不输出凭证，也不会因为没有已知发现而批准接管。
