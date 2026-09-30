@@ -245,6 +245,13 @@ Core 将固定原因与批次身份写入 `stats_continuity_gaps`，与回执同
 不能宣称消除已接受的初始化缺口；并须验证用户删除、计数重置和实例恢复后不重复、不串户。
 当前接口与投递基础设施尚未接入 ACTIVE 3x-ui provider，不能据此宣称生产计费已经接线完成。
 
+2026-09-30 的 [撤权尾部隔离实验](../deploy/3x-ui-lab/validation-tail-accounting-20260930.md)
+在简单 managed VLESS、关闭停用重启的官方实例中，实际观察到停用及保留统计删除后旧流
+继续、本机 `inbounds/list` 同身份计数增长；删除后的普通 `clients/traffic` 查询返回 API
+拒绝，不能作为账务回退。本次保留 inbound 与原统计行，不验证删除 inbound、重启或统计
+清理。HTTP 累计采样没有同步 flush／最终序号，观察窗口内的增长不是全部尾字节已采集的
+证明，稳定计数也不是会话结束；最终结算、清理规则与 provider 接线仍未完成。
+
 2026-09-29 的 [本机官方 HTTP 写入与数据面验证](../deploy/3x-ui-lab/validation-write-20260929.md)
 已确认基础模板读写及后续请求计费可用，但冷启动首次真实请求未计入 HTTP 用户计数，受管
 client 的合法 `level` 字段也未保留。该次整体契约测试的历史结论仍为 FAIL；此后用户接受

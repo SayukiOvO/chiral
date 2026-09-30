@@ -32,8 +32,25 @@ SUITES = {
     "billing-bootstrap": "TestLive3XUIBillingBootstrapContract",
     "shadow-observation": "TestLive3XUIReadOnlyContract",
     "recent-online": "TestLive3XUIRecentOnlineContract",
+    "tail-accounting": "TestLive3XUITailAccountingContract",
 }
 EVIDENCE_MARKERS = {
+    # PASS means this bounded experiment finished, NOT final settlement or
+    # production integration. The original accounting rows remain in the
+    # stopped, retained lab; no empty-object cleanup marker is appropriate.
+    "tail-accounting": (
+        "tail_baseline_verified",
+        "tail_restart_disabled_verified",
+        "tail_settings_restored_verified",
+        "disable_observation_complete",
+        "delete_observation_complete",
+        "established_streams_survived",
+        "new_target_connections_denied",
+        "new_control_connections_verified",
+        "http_only_provider_control",
+        "tail_observation_complete",
+        "fixture_reaped",
+    ),
     # The previous read-only test used the same Go test name while permitting
     # lifecycle-bearing reads. Its PASS is insufficient without this marker.
     "shadow-observation": ("shadow_request_allowlist_verified",),

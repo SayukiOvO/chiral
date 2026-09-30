@@ -311,7 +311,12 @@ class WriteContractTests(unittest.TestCase):
         self.assert_suite_isolation_and_success_gate("shadow-observation", "TestLive3XUIReadOnlyContract")
 
     def test_recent_online_suite_keeps_isolation_and_exact_success_gate(self):
-        suite, test_name = "recent-online", "TestLive3XUIRecentOnlineContract"
+        self.assert_marked_suite("recent-online", "TestLive3XUIRecentOnlineContract")
+
+    def test_tail_accounting_suite_keeps_isolation_and_exact_success_gate(self):
+        self.assert_marked_suite("tail-accounting", "TestLive3XUITailAccountingContract")
+
+    def assert_marked_suite(self, suite, test_name):
         self.assert_suite_isolation_and_success_gate(suite, test_name)
         markers = runner.EVIDENCE_MARKERS[suite]
         for missing in markers:
@@ -320,7 +325,7 @@ class WriteContractTests(unittest.TestCase):
                 output = (("    " + " ".join(marker + "=true" for marker in present) + "\n")
                           + f"--- PASS: {test_name} (1.0s)\nPASS\n").encode()
                 lab = runner.WriteContract(IMAGE, str(self.binary),
-                                           str(self.root / ("recent-online-missing-" + missing)), suite=suite)
+                                           str(self.root / (suite + "-missing-" + missing)), suite=suite)
                 fake = FakeDocker()
                 fake.test_output = output
                 with mock.patch.object(runner, "execute", side_effect=fake):
