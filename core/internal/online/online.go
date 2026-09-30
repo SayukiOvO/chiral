@@ -17,18 +17,23 @@ import (
 // Registry holds the fleet's current view, keyed by user.
 type Registry struct {
 	mu sync.RWMutex
-	// users[userID][ip] is the most recent sighting of that address.
-	users map[string]map[string]sighting
+	// users[userID][ip][nodeID] is the most recent sighting of that address
+	// through that node. The extra node dimension preserves another node's
+	// contribution when one node disconnects or changes provider mode.
+	users map[string]map[string]map[string]sighting
 	// nodes records which nodes have reported, and whether their last round
 	// was complete, so a partial view can be reported as partial.
 	nodes map[string]nodeState
+	// recent holds provider cache/history observations. They are deliberately
+	// separate from users: their absence never establishes that a user is
+	// offline, and they never contribute to the exact Count.
+	recent map[string]recentNodeState
 	// ttl is how long a sighting counts without being refreshed.
 	ttl time.Duration
 }
 
 type sighting struct {
-	nodeID string
-	at     time.Time
+	at time.Time
 }
 
 type nodeState struct {
@@ -44,9 +49,10 @@ func New(ttl time.Duration) *Registry {
 		ttl = 3 * time.Minute
 	}
 	return &Registry{
-		users: make(map[string]map[string]sighting),
-		nodes: make(map[string]nodeState),
-		ttl:   ttl,
+		users:  make(map[string]map[string]map[string]sighting),
+		nodes:  make(map[string]nodeState),
+		recent: make(map[string]recentNodeState),
+		ttl:    ttl,
 	}
 }
 
@@ -68,12 +74,17 @@ func (r *Registry) Replace(nodeID string, obs []Observation, complete bool, now 
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
+	// Receiving an exact snapshot means this node is no longer operating in
+	// approximate-provider mode. Do not leave its old estimate beside the new
+	// exact contribution.
+	delete(r.recent, nodeID)
 	r.nodes[nodeID] = nodeState{at: now, complete: complete}
 
 	// Drop this node's previous sightings before installing the new ones.
 	for userID, ips := range r.users {
-		for ip, s := range ips {
-			if s.nodeID == nodeID {
+		for ip, sightings := range ips {
+			delete(sightings, nodeID)
+			if len(sightings) == 0 {
 				delete(ips, ip)
 			}
 		}
@@ -88,8 +99,13 @@ func (r *Registry) Replace(nodeID string, obs []Observation, complete bool, now 
 		}
 		ips, ok := r.users[o.UserID]
 		if !ok {
-			ips = make(map[string]sighting)
+			ips = make(map[string]map[string]sighting)
 			r.users[o.UserID] = ips
+		}
+		sightings, ok := ips[o.IP]
+		if !ok {
+			sightings = make(map[string]sighting)
+			ips[o.IP] = sightings
 		}
 		at := o.At
 		if at.IsZero() {
@@ -97,8 +113,8 @@ func (r *Registry) Replace(nodeID string, obs []Observation, complete bool, now 
 		}
 		// A user reachable through two nodes from the same address is one
 		// address, not two. Keep the most recent sighting.
-		if prev, ok := ips[o.IP]; !ok || at.After(prev.at) {
-			ips[o.IP] = sighting{nodeID: nodeID, at: at}
+		if prev, ok := sightings[nodeID]; !ok || at.After(prev.at) {
+			sightings[nodeID] = sighting{at: at}
 		}
 	}
 }
@@ -112,9 +128,11 @@ func (r *Registry) Forget(nodeID string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	delete(r.nodes, nodeID)
+	delete(r.recent, nodeID)
 	for userID, ips := range r.users {
-		for ip, s := range ips {
-			if s.nodeID == nodeID {
+		for ip, sightings := range ips {
+			delete(sightings, nodeID)
+			if len(sightings) == 0 {
 				delete(ips, ip)
 			}
 		}
@@ -129,11 +147,15 @@ type Status struct {
 	// Count is distinct source addresses across the fleet — a union, not a
 	// sum. One device reaching two nodes is one address.
 	Count int `json:"count"`
-	// Partial is true when at least one contributing node reported an
-	// incomplete round, meaning Count is a floor rather than a total.
+	// Partial is true when the exact view is absent or incomplete, or when any
+	// node contributes only approximate observations. Count is then a floor,
+	// not a fleet-wide offline assertion.
 	Partial bool `json:"partial"`
 	// NodesReporting counts the nodes whose view is current.
 	NodesReporting int `json:"nodes_reporting"`
+	// Estimate is a separate provider-cache/history signal. It never changes
+	// Count, because a missing approximate observation is not an offline fact.
+	Estimate *Estimate `json:"estimate,omitempty"`
 }
 
 // Status reports one user's current address count.
@@ -150,10 +172,25 @@ func (r *Registry) Status(userID string, now time.Time) Status {
 			}
 		}
 	}
-	for _, s := range r.users[userID] {
-		if now.Sub(s.at) <= r.ttl {
-			st.Count++
+	if st.NodesReporting == 0 {
+		// No current exact snapshot means Count is an empty observation, not
+		// evidence that the fleet is offline. This also covers a new registry,
+		// the last node disconnecting, and Prune removing the last stale node.
+		st.Partial = true
+	}
+	for _, sightings := range r.users[userID] {
+		for _, s := range sightings {
+			if now.Sub(s.at) <= r.ttl {
+				st.Count++
+				break
+			}
 		}
+	}
+	st.Estimate = r.estimateLocked(userID, now)
+	if st.Estimate != nil {
+		// A fleet containing an approximate-only node cannot be presented as a
+		// complete exact snapshot, including when its last sample has expired.
+		st.Partial = true
 	}
 	return st
 }
@@ -167,9 +204,12 @@ func (r *Registry) Counts(now time.Time) map[string]int {
 	out := make(map[string]int, len(r.users))
 	for userID, ips := range r.users {
 		n := 0
-		for _, s := range ips {
-			if now.Sub(s.at) <= r.ttl {
-				n++
+		for _, sightings := range ips {
+			for _, s := range sightings {
+				if now.Sub(s.at) <= r.ttl {
+					n++
+					break
+				}
 			}
 		}
 		if n > 0 {
@@ -190,8 +230,13 @@ func (r *Registry) Prune(now time.Time) {
 		}
 	}
 	for userID, ips := range r.users {
-		for ip, s := range ips {
-			if now.Sub(s.at) > r.ttl {
+		for ip, sightings := range ips {
+			for nodeID, s := range sightings {
+				if now.Sub(s.at) > r.ttl {
+					delete(sightings, nodeID)
+				}
+			}
+			if len(sightings) == 0 {
 				delete(ips, ip)
 			}
 		}
@@ -199,4 +244,5 @@ func (r *Registry) Prune(now time.Time) {
 			delete(r.users, userID)
 		}
 	}
+	r.pruneRecentLocked(now)
 }

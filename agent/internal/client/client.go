@@ -79,6 +79,7 @@ type Client struct {
 	// polling one.
 	onlineMu     sync.Mutex
 	onlinePolicy *chiralv1.OnlinePolicy
+	onlineEpoch  uint64
 
 	statsMu           sync.Mutex
 	acknowledgedStats bool
@@ -313,6 +314,7 @@ func (c *Client) runStream(ctx context.Context, svc chiralv1.AgentServiceClient)
 	// delay, against recording addresses nobody asked for.
 	c.onlineMu.Lock()
 	c.onlinePolicy = nil
+	c.onlineEpoch++
 	c.onlineMu.Unlock()
 	c.statsMu.Lock()
 	c.acknowledgedStats = false
@@ -342,14 +344,24 @@ func (c *Client) runStream(ctx context.Context, svc chiralv1.AgentServiceClient)
 	}
 	c.logger.Info("stream established")
 
-	// All further sends flow through one writer goroutine via sendCh (grpc
-	// streams forbid concurrent Send).
+	// All further sends flow through one writer goroutine (grpc streams forbid
+	// concurrent Send). Recent reports keep local queue age beside the frame.
 	sendCh := make(chan *chiralv1.AgentFrame, 16)
+	recentCh := make(chan queuedRecentOnline, 1)
 	writerDone := make(chan error, 1)
 	go func() {
 		for {
 			select {
 			case f := <-sendCh:
+				if err := stream.Send(f); err != nil {
+					writerDone <- err
+					return
+				}
+			case queued := <-recentCh:
+				f := c.prepareRecentOnlineForSend(streamCtx, queued, time.Now())
+				if f == nil {
+					continue
+				}
 				if err := stream.Send(f); err != nil {
 					writerDone <- err
 					return
@@ -420,8 +432,17 @@ func (c *Client) runStream(ctx context.Context, svc chiralv1.AgentServiceClient)
 					continue
 				}
 				last = now
+				_, policyEpoch := c.recentOnlinePolicy()
 				if f := c.onlineFrame(streamCtx); f != nil {
-					trySend(streamCtx, sendCh, f)
+					if f.GetRecentOnline() != nil {
+						select {
+						case recentCh <- queuedRecentOnline{frame: f, queuedAt: time.Now(), policyEpoch: policyEpoch}:
+						case <-streamCtx.Done():
+							return
+						}
+					} else {
+						trySend(streamCtx, sendCh, f)
+					}
 				}
 			case <-streamCtx.Done():
 				return
@@ -481,6 +502,7 @@ func (c *Client) handleFrame(ctx context.Context, sendCh chan<- *chiralv1.AgentF
 		p := fr.OnlinePolicy
 		c.onlineMu.Lock()
 		c.onlinePolicy = p
+		c.onlineEpoch++
 		c.onlineMu.Unlock()
 		c.logger.Info("online policy updated",
 			"enabled", p.GetEnabled(), "interval_seconds", p.GetIntervalSeconds())
@@ -578,7 +600,12 @@ func (c *Client) onlineSettings() (enabled bool, interval time.Duration) {
 // says "nobody is connected", the second says "this node is not telling you",
 // and treating the second as the first would clear a user's addresses every
 // time an agent went quiet.
+// An approximate-only runtime instead uses its separately negotiated frame;
+// without that per-stream negotiation it does not collect or send a report.
 func (c *Client) onlineFrame(ctx context.Context) *chiralv1.AgentFrame {
+	if recent, ok := c.rt.(runtimeprovider.RecentOnlineReporter); ok {
+		return c.recentOnlineFrame(ctx, recent)
+	}
 	users, complete, err := c.rt.OnlineUsers(ctx)
 	if err != nil {
 		c.logger.Warn("reading online users failed", "err", err)

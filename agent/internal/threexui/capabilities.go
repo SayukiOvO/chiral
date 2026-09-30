@@ -14,27 +14,29 @@ const openAPIEndpoint = "panel/api/openapi.json"
 type Capability string
 
 const (
-	CapabilityStatus           Capability = "status"
-	CapabilityInboundsList     Capability = "inbounds_list"
-	CapabilityInboundsAdd      Capability = "inbounds_add"
-	CapabilityInboundsUpdate   Capability = "inbounds_update"
-	CapabilityInboundsDelete   Capability = "inbounds_delete"
-	CapabilityClientsList      Capability = "clients_list"
-	CapabilityClientsAdd       Capability = "clients_add"
-	CapabilityClientsUpdate    Capability = "clients_update"
-	CapabilityClientsDelete    Capability = "clients_delete"
-	CapabilityClientTraffic    Capability = "client_traffic"
-	CapabilityClientsOnline    Capability = "clients_online"
-	CapabilityClientIPs        Capability = "client_ips"
-	CapabilityXrayUpdate       Capability = "xray_update"
-	CapabilityXrayRestart      Capability = "xray_restart"
-	CapabilityGetConfig        Capability = "get_config"
-	CapabilityXrayVersions     Capability = "xray_versions"
-	CapabilityInstallXray      Capability = "install_xray"
-	CapabilityOutboundProbe    Capability = "outbound_probe"
-	CapabilityXrayTemplateRead Capability = "xray_template_read"
-	CapabilityClientsAttach    Capability = "clients_attach"
-	CapabilityClientsDetach    Capability = "clients_detach"
+	CapabilityStatus              Capability = "status"
+	CapabilityInboundsList        Capability = "inbounds_list"
+	CapabilityInboundsAdd         Capability = "inbounds_add"
+	CapabilityInboundsUpdate      Capability = "inbounds_update"
+	CapabilityInboundsDelete      Capability = "inbounds_delete"
+	CapabilityClientsList         Capability = "clients_list"
+	CapabilityClientsAdd          Capability = "clients_add"
+	CapabilityClientsUpdate       Capability = "clients_update"
+	CapabilityClientsDelete       Capability = "clients_delete"
+	CapabilityClientTraffic       Capability = "client_traffic"
+	CapabilityClientsOnline       Capability = "clients_online"
+	CapabilityClientIPs           Capability = "client_ips"
+	CapabilityXrayUpdate          Capability = "xray_update"
+	CapabilityXrayRestart         Capability = "xray_restart"
+	CapabilityGetConfig           Capability = "get_config"
+	CapabilityXrayVersions        Capability = "xray_versions"
+	CapabilityInstallXray         Capability = "install_xray"
+	CapabilityOutboundProbe       Capability = "outbound_probe"
+	CapabilityXrayTemplateRead    Capability = "xray_template_read"
+	CapabilityClientsAttach       Capability = "clients_attach"
+	CapabilityClientsDetach       Capability = "clients_detach"
+	CapabilityClientsOnlineByGUID Capability = "clients_online_by_guid"
+	CapabilityClientIPsByGUID     Capability = "client_ips_by_guid"
 )
 
 type operation struct {
@@ -76,6 +78,8 @@ var optionalOperations = []struct {
 	{CapabilityXrayTemplateRead, operation{method: "post", path: "/panel/api/xray/"}},
 	{CapabilityClientsAttach, operation{method: "post", path: "/panel/api/clients/{email}/attach"}},
 	{CapabilityClientsDetach, operation{method: "post", path: "/panel/api/clients/{email}/detach"}},
+	{CapabilityClientsOnlineByGUID, operation{method: "post", path: "/panel/api/clients/onlinesByGuid"}},
+	{CapabilityClientIPsByGUID, operation{method: "post", path: "/panel/api/clients/clientIpsByGuid"}},
 }
 
 // Capabilities is a snapshot derived from the panel's own OpenAPI document.

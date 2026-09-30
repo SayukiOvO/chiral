@@ -54,6 +54,17 @@ type deviceView struct {
 	LastSeen  int64  `json:"last_seen"`
 }
 
+// recentAddressView is one address returned by an incomplete, historical
+// provider observation. RetrievedAt is when that historical record was read;
+// it is deliberately not called last_seen because the provider does not tell
+// us when the connection itself was last active.
+type recentAddressView struct {
+	IP          string `json:"ip"`
+	NodeID      string `json:"node_id"`
+	NodeName    string `json:"node_name"`
+	RetrievedAt int64  `json:"retrieved_at"`
+}
+
 func (s *Server) userDevices(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	u, err := s.st.GetUser(id)
@@ -80,11 +91,21 @@ func (s *Server) userDevices(w http.ResponseWriter, r *http.Request) {
 			FirstSeen: d.FirstSeen, LastSeen: d.LastSeen,
 		})
 	}
+	recent := []recentAddressView{}
+	if src, ok := s.online.(RecentAddressSource); ok {
+		for _, a := range src.RecentAddresses(u.ID, time.Now()) {
+			recent = append(recent, recentAddressView{
+				IP: a.IP, NodeID: a.NodeID, NodeName: names[a.NodeID], RetrievedAt: a.RetrievedAt,
+			})
+		}
+	}
 
 	// Audited on read, not on change. Looking up where someone lives is the
 	// action worth recording here; there is nothing to change.
-	s.audit(r, "user.devices_viewed", "user", u.ID, u.Name, strconv.Itoa(len(out)))
-	writeJSON(w, http.StatusOK, map[string]any{"devices": out, "recording": s.online != nil})
+	s.audit(r, "user.devices_viewed", "user", u.ID, u.Name, strconv.Itoa(len(out)+len(recent)))
+	writeJSON(w, http.StatusOK, map[string]any{
+		"devices": out, "recent_addresses": recent, "recording": s.online != nil,
+	})
 }
 
 // onlineCounts decorates a user list without a query per row.
@@ -103,4 +124,13 @@ type OnlineSource interface {
 	Counts(now time.Time) map[string]int
 }
 
+// RecentAddressSource is optional. The base OnlineSource remains sufficient
+// for the direct-Xray provider; providers that can only read incomplete recent
+// history opt in here. Keeping this separate prevents a recent address from
+// ever being folded into the exact current count by interface accident.
+type RecentAddressSource interface {
+	RecentAddresses(userID string, now time.Time) []online.RecentAddress
+}
+
 var _ OnlineSource = (*online.Registry)(nil)
+var _ RecentAddressSource = (*online.Registry)(nil)

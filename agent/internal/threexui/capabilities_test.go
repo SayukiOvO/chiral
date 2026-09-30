@@ -121,6 +121,8 @@ func TestDiscoverOptionalCandidateOperationsDoNotWidenShadowGate(t *testing.T) {
 		{"Xray template read", CapabilityXrayTemplateRead, "/panel/api/xray/"},
 		{"client attach", CapabilityClientsAttach, "/panel/api/clients/{email}/attach"},
 		{"client detach", CapabilityClientsDetach, "/panel/api/clients/{email}/detach"},
+		{"online by GUID", CapabilityClientsOnlineByGUID, "/panel/api/clients/onlinesByGuid"},
+		{"client IPs by GUID", CapabilityClientIPsByGUID, "/panel/api/clients/clientIpsByGuid"},
 	}
 	required := RequiredCapabilities()
 	if len(required) != 17 {

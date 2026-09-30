@@ -43,6 +43,7 @@ message AgentFrame {
     OnlineReport online = 6;
     XrayStatus xray_status = 7;
     XrayRelayRequest xray_relay_request = 8;
+    RecentOnlineReport recent_online = 9;
   }
 }
 
@@ -199,6 +200,27 @@ message OnlineUser {
 message OnlineIP {
   string ip = 1;
   int64 last_seen_unix = 2;
+}
+
+// Cached/recorded provider observations, NEVER a complete current snapshot.
+// Send only after OnlinePolicy.recent_observations on this stream. An empty
+// report or observed_online=false cannot establish that a user is offline.
+message RecentOnlineReport {
+  // Age of the HTTP read when dispatched; not the age of a connection or IP.
+  // Core combines this with its receive clock instead of trusting wall time.
+  uint32 retrieved_age_seconds = 1;
+  // False means no successful provider read; users must be empty in that case.
+  bool read_ok = 2;
+  repeated RecentOnlineUser users = 3;
+}
+
+message RecentOnlineUser {
+  string email = 1;
+  // Presence in the provider's cached online list, not confirmed live now.
+  bool observed_online = 2;
+  // Recorded addresses, without invented last-seen timestamps. These must
+  // not populate the live device count or durable observation history.
+  repeated string ips = 3;
 }
 
 // ---- Xray-core runtime upgrade ----
@@ -360,6 +382,9 @@ message OnlinePolicy {
   // from the set within about two seconds of disconnection — there is no
   // lingering window to catch it in.
   int32 interval_seconds = 2;
+  // Negotiates the distinct approximate report. Old Core omits this field;
+  // an approximate-only provider must stay silent, not send OnlineReport.
+  bool recent_observations = 3;
 }
 
 // ConfigPush delivers a complete config.json. Core has already validated it

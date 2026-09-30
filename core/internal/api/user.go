@@ -11,6 +11,7 @@ import (
 
 	"github.com/SayukiOvO/chiral/core/internal/auth"
 	"github.com/SayukiOvO/chiral/core/internal/external"
+	"github.com/SayukiOvO/chiral/core/internal/online"
 	"github.com/SayukiOvO/chiral/core/internal/store"
 	"github.com/SayukiOvO/chiral/core/internal/user"
 )
@@ -51,7 +52,13 @@ type userView struct {
 	DeviceLimit int `json:"device_limit"`
 	// OnlineDevices is the current count, absent when recording is off so the
 	// UI can distinguish "nobody connected" from "not measuring".
-	OnlineDevices *int `json:"online_devices,omitempty"`
+	OnlineDevices        *int `json:"online_devices,omitempty"`
+	OnlinePartial        bool `json:"online_partial,omitempty"`
+	OnlineNodesReporting int  `json:"online_nodes_reporting,omitempty"`
+	// OnlineEstimate is a separate, incomplete recent-history observation.
+	// It never changes OnlineDevices and contains no source addresses, so this
+	// read-level list does not expand who may see location data.
+	OnlineEstimate *online.Estimate `json:"online_estimate,omitempty"`
 	// ProfileIDs is what they hold, by whatever route. OwnProfileIDs are the
 	// grants written against this subscriber, and DeniedProfileIDs the ones
 	// withheld from them despite their group — the console needs all three to
@@ -121,8 +128,11 @@ func (s *Server) userView(u store.User, withCredentials bool) (userView, error) 
 		}
 	}
 	if s.online != nil {
-		n := s.online.Status(u.ID, time.Now()).Count
-		v.OnlineDevices = &n
+		status := s.online.Status(u.ID, time.Now())
+		v.OnlineDevices = &status.Count
+		v.OnlinePartial = status.Partial
+		v.OnlineNodesReporting = status.NodesReporting
+		v.OnlineEstimate = status.Estimate
 	}
 	if withCredentials {
 		creds, err := s.st.UserCredentials(u.ID)

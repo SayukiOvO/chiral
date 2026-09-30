@@ -5,7 +5,11 @@ import (
 	"log/slog"
 	"math"
 	"net"
+	"net/netip"
+	"strings"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
@@ -35,6 +39,13 @@ type TrafficRecorder interface {
 type OnlineRegistry interface {
 	Replace(nodeID string, obs []online.Observation, complete bool, now time.Time)
 	Forget(nodeID string)
+}
+
+// RecentOnlineRegistry is an optional capability for providers that expose
+// cache/history observations rather than an exact current snapshot. Keeping it
+// separate avoids forcing legacy OnlineRegistry implementations to opt in.
+type RecentOnlineRegistry interface {
+	ReplaceRecent(nodeID string, obs []online.RecentObservation, readOK bool, at time.Time)
 }
 
 // OnlineRecorder persists an observed address.
@@ -191,9 +202,11 @@ func (s *Service) Channel(stream chiralv1.AgentService_ChannelServer) error {
 	// keeps no policy across reconnects — it starts idle, which is the safe
 	// default if this frame is ever lost.
 	if s.online != nil {
+		_, recentObservations := s.online.(RecentOnlineRegistry)
 		if err := s.mgr.SendOnlinePolicy(n.ID, &chiralv1.OnlinePolicy{
-			Enabled:         true,
-			IntervalSeconds: int32(s.onlineInterval.Seconds()),
+			Enabled:            true,
+			IntervalSeconds:    int32(s.onlineInterval.Seconds()),
+			RecentObservations: recentObservations,
 		}); err != nil {
 			s.logger.Warn("pushing online policy failed", "node", n.ID, "err", err)
 		}
@@ -294,6 +307,9 @@ func (s *Service) handleFrame(nodeID string, sess *Session, f *chiralv1.AgentFra
 	case *chiralv1.AgentFrame_Online:
 		sess.touch(nil)
 		s.recordOnline(nodeID, fr.Online)
+	case *chiralv1.AgentFrame_RecentOnline:
+		sess.touch(nil)
+		s.recordRecentOnline(nodeID, fr.RecentOnline)
 	case *chiralv1.AgentFrame_XrayStatus:
 		sess.touch(nil)
 		if s.upgrades == nil {
@@ -488,6 +504,138 @@ func (s *Service) recordOnline(nodeID string, report *chiralv1.OnlineReport) {
 			"node", nodeID, "entries", forged)
 	}
 	s.online.Replace(nodeID, obs, report.GetComplete(), now)
+}
+
+// recordRecentOnline installs a provider cache/history sample. It shares the
+// credential ownership boundary with exact reports, but deliberately neither
+// changes the exact online count nor writes user_devices: the provider has no
+// true per-address last-seen time for such a durable claim.
+func (s *Service) recordRecentOnline(nodeID string, report *chiralv1.RecentOnlineReport) {
+	recent, ok := s.online.(RecentOnlineRegistry)
+	if !ok {
+		return
+	}
+	if reason, ok := validateRecentOnlineReport(report); !ok {
+		s.logger.Warn("rejecting invalid recent online report", "node", nodeID, "reason", reason)
+		return
+	}
+
+	now := time.Now()
+	retrievedAt := now.Add(-time.Duration(report.GetRetrievedAgeSeconds()) * time.Second)
+	if !report.GetReadOk() {
+		recent.ReplaceRecent(nodeID, nil, false, retrievedAt)
+		return
+	}
+
+	observations := make([]online.RecentObservation, 0, len(report.GetUsers()))
+	byUser := make(map[string]int, len(report.GetUsers()))
+	seenIPs := make(map[string]map[string]struct{}, len(report.GetUsers()))
+	forged := 0
+	lookupFailures := 0
+
+	for _, u := range report.GetUsers() {
+		email := u.GetEmail()
+		if email == "" {
+			continue
+		}
+		userID, credentialNodeID, err := s.st.CredentialOwner(email)
+		if err != nil {
+			if !store.IsNotFound(err) {
+				lookupFailures++
+			}
+			continue
+		}
+		if credentialNodeID != nodeID {
+			forged++
+			continue
+		}
+
+		index, exists := byUser[userID]
+		if !exists {
+			index = len(observations)
+			byUser[userID] = index
+			seenIPs[userID] = make(map[string]struct{}, len(u.GetIps()))
+			observations = append(observations, online.RecentObservation{UserID: userID})
+		}
+		observations[index].ObservedOnline = observations[index].ObservedOnline || u.GetObservedOnline()
+		for _, rawIP := range u.GetIps() {
+			addr, _ := netip.ParseAddr(rawIP) // validated before any state change
+			ip := addr.Unmap().String()
+			if _, duplicate := seenIPs[userID][ip]; duplicate {
+				continue
+			}
+			seenIPs[userID][ip] = struct{}{}
+			observations[index].IPs = append(observations[index].IPs, ip)
+		}
+	}
+
+	if forged > 0 {
+		s.logger.Warn("agent reported recent observations for credentials that are not its own",
+			"node", nodeID, "entries", forged)
+	}
+	if lookupFailures > 0 {
+		s.logger.Error("resolving recent credential owners failed", "node", nodeID, "entries", lookupFailures)
+		// Do not install a partial mapping after a transient database failure;
+		// retaining the prior sample is safer than turning omitted users into a
+		// reassuring zero-address estimate.
+		return
+	}
+	recent.ReplaceRecent(nodeID, observations, true, retrievedAt)
+}
+
+func validateRecentOnlineReport(report *chiralv1.RecentOnlineReport) (string, bool) {
+	if report == nil {
+		return "nil_report", false
+	}
+	if !report.GetReadOk() && len(report.GetUsers()) != 0 {
+		return "users_without_successful_read", false
+	}
+	if len(report.GetUsers()) > chiralv1.MaxRecentOnlineUsers {
+		return "too_many_users", false
+	}
+	totalIPs := 0
+	emails := make(map[string]struct{}, len(report.GetUsers()))
+	for _, u := range report.GetUsers() {
+		if u == nil {
+			return "nil_user", false
+		}
+		email := u.GetEmail()
+		if email == "" {
+			return "empty_email", false
+		}
+		if len(email) > chiralv1.MaxRecentOnlineEmailBytes {
+			return "email_too_long", false
+		}
+		if !utf8.ValidString(email) {
+			return "invalid_email_encoding", false
+		}
+		if strings.TrimSpace(email) != email {
+			return "email_contains_surrounding_space", false
+		}
+		for _, character := range email {
+			if unicode.IsControl(character) {
+				return "email_contains_control_character", false
+			}
+		}
+		if _, duplicate := emails[email]; duplicate {
+			return "duplicate_email", false
+		}
+		emails[email] = struct{}{}
+		if len(u.GetIps()) > chiralv1.MaxRecentOnlineIPs-totalIPs {
+			return "too_many_addresses", false
+		}
+		totalIPs += len(u.GetIps())
+		for _, rawIP := range u.GetIps() {
+			addr, err := netip.ParseAddr(rawIP)
+			if err != nil {
+				return "invalid_address", false
+			}
+			if addr.Zone() != "" {
+				return "scoped_address", false
+			}
+		}
+	}
+	return "", true
 }
 
 func (s *Service) authenticate(ctx context.Context) (store.Node, error) {

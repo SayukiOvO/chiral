@@ -165,11 +165,40 @@ const EN: Record<string, string> = {
   // between wifi and cellular is 2. Calling them devices would promise
   // something the kernel does not measure.
   并发地址: "Addresses",
+  实时观测地址: "Live-observed addresses",
+  在线与来源地址: "Online and source addresses",
+  未知: "Unknown",
+  近期近似有记录: "recent activity (approx.)",
   并发地址上限: "Address limit",
   "0 表示不限。仅作提示，不会自动断开连接。":
     "0 means unlimited. A hint only — nothing is disconnected.",
   来源地址: "Source addresses",
   "暂无地址记录。": "No addresses recorded.",
+  "{n} 个节点报告": "{n} nodes reporting",
+  "当前没有可用的实时观测；零值不能解释为离线。":
+    "No live observation is currently available; a zero value does not mean offline.",
+  "实时观测不完整；该数量仅为已观测到的下限。":
+    "Live observations are incomplete; this count is only the observed lower bound.",
+  "仅统计提供完整实时快照的节点。":
+    "Only nodes that supply complete live snapshots are included.",
+  "近期在线（近似）": "Recent activity (approximate)",
+  "近期在线记录：已观察到；{n} 个近期来源地址":
+    "Recent-online records: observed; {n} recent source addresses",
+  "近期在线记录：未观察到；{n} 个近期来源地址":
+    "Recent-online records: not observed; {n} recent source addresses",
+  "{n} 个节点提供近期记录": "{n} nodes supplied recent records",
+  "记录获取于 {when}": "records fetched {when}",
+  "近期记录读取失败或已过期；旧值不作为在线依据。":
+    "The recent-record read failed or expired; retained values are not treated as online evidence.",
+  "这是不完整的近期记录，不表示当前仍在线，也不参与地址上限比较。":
+    "This incomplete recent history does not mean the user is still online and is not compared with the address limit.",
+  "未观察到不表示当前离线；近期地址也不参与地址上限比较。":
+    "Not observed does not mean the user is currently offline; recent addresses are not compared with the address limit either.",
+  具体来源地址: "Source address details",
+  实际观测地址历史: "Observed-address history",
+  "暂无实际观测地址记录。": "No observed addresses recorded.",
+  "近期来源地址（近似）": "Recent source addresses (approximate)",
+  "近期记录未返回可展示的地址。": "The recent records returned no displayable addresses.",
   "仅超级管理员可查看具体地址。": "Only a superadmin can view the addresses.",
   "每次查看均记入审计日志。": "Every view is written to the audit log.",
   "最近 {when}": "last seen {when}",
