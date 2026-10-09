@@ -36,7 +36,8 @@ TLS 两种方式任选：
 curl -fsSL .../install.sh | sudo sh -s -- --agent --panel-url ... --token ...
 ```
 
-节点自动注册并接管本机 Xray。
+节点自动注册并接管本机 Xray。M8 正在把节点执行后端迁移到独立 3x-ui；已有只读 SHADOW
+契约观测和显式隔离的 CANDIDATE HTTP 用户／报告执行链，生产写入仍由 direct-Xray 执行。
 
 ### Docker
 
@@ -93,13 +94,17 @@ docker compose up -d
               │  Core：API · 模板渲染 · SQLite   │
               └─────▲──────────────────▲─────────┘
    gRPC over TLS    │                  │
-             ┌──────┴───────┐   ┌──────┴───────┐
-             │ 节点 A        │   │ 节点 B        │
-             │ Agent + Xray │   │ Agent + Xray │
-             └──────────────┘   └──────────────┘
+             ┌──────┴──────────┐   ┌──────┴──────────┐
+             │ 节点 A           │   │ 节点 B           │
+             │ Agent + Provider │   │ Agent + Provider │
+             └─────────────────┘   └─────────────────┘
 ```
 
 节点主动连接面板，因此节点无需暴露额外入站端口，可位于 NAT 之后。
+当前 runtime 是 direct-Xray；3x-ui 以节点本地独立进程接入，待
+[已确认的接管要求](docs/3x-ui-integration.md) 全部通过后才会进入 ACTIVE。3x-ui 的近似在线
+信息和原版初始化计费缺口已被接受，但不放宽配置保真、日常用户操作无额外中断和失败配置
+不影响旧运行态的要求。Chiral 始终保留用户、凭证、订阅、配额和审计的数据主权。
 
 ## 使用限制
 
@@ -118,11 +123,12 @@ docker compose up -d
 - [外部节点](docs/external-nodes.md)
 - [订阅者门户](docs/user-portal.md)
 - [内核在线升级](docs/xray-upgrade.md)
+- [3x-ui 节点执行后端迁移](docs/3x-ui-integration.md)
 - [参与开发](docs/development.md)
 
 ## 状态
 
-当前 v0.5.x。完整部署、TLS、端到端代理与内核升级均已在真实环境验证。
+当前 v0.13.x。M1–M7 已完成；M8 已有 SHADOW 与隔离 CANDIDATE，完整迁移未完成，尚未接管生产流量。
 
 主版本号为 0 表示接口与数据库结构仍可能变更，升级前请查阅对应 release 说明。
 

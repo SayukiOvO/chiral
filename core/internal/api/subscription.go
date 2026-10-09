@@ -77,28 +77,39 @@ func (s *Server) serveSubscription(w http.ResponseWriter, r *http.Request) {
 			"fragments", res.Fragments, "skipped", res.Skipped)
 	}
 
-	w.Header().Set("Content-Type", res.ContentType)
-	w.Header().Set("Content-Disposition", contentDisposition(res.Filename))
+	for name, values := range SubscriptionSuccessHeaders(u, res, time.Now()) {
+		w.Header()[name] = values
+	}
+	w.WriteHeader(http.StatusOK)
+	fmt.Fprint(w, res.Body)
+
+	s.logger.Info("subscription served", "user", u.Name, "client", res.Client,
+		"fragments", res.Fragments, "allowed", user.Allowed(u, time.Now().Unix()))
+}
+
+// SubscriptionSuccessHeaders is shared by the live response and the offline
+// equivalence exporter. The explicit clock makes expiry-boundary comparisons
+// reproducible without starting a server or changing subscriber state.
+func SubscriptionSuccessHeaders(u store.User, res subscription.Result, at time.Time) http.Header {
+	h := make(http.Header)
+	h.Set("Content-Type", res.ContentType)
+	h.Set("Content-Disposition", contentDisposition(res.Filename))
 	// The conventional header clients read to show quota and expiry.
-	w.Header().Set("Subscription-Userinfo", userinfoHeader(u))
+	h.Set("Subscription-Userinfo", userinfoHeader(u))
 	// Suspension has no representation in Subscription-Userinfo: expiry shows
 	// as a past `expire`, an exhausted quota as download > total, and a
 	// disabled account as nothing at all — the client draws a perfectly
 	// healthy subscription for somebody who cannot connect. This header is
 	// not a standard, and it is the only place to say so before the customer
 	// concludes the service is broken rather than switched off.
-	if reason := user.Reason(u, time.Now().Unix()); reason != "" {
-		w.Header().Set("Subscription-Status", reason)
+	if reason := user.Reason(u, at.Unix()); reason != "" {
+		h.Set("Subscription-Status", reason)
 	}
-	w.Header().Set("Profile-Update-Interval", "12")
+	h.Set("Profile-Update-Interval", "12")
 	// Subscriptions carry credentials; they must not be cached by anything in
 	// between.
-	w.Header().Set("Cache-Control", "no-store")
-	w.WriteHeader(http.StatusOK)
-	fmt.Fprint(w, res.Body)
-
-	s.logger.Info("subscription served", "user", u.Name, "client", res.Client,
-		"fragments", res.Fragments, "allowed", user.Allowed(u, time.Now().Unix()))
+	h.Set("Cache-Control", "no-store")
+	return h
 }
 
 // userinfoHeader is the widely-supported `Subscription-Userinfo` format:

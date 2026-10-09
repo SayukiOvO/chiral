@@ -7,6 +7,7 @@ Panel 的后端二进制，承载全部 API 与业务逻辑，是唯一持久化
 ## 布局
 
 - `cmd/core/` — 入口（main）：装配、启动、60 秒清扫、优雅退出
+- `cmd/equivalence/` — 独立只读快照核验工具，不启动 Core；见[离线等价性核验](../docs/offline-equivalence.md)
 - `internal/` — 职责包：`alert` `api` `auth` `mail` `node` `online` `passkey` `portal` `profile` `secret` `store` `subscription` `template` `user`
 - `migrations/` — SQLite 迁移，编译进二进制（`embed`），启动时按文件名顺序自动应用
 

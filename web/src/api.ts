@@ -38,6 +38,20 @@ export interface Node {
   agent_version: string;
   xray_version: string;
   xray_installed_version: string;
+  /** Node-local implementation that owns or shadows Xray lifecycle calls. */
+  runtime_provider: string;
+  /** ACTIVE receives writes; SHADOW is contract/health observation only. */
+  runtime_mode: "ACTIVE" | "SHADOW" | "CANDIDATE" | "UNKNOWN";
+  /** READY means the live provider contract satisfies this adapter revision. */
+  runtime_health: "READY" | "INCOMPATIBLE" | "UNREACHABLE" | "UNKNOWN";
+  runtime_version?: string;
+  runtime_capabilities?: string[];
+  runtime_contract_digest?: string;
+  runtime_error?: string;
+  runtime_observed_at?: number;
+  /** Candidate provider's Xray state; in SHADOW this is not the serving process. */
+  runtime_xray_state?: "RUNNING" | "STOPPED" | "ERROR" | "UNKNOWN";
+  runtime_xray_version?: string;
   platform: string;
   created_at: number;
   registered_at?: number;
@@ -94,6 +108,12 @@ export interface User {
    * must not look the same.
    */
   online_devices?: number;
+  /** True when at least one exact reporter returned an incomplete snapshot. */
+  online_partial?: boolean;
+  /** Exact reporters whose snapshot is still current. Zero means unknown. */
+  online_nodes_reporting?: number;
+  /** Separate incomplete recent-history signal; never included in online_devices. */
+  online_estimate?: OnlineEstimate;
   profile_ids: string[];
   /**
    * The rule set this subscriber chose for themselves, empty when they chose
@@ -151,6 +171,37 @@ export interface UserDevice {
   node_name: string;
   first_seen: number;
   last_seen: number;
+}
+
+/**
+ * An incomplete recent-history signal from providers without a current
+ * absolute snapshot. `retrieved_at` is when the records were fetched, not
+ * when the subscriber was last online.
+ */
+export interface OnlineEstimate {
+  observed_online: boolean;
+  recent_address_count: number;
+  retrieved_at: number;
+  nodes_reporting: number;
+  read_ok: boolean;
+}
+
+export interface UserOnlineStatus {
+  count: number;
+  partial: boolean;
+  nodes_reporting: number;
+  device_limit: number;
+  recording: boolean;
+  estimate?: OnlineEstimate;
+}
+
+/** Superadmin-only recent address from an incomplete provider observation. */
+export interface RecentUserAddress {
+  ip: string;
+  node_id: string;
+  node_name: string;
+  /** Time the provider's historical record was fetched; not last seen. */
+  retrieved_at: number;
 }
 
 export interface NodeSample {
@@ -870,13 +921,13 @@ export const api = {
   deleteUser: (id: string) => req<void>("DELETE", `/api/users/${id}`),
   /** Address COUNT. Available to any admin — it answers "why can't they connect". */
   userOnline: (id: string) =>
-    req<{ count: number; partial: boolean; nodes_reporting: number; device_limit: number; recording: boolean }>(
-      "GET",
-      `/api/users/${id}/online`,
-    ),
+    req<UserOnlineStatus>("GET", `/api/users/${id}/online`),
   /** The addresses themselves. Superadmin only, and audited on every read. */
   userDevices: (id: string) =>
-    req<{ devices: UserDevice[]; recording: boolean }>("GET", `/api/users/${id}/devices`),
+    req<{ devices: UserDevice[]; recent_addresses: RecentUserAddress[]; recording: boolean }>(
+      "GET",
+      `/api/users/${id}/devices`,
+    ),
   /** Mints a one-time link the subscriber uses to set their own password. */
   portalLink: (id: string) =>
     req<{ claim_url: string; expires_at: number }>("POST", `/api/users/${id}/portal-link`),

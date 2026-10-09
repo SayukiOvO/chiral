@@ -11,6 +11,7 @@ import (
 
 	"github.com/SayukiOvO/chiral/core/internal/auth"
 	"github.com/SayukiOvO/chiral/core/internal/external"
+	"github.com/SayukiOvO/chiral/core/internal/online"
 	"github.com/SayukiOvO/chiral/core/internal/store"
 	"github.com/SayukiOvO/chiral/core/internal/user"
 )
@@ -51,7 +52,13 @@ type userView struct {
 	DeviceLimit int `json:"device_limit"`
 	// OnlineDevices is the current count, absent when recording is off so the
 	// UI can distinguish "nobody connected" from "not measuring".
-	OnlineDevices *int `json:"online_devices,omitempty"`
+	OnlineDevices        *int `json:"online_devices,omitempty"`
+	OnlinePartial        bool `json:"online_partial,omitempty"`
+	OnlineNodesReporting int  `json:"online_nodes_reporting,omitempty"`
+	// OnlineEstimate is a separate, incomplete recent-history observation.
+	// It never changes OnlineDevices and contains no source addresses, so this
+	// read-level list does not expand who may see location data.
+	OnlineEstimate *online.Estimate `json:"online_estimate,omitempty"`
 	// ProfileIDs is what they hold, by whatever route. OwnProfileIDs are the
 	// grants written against this subscriber, and DeniedProfileIDs the ones
 	// withheld from them despite their group — the console needs all three to
@@ -121,8 +128,11 @@ func (s *Server) userView(u store.User, withCredentials bool) (userView, error) 
 		}
 	}
 	if s.online != nil {
-		n := s.online.Status(u.ID, time.Now()).Count
-		v.OnlineDevices = &n
+		status := s.online.Status(u.ID, time.Now())
+		v.OnlineDevices = &status.Count
+		v.OnlinePartial = status.Partial
+		v.OnlineNodesReporting = status.NodesReporting
+		v.OnlineEstimate = status.Estimate
 	}
 	if withCredentials {
 		creds, err := s.st.UserCredentials(u.ID)
@@ -324,8 +334,17 @@ func (s *Server) deleteUser(w http.ResponseWriter, r *http.Request) {
 	// Take them off the running kernels first, while the rows the operation
 	// needs still exist.
 	u.Enabled = false
-	if err := s.st.UpdateUser(u); err == nil {
-		s.syncUserNow(r.Context(), id)
+	if err := s.st.UpdateUser(u); err != nil {
+		s.internalErr(w, "disable user before retirement", err)
+		return
+	}
+	if s.profiles != nil {
+		if err := s.profiles.RetireUserCredentials(r.Context(), id); err != nil {
+			s.logger.Warn("credential retirement was not confirmed", "user", id, "err", err)
+			s.reassemble(r.Context(), nodeIDs)
+			writeErr(w, http.StatusConflict, "节点未确认凭证退役，已停用用户并保留其记录；请核对节点状态后处理")
+			return
+		}
 	}
 	if err := s.st.DeleteUser(id); err != nil {
 		s.internalErr(w, "delete user", err)
@@ -431,7 +450,10 @@ func (s *Server) unbindUserProfile(w http.ResponseWriter, r *http.Request) {
 	// where the user is installed and what an online removal needs to name, so
 	// read the nodes and take them off the kernels before dropping the rows.
 	nodeIDs := s.nodesForUserProfile(userID, profileID)
-	s.removeUserFromNodes(r.Context(), userID, profileID)
+	if err := s.removeUserFromNodes(r.Context(), userID, profileID); err != nil {
+		writeErr(w, http.StatusConflict, "节点未确认凭证退役，已保留绑定与凭证记录；请核对节点状态后处理")
+		return
+	}
 
 	if err := s.st.UnbindUserProfile(userID, profileID); err != nil {
 		s.internalErr(w, "unbind user from profile", err)
@@ -473,14 +495,16 @@ func (s *Server) reassemble(ctx context.Context, nodeIDs []string) {
 
 // removeUserFromNodes takes a user off the running kernels for one profile,
 // before the rows that describe the operation are dropped.
-func (s *Server) removeUserFromNodes(ctx context.Context, userID, profileID string) {
+func (s *Server) removeUserFromNodes(ctx context.Context, userID, profileID string) error {
 	if s.profiles == nil {
-		return
+		return nil
 	}
 	if err := s.profiles.RemoveUserFromProfile(ctx, userID, profileID); err != nil {
 		s.logger.Error("removing user from profile's nodes failed",
 			"user", userID, "profile", profileID, "err", err)
+		return err
 	}
+	return nil
 }
 
 func (s *Server) nodesForUser(userID string) []string {

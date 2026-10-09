@@ -3,11 +3,13 @@
 package node
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"sync"
 	"time"
 
+	"github.com/SayukiOvO/chiral/core/internal/store"
 	chiralv1 "github.com/SayukiOvO/chiral/proto/chiral/v1"
 )
 
@@ -26,10 +28,14 @@ type Session struct {
 	lastSeen time.Time
 	hello    *chiralv1.Hello
 	lastHB   *chiralv1.Heartbeat
+	lastHBAt time.Time
 	// lastPushVersion/lastPushAt throttle heartbeat-driven config
 	// reconciliation so a slow agent is not flooded with duplicate pushes.
 	lastPushVersion int64
 	lastPushAt      time.Time
+	opMu            sync.Mutex
+	userOps         map[string]*pendingUserOperation
+	userOpSequence  uint64
 }
 
 func (s *Session) close() { s.doneOnce.Do(func() { close(s.done) }) }
@@ -37,9 +43,11 @@ func (s *Session) close() { s.doneOnce.Do(func() { close(s.done) }) }
 func (s *Session) touch(hb *chiralv1.Heartbeat) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.lastSeen = time.Now()
+	now := time.Now()
+	s.lastSeen = now
 	if hb != nil {
 		s.lastHB = hb
+		s.lastHBAt = now
 	}
 }
 
@@ -52,8 +60,9 @@ type Manager struct {
 	hbTimeout time.Duration
 	// probeURL is where agents fetch from to prove traffic flows. Set once at
 	// startup, before any session exists, so it needs no lock.
-	probeURL string
-	logger   *slog.Logger
+	probeURL    string
+	logger      *slog.Logger
+	userOpStore *store.Store
 }
 
 func NewManager(hbTimeout time.Duration, logger *slog.Logger) *Manager {
@@ -92,6 +101,9 @@ type NodeState struct {
 	LastSeen  time.Time
 	Hello     *chiralv1.Hello
 	Heartbeat *chiralv1.Heartbeat
+	// HeartbeatAt is distinct from LastSeen: stats, acks and events prove the
+	// stream is alive but must not make an old runtime observation look fresh.
+	HeartbeatAt time.Time
 }
 
 func (m *Manager) State(nodeID string) NodeState {
@@ -104,10 +116,11 @@ func (m *Manager) State(nodeID string) NodeState {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return NodeState{
-		Online:    time.Since(s.lastSeen) < m.hbTimeout,
-		LastSeen:  s.lastSeen,
-		Hello:     s.hello,
-		Heartbeat: s.lastHB,
+		Online:      time.Since(s.lastSeen) < m.hbTimeout,
+		LastSeen:    s.lastSeen,
+		Hello:       s.hello,
+		Heartbeat:   s.lastHB,
+		HeartbeatAt: s.lastHBAt,
 	}
 }
 
@@ -136,12 +149,10 @@ func (m *Manager) PushConfig(nodeID string, version int64, configJSON, probeOutb
 // Empty leaves the agent's own default in place.
 func (m *Manager) SetProbeURL(u string) { m.probeURL = u }
 
-// SendUserOp queues an online user add/remove to the node's live session.
-// Fails when the node is offline; the caller reconciles on reconnect.
+// SendUserOp keeps the legacy signature while using execution receipts when
+// the node explicitly negotiated them. Legacy nodes still return on enqueue.
 func (m *Manager) SendUserOp(nodeID string, op *chiralv1.UserOp) error {
-	return m.enqueue(nodeID, &chiralv1.CoreFrame{
-		Frame: &chiralv1.CoreFrame_UserOp{UserOp: op},
-	})
+	return m.ExecuteUserOp(context.Background(), nodeID, op)
 }
 
 // SendCommand queues a Command frame to the node's live session.
@@ -211,12 +222,18 @@ func (m *Manager) enqueue(nodeID string, f *chiralv1.CoreFrame) error {
 	if s == nil {
 		return fmt.Errorf("node %s is offline", nodeID)
 	}
+	return s.enqueue(f)
+}
+
+// enqueue targets this exact stream, so a late acknowledgement cannot cross
+// into a replacement connection's capability negotiation.
+func (s *Session) enqueue(f *chiralv1.CoreFrame) error {
 	select {
 	case s.send <- f:
 		return nil
 	case <-s.done:
-		return fmt.Errorf("node %s is offline", nodeID)
+		return fmt.Errorf("node %s is offline", s.nodeID)
 	default:
-		return fmt.Errorf("node %s send queue is full", nodeID)
+		return fmt.Errorf("node %s send queue is full", s.nodeID)
 	}
 }

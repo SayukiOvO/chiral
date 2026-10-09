@@ -18,7 +18,7 @@ RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH \
 # (prerelease) channel — the latest features (xhttp up/down split, post-quantum
 # key exchange, ...) land there, not in the infrequent stable tags. Leave
 # XRAY_VERSION empty to fetch the latest snapshot at build time, or pin a
-# specific tag (e.g. --build-arg XRAY_VERSION=v26.7.11) for reproducibility.
+# specific release tag via XRAY_VERSION when reproducing one build.
 # Build platform: downloads and unpacks for TARGETARCH, never executes it.
 FROM --platform=$BUILDPLATFORM alpine:3.20 AS xray
 ARG XRAY_VERSION=

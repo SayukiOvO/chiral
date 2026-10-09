@@ -352,8 +352,14 @@ function UserCard({
             different things, and the API distinguishes them with an omitted
             field rather than a 0. */}
         {user.online_devices !== undefined && (
-          <Field label={t("并发地址")}>
-            <ConcurrentAddresses count={user.online_devices} limit={user.device_limit} />
+          <Field label={t("实时观测地址")}>
+            <ConcurrentAddresses
+              count={user.online_devices}
+              limit={user.device_limit}
+              partial={user.online_partial ?? false}
+              nodesReporting={user.online_nodes_reporting ?? 0}
+              estimate={user.online_estimate}
+            />
           </Field>
         )}
       </div>
@@ -527,9 +533,19 @@ function UserCard({
           {user.online_devices !== undefined && (
             <div className="mt-5">
               <div className="mb-2 text-[11px] font-medium uppercase tracking-[0.07em] text-faint">
-                {t("来源地址")}
+                {t("在线与来源地址")}
               </div>
-              <UserDevices userId={user.id} />
+              <UserDevices
+                userId={user.id}
+                online={{
+                  count: user.online_devices,
+                  partial: user.online_partial ?? false,
+                  nodes_reporting: user.online_nodes_reporting ?? 0,
+                  device_limit: user.device_limit,
+                  recording: true,
+                  estimate: user.online_estimate,
+                }}
+              />
             </div>
           )}
         </div>
@@ -546,12 +562,44 @@ function UserCard({
  * and an address is a poor proxy for a device — one household behind NAT counts
  * as one, one phone switching between wifi and cellular counts as two.
  */
-function ConcurrentAddresses({ count, limit }: { count: number; limit: number }) {
+function ConcurrentAddresses({
+  count,
+  limit,
+  partial,
+  nodesReporting,
+  estimate,
+}: {
+  count: number;
+  limit: number;
+  partial: boolean;
+  nodesReporting: number;
+  estimate?: User["online_estimate"];
+}) {
+  const { t } = useT();
+  const unknown = nodesReporting <= 0;
   const over = limit > 0 && count > limit;
   return (
-    <span className="font-mono text-sm tnum">
-      <span className={over ? "text-warn" : count > 0 ? "text-online" : "text-faint"}>{count}</span>
-      {limit > 0 && <span className="text-faint"> / {limit}</span>}
+    <span className="flex items-baseline gap-1.5 text-sm">
+      <span className="font-mono tnum">
+        <span
+          className={
+            unknown
+              ? "text-faint"
+              : over || partial
+                ? "text-warn"
+                : count > 0
+                  ? "text-online"
+                  : "text-faint"
+          }
+        >
+          {unknown ? t("未知") : partial ? `≥${count}` : count}
+        </span>
+        {!unknown && limit > 0 && <span className="text-faint"> / {limit}</span>}
+      </span>
+      {estimate?.read_ok &&
+        (estimate.observed_online || estimate.recent_address_count > 0) && (
+        <span className="text-[11px] text-muted">{t("近期近似有记录")}</span>
+      )}
     </span>
   );
 }

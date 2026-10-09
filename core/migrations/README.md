@@ -13,6 +13,7 @@
 | `0007_mfa.sql` | `mfa_credentials`、`mfa_recovery_codes`、`auth_challenges`；给 `admins` 加 `email` / `email_verified` |
 | `0008_online.sql` | `user_devices`（观测到的来源地址）；给 `users` 加 `device_limit` |
 | `0009_portal.sql` | `user_accounts`、`portal_sessions`、`portal_challenges`；给 `users` 加 `sub_token_enc`、`nodes` 加 `display_name`、`audit_log` 加 `actor_type` |
+| `0031_credential_traffic_owners.sql` | 不含密钥的独立计费归属；保留退役统计标识和冻结倍率，覆盖凭证级联删除，用户删除后解除个人归属 |
 
 ## 关键约束
 
@@ -21,3 +22,7 @@
 注释改写是真在用的手段：`0003_users.sql` 原先写着订阅 token「从不存储」，`0009_portal.sql` 推翻了这条，于是 0003 的注释被就地改成指向 0009，而它的 SQL 一个字节没动。
 
 另外 SQLite 不能 `ALTER` 一个 CHECK 约束，所以 `portal_challenges` 的 purpose 取值把暂时还没用到的也一并列进去了——不然将来加一种就得重建整张表。
+
+0031 只回填仍存在的凭证，不改写其统计标识、密钥、计数器或访问权限，也不推测已删除凭证
+的历史归属。应用到生产前仍须完成 SQLite `.backup`、目标版本迁移预演和全量订阅／配置
+逐字节核验；本地临时数据库测试不能替代生产副本验收。

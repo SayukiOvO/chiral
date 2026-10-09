@@ -4,6 +4,7 @@
 package user
 
 import (
+	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -16,10 +17,26 @@ import (
 type Service struct {
 	st     *store.Store
 	logger *slog.Logger
+	// snapshotAt is non-nil only for an offline read-only export. Such a
+	// service reuses existing credentials and never mints missing ones.
+	snapshotAt *time.Time
 }
 
 func NewService(st *store.Store, logger *slog.Logger) *Service {
 	return &Service{st: st, logger: logger}
+}
+
+// NewSnapshotService fixes entitlement time and forbids credential creation.
+// It accepts only a store opened through the dedicated snapshot opener, so
+// offline rendering cannot accidentally use a mutable production database.
+func NewSnapshotService(st *store.Store, logger *slog.Logger, at time.Time) (*Service, error) {
+	if _, ok := st.SnapshotIdentity(); !ok {
+		return nil, errors.New("snapshot user service requires a read-only snapshot store")
+	}
+	if at.IsZero() || at.Unix() < 0 {
+		return nil, errors.New("snapshot user service requires a nonnegative fixed timestamp")
+	}
+	return &Service{st: st, logger: logger, snapshotAt: &at}, nil
 }
 
 // Reasons a user's credentials should not be working. Empty means they should.
@@ -147,9 +164,17 @@ func (s *Service) EnsureCredentialsForRelay(profileID, nodeID, relayID string, a
 func (s *Service) ensureForExit(profileID, nodeID, exitID, relayID string, allowed map[string]bool) ([]store.Credential, error) {
 	userIDs, err := s.st.ProfileUserIDs(profileID)
 	if err != nil {
+		if s.snapshotAt != nil {
+			return nil, errors.New("snapshot entitlements could not be read")
+		}
 		return nil, err
 	}
-	now := time.Now().Unix()
+	var now int64
+	if s.snapshotAt != nil {
+		now = s.snapshotAt.Unix()
+	} else {
+		now = time.Now().Unix()
+	}
 	out := make([]store.Credential, 0, len(userIDs))
 	for _, uid := range userIDs {
 		u, err := s.st.GetUser(uid)
@@ -157,9 +182,24 @@ func (s *Service) ensureForExit(profileID, nodeID, exitID, relayID string, allow
 			if store.IsNotFound(err) {
 				continue
 			}
+			if s.snapshotAt != nil {
+				return nil, errors.New("snapshot subscriber could not be read")
+			}
 			return nil, err
 		}
 		if allowed != nil && !allowed[u.ID] {
+			continue
+		}
+		if s.snapshotAt != nil {
+			c, err := s.st.FindCredentialForExit(u.ID, profileID, nodeID, exitID, relayID)
+			if err != nil {
+				// Offline comparisons must fail closed instead of inventing a
+				// new secret or silently dropping an existing access point.
+				return nil, errors.New("snapshot credential is missing or cannot be read")
+			}
+			if Allowed(u, now) {
+				out = append(out, c)
+			}
 			continue
 		}
 		secret, err := template.Generate(template.GenUUID)

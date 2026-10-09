@@ -1,0 +1,5 @@
+# Reuse the runtime image without importing any production container state.
+ARG CHIRAL_LAB_AGENT_BASE_IMAGE
+FROM ${CHIRAL_LAB_AGENT_BASE_IMAGE}
+COPY --chmod=0555 bin/chiral-agent /usr/local/bin/chiral-agent
+ENTRYPOINT ["/usr/local/bin/chiral-agent"]

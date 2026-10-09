@@ -43,6 +43,8 @@ message AgentFrame {
     OnlineReport online = 6;
     XrayStatus xray_status = 7;
     XrayRelayRequest xray_relay_request = 8;
+    RecentOnlineReport recent_online = 9;
+    UserOpAck user_op_ack = 10;
   }
 }
 
@@ -60,6 +62,9 @@ message Hello {
   // operator's memory — is how a node gets told to install a binary for the
   // wrong architecture, which fails at exec time with nothing useful to say.
   string platform = 5;
+  // Opts this connection into exact execution receipts for UserOp. Core must
+  // continue the legacy enqueue-only path when an older agent omits it.
+  bool user_op_receipts = 6;
 }
 
 // Heartbeat carries lightweight system metrics and liveness.
@@ -94,6 +99,12 @@ message Heartbeat {
   // restart, a rollback, a crash-looping kernel — which is precisely when
   // collapsing them into one number would report the reassuring half.
   string installed_xray_version = 11;
+
+  // Runtime provider observation for this node. Older agents omit it, which
+  // Core treats as the legacy direct-Xray provider. During the 3x-ui migration
+  // a provider can run in SHADOW mode: its contract and health are observed,
+  // but every mutating instruction still goes through the direct provider.
+  RuntimeStatus runtime = 12;
 }
 
 enum XrayState {
@@ -108,6 +119,25 @@ enum XrayState {
 // Implemented in M3; shape is a draft until then.
 message StatsReport {
   repeated StatEntry entries = 1;
+  // Durable reporters resend the same sequence until StatsAck arrives. Both
+  // fields must be set together; empty/zero retains the legacy delta protocol.
+  // Never send acknowledged reports before receiving StatsPolicy on this stream.
+  string reporter_id = 2;
+  uint64 sequence = 3;
+  // A durable continuity gap, not an ordinary empty sample. Only valid with
+  // no entries; Core persists the marker with its receipt before acknowledging.
+  bool continuity_indeterminate = 4;
+}
+
+message StatsPolicy {
+  bool acknowledged_deltas = 1;
+}
+
+// Sent only after the complete batch, billing, history and receipt commit in
+// one transaction. A reconnect can repeat a batch without charging it twice.
+message StatsAck {
+  string reporter_id = 1;
+  uint64 sequence = 2;
 }
 
 message StatEntry {
@@ -174,6 +204,27 @@ message OnlineUser {
 message OnlineIP {
   string ip = 1;
   int64 last_seen_unix = 2;
+}
+
+// Cached/recorded provider observations, NEVER a complete current snapshot.
+// Send only after OnlinePolicy.recent_observations on this stream. An empty
+// report or observed_online=false cannot establish that a user is offline.
+message RecentOnlineReport {
+  // Age of the HTTP read when dispatched; not the age of a connection or IP.
+  // Core combines this with its receive clock instead of trusting wall time.
+  uint32 retrieved_age_seconds = 1;
+  // False means no successful provider read; users must be empty in that case.
+  bool read_ok = 2;
+  repeated RecentOnlineUser users = 3;
+}
+
+message RecentOnlineUser {
+  string email = 1;
+  // Presence in the provider's cached online list, not confirmed live now.
+  bool observed_online = 2;
+  // Recorded addresses, without invented last-seen timestamps. These must
+  // not populate the live device count or durable observation history.
+  repeated string ips = 3;
 }
 
 // ---- Xray-core runtime upgrade ----
@@ -270,6 +321,8 @@ message CoreFrame {
     OnlinePolicy online_policy = 4;
     XrayInstall xray_install = 5;
     XrayChunk xray_chunk = 6;
+    StatsPolicy stats_policy = 7;
+    StatsAck stats_ack = 8;
   }
 }
 
@@ -333,6 +386,9 @@ message OnlinePolicy {
   // from the set within about two seconds of disconnection — there is no
   // lingering window to catch it in.
   int32 interval_seconds = 2;
+  // Negotiates the distinct approximate report. Old Core omits this field;
+  // an approximate-only provider must stay silent, not send OnlineReport.
+  bool recent_observations = 3;
 }
 
 // ConfigPush delivers a complete config.json. Core has already validated it
@@ -380,6 +436,18 @@ message UserOp {
   string email = 3;
   // JSON-encoded account object (uuid/password/flow...), draft until M3.
   bytes account_json = 4;
+  // Set only when Hello.user_op_receipts is true. Omitted by older Cores.
+  // Never replay an uncertain operation under a new ID.
+  string operation_id = 5;
+  // Permanent credential retirement, distinct from temporary quota/expiry
+  // disable. API runtimes retain disabled credentials for later re-enabling.
+  bool retire_credential = 6;
+  // Relative execution budget, measured on the Agent's monotonic clock from
+  // receipt. Queue waiting consumes it. Zero keeps the legacy 30s default.
+  uint32 execution_timeout_millis = 7;
+  // Strictly increasing on this stream. Allows bounded receipt retention:
+  // an evicted old sequence is rejected without invoking the runtime again.
+  uint64 execution_sequence = 8;
 }
 
 enum UserOpKind {
@@ -402,3 +470,76 @@ message RestartXray {}
 // ReportNow asks the agent to send a Heartbeat (and StatsReport once
 // implemented) immediately.
 message ReportNow {}
+
+// RuntimeStatus is appended after the pre-existing protocol declarations so
+// adding it does not renumber the legacy descriptor indexes used by old Go
+// reflection APIs. Its Heartbeat field remains wire-compatible tag 12.
+message RuntimeStatus {
+  // Stable implementation name, currently "direct-xray" or "3x-ui".
+  string provider = 1;
+  RuntimeMode mode = 2;
+  // Provider version, not the managed Xray-core version. For 3x-ui this is the
+  // panelVersion returned by /panel/api/server/status.
+  string version = 3;
+  // Route capability names discovered from the provider's live contract.
+  // SHADOW verifies exact path/method shape, not write authorization or
+  // operation semantics; those require isolated probes before ACTIVE.
+  repeated string capabilities = 4;
+  // A bounded, operator-safe summary. Detailed upstream errors stay in the
+  // Agent log so a node cannot inject secrets or unbounded text into Core.
+  string error = 5;
+  // SHA-256 of the provider's live OpenAPI document. An unversioned API can
+  // change without its panel version making that contract change obvious.
+  string contract_digest = 6;
+  // Time behind the reported health: the last successful contract read, or
+  // the latest failed observation attempt.
+  int64 observed_at_unix = 7;
+  RuntimeHealth health = 8;
+  // Provider-observed Xray state. In SHADOW mode this describes the candidate
+  // backend only; Heartbeat.xray_state remains the active runtime that is
+  // actually serving subscribers.
+  XrayState xray_state = 9;
+  // Provider-observed Xray version, with the same SHADOW distinction as
+  // xray_state. It must never overwrite Heartbeat.xray_version.
+  string xray_version = 10;
+  // Age of observed_at_unix when this heartbeat snapshot was made. Core uses
+  // this relative value with its receive time so Agent/browser clock skew
+  // cannot turn a stale contract green or a fresh one red.
+  uint32 observed_age_seconds = 11;
+}
+
+enum RuntimeMode {
+  RUNTIME_MODE_UNSPECIFIED = 0;
+  RUNTIME_MODE_ACTIVE = 1;
+  RUNTIME_MODE_SHADOW = 2;
+  // Explicit isolated execution candidate, never production takeover.
+  RUNTIME_MODE_CANDIDATE = 3;
+}
+
+enum RuntimeHealth {
+  RUNTIME_HEALTH_UNSPECIFIED = 0;
+  // Reachable and satisfies the evidence required by this mode. In SHADOW it
+  // means route-shape discovery plus the safe config read, not ACTIVE parity.
+  RUNTIME_HEALTH_READY = 1;
+  // Reachable, but its live contract is missing one or more requirements.
+  RUNTIME_HEALTH_INCOMPATIBLE = 2;
+  // The provider or its live contract could not be observed.
+  RUNTIME_HEALTH_UNREACHABLE = 3;
+}
+
+// UserOpAck belongs to one stream and one exact operation ID. A runtime error
+// may follow a partial write; UNKNOWN must never be treated as unapplied or
+// automatically retried. NOT_EXECUTED proves no runtime mutation was attempted.
+message UserOpAck {
+  string operation_id = 1;
+  UserOpResult result = 2;
+  // Bounded, operator-safe detail; raw provider errors stay in the Agent log.
+  string error = 3;
+}
+
+enum UserOpResult {
+  USER_OP_RESULT_UNSPECIFIED = 0;
+  USER_OP_RESULT_APPLIED = 1;
+  USER_OP_RESULT_NOT_EXECUTED = 2;
+  USER_OP_RESULT_UNKNOWN = 3;
+}

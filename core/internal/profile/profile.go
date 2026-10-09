@@ -171,8 +171,9 @@ func (s *Service) ClientContext(profileID, nodeID string) (*template.Context, er
 }
 
 // AssembleNode renders the node's full config.json from the profiles bound to
-// it. It does not persist or push anything — used both for preview and as the
-// first half of Apply.
+// it. It does not persist a config version or push anything, but its ordinary
+// user service can mint missing credentials. Offline callers must use the
+// snapshot user service and a read-only store. Used for preview and Apply.
 func (s *Service) AssembleNode(nodeID string) ([]byte, error) {
 	n, err := s.st.GetNode(nodeID)
 	if err != nil {

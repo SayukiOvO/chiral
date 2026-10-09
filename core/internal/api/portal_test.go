@@ -112,6 +112,7 @@ func TestPortalTokenIsRefusedByEveryAdminRoute(t *testing.T) {
 		{"GET", "/api/nodes"},
 		{"GET", "/api/users"},
 		{"GET", "/api/users/" + u.ID},
+		{"GET", "/api/users/" + u.ID + "/online"},
 		{"GET", "/api/users/" + u.ID + "/devices"},
 		{"GET", "/api/profiles"},
 		{"GET", "/api/variables"},

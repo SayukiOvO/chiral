@@ -5,7 +5,11 @@ import (
 	"log/slog"
 	"math"
 	"net"
+	"net/netip"
+	"strings"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
@@ -35,6 +39,13 @@ type TrafficRecorder interface {
 type OnlineRegistry interface {
 	Replace(nodeID string, obs []online.Observation, complete bool, now time.Time)
 	Forget(nodeID string)
+}
+
+// RecentOnlineRegistry is an optional capability for providers that expose
+// cache/history observations rather than an exact current snapshot. Keeping it
+// separate avoids forcing legacy OnlineRegistry implementations to opt in.
+type RecentOnlineRegistry interface {
+	ReplaceRecent(nodeID string, obs []online.RecentObservation, readOK bool, at time.Time)
 }
 
 // OnlineRecorder persists an observed address.
@@ -71,6 +82,7 @@ type Service struct {
 }
 
 func NewService(st *store.Store, mgr *Manager, traffic TrafficRecorder, logger *slog.Logger) *Service {
+	mgr.userOpStore = st
 	return &Service{st: st, mgr: mgr, traffic: traffic, logger: logger}
 }
 
@@ -162,8 +174,12 @@ func (s *Service) Channel(stream chiralv1.AgentService_ChannelServer) error {
 		for {
 			select {
 			case f := <-sess.send:
+				if !sess.prepareUserOperationSend(f) {
+					continue
+				}
 				if err := stream.Send(f); err != nil {
-					return // stream broken; read side will notice too
+					sess.close() // unblock exact execution waiters immediately
+					return
 				}
 			case <-sess.done:
 				return
@@ -177,14 +193,25 @@ func (s *Service) Channel(stream chiralv1.AgentService_ChannelServer) error {
 	// without operator action (the agent skips the apply if it already runs
 	// identical content). Configs rejected by `xray -test` are not re-pushed.
 	s.reconcileConfig(n.ID, sess, -1)
+	// An API runtime must never retry deltas against an older Core which would
+	// charge every replay. Explicitly negotiate receipts on each connection.
+	if s.traffic != nil {
+		if err := sess.enqueue(&chiralv1.CoreFrame{Frame: &chiralv1.CoreFrame_StatsPolicy{
+			StatsPolicy: &chiralv1.StatsPolicy{AcknowledgedDeltas: true},
+		}}); err != nil {
+			return status.Error(codes.Unavailable, "cannot negotiate acknowledged traffic")
+		}
+	}
 
 	// Tell the agent whether to poll. Sent on every connect because the agent
 	// keeps no policy across reconnects — it starts idle, which is the safe
 	// default if this frame is ever lost.
 	if s.online != nil {
+		_, recentObservations := s.online.(RecentOnlineRegistry)
 		if err := s.mgr.SendOnlinePolicy(n.ID, &chiralv1.OnlinePolicy{
-			Enabled:         true,
-			IntervalSeconds: int32(s.onlineInterval.Seconds()),
+			Enabled:            true,
+			IntervalSeconds:    int32(s.onlineInterval.Seconds()),
+			RecentObservations: recentObservations,
 		}); err != nil {
 			s.logger.Warn("pushing online policy failed", "node", n.ID, "err", err)
 		}
@@ -272,15 +299,25 @@ func (s *Service) handleFrame(nodeID string, sess *Session, f *chiralv1.AgentFra
 			s.logger.Error("persist config ack failed", "node", nodeID, "err", err)
 		}
 		s.logger.Info("config ack", "node", nodeID, "version", ack.GetVersion(), "applied", ack.GetApplied(), "error", ack.GetError())
+	case *chiralv1.AgentFrame_UserOpAck:
+		sess.touch(nil)
+		s.mgr.acknowledgeUserOperation(nodeID, sess, fr.UserOpAck)
 	case *chiralv1.AgentFrame_Event:
 		sess.touch(nil)
 		s.logger.Warn("agent event", "node", nodeID, "kind", fr.Event.GetKind(), "message", fr.Event.GetMessage())
 	case *chiralv1.AgentFrame_Stats:
 		sess.touch(nil)
-		s.recordStats(nodeID, fr.Stats)
+		if fr.Stats.GetReporterId() != "" || fr.Stats.GetSequence() != 0 || fr.Stats.GetContinuityIndeterminate() {
+			s.recordAcknowledgedStats(nodeID, sess, fr.Stats)
+		} else {
+			s.recordStats(nodeID, fr.Stats)
+		}
 	case *chiralv1.AgentFrame_Online:
 		sess.touch(nil)
 		s.recordOnline(nodeID, fr.Online)
+	case *chiralv1.AgentFrame_RecentOnline:
+		sess.touch(nil)
+		s.recordRecentOnline(nodeID, fr.RecentOnline)
 	case *chiralv1.AgentFrame_XrayStatus:
 		sess.touch(nil)
 		if s.upgrades == nil {
@@ -365,12 +402,24 @@ func (s *Service) recordStats(nodeID string, report *chiralv1.StatsReport) {
 		up, down := e.GetUplinkBytes(), e.GetDownlinkBytes()
 		// The wire type is unsigned; guard the conversion so a bogus report
 		// cannot turn into a negative delta the store would reject.
-		if up > math.MaxInt64 || down > math.MaxInt64 {
+		if up > math.MaxInt64 || down > math.MaxInt64-up {
 			s.logger.Warn("implausible traffic delta ignored", "node", nodeID, "email", e.GetName())
+			continue
+		}
+		// Legacy reports remain accepted, but cannot bypass the ownership
+		// boundary enforced for acknowledged batches and online observations.
+		_, owner, err := s.st.CredentialOwner(e.GetName())
+		if err != nil && !store.IsNotFound(err) {
+			s.logger.Error("resolving traffic credential failed", "node", nodeID, "err", err)
+			continue
+		}
+		if err == nil && owner != nodeID {
+			s.logger.Warn("traffic credential belongs to another node", "node", nodeID)
 			continue
 		}
 		if err := s.traffic.AddCredentialTraffic(e.GetName(), int64(up), int64(down)); err != nil {
 			s.logger.Error("recording traffic failed", "node", nodeID, "email", e.GetName(), "err", err)
+			continue
 		}
 		s.recordTrafficHistory(nodeID, e.GetName(), int64(up), int64(down))
 	}
@@ -391,6 +440,9 @@ func (s *Service) recordTrafficHistory(nodeID, email string, up, down int64) {
 	}
 	if credNodeID == "" {
 		credNodeID = nodeID
+	}
+	if credNodeID != nodeID {
+		return
 	}
 	if err := s.st.AddTraffic(credNodeID, userID, time.Now(), up, down); err != nil {
 		s.logger.Error("recording traffic history failed", "node", nodeID, "err", err)
@@ -460,6 +512,138 @@ func (s *Service) recordOnline(nodeID string, report *chiralv1.OnlineReport) {
 			"node", nodeID, "entries", forged)
 	}
 	s.online.Replace(nodeID, obs, report.GetComplete(), now)
+}
+
+// recordRecentOnline installs a provider cache/history sample. It shares the
+// credential ownership boundary with exact reports, but deliberately neither
+// changes the exact online count nor writes user_devices: the provider has no
+// true per-address last-seen time for such a durable claim.
+func (s *Service) recordRecentOnline(nodeID string, report *chiralv1.RecentOnlineReport) {
+	recent, ok := s.online.(RecentOnlineRegistry)
+	if !ok {
+		return
+	}
+	if reason, ok := validateRecentOnlineReport(report); !ok {
+		s.logger.Warn("rejecting invalid recent online report", "node", nodeID, "reason", reason)
+		return
+	}
+
+	now := time.Now()
+	retrievedAt := now.Add(-time.Duration(report.GetRetrievedAgeSeconds()) * time.Second)
+	if !report.GetReadOk() {
+		recent.ReplaceRecent(nodeID, nil, false, retrievedAt)
+		return
+	}
+
+	observations := make([]online.RecentObservation, 0, len(report.GetUsers()))
+	byUser := make(map[string]int, len(report.GetUsers()))
+	seenIPs := make(map[string]map[string]struct{}, len(report.GetUsers()))
+	forged := 0
+	lookupFailures := 0
+
+	for _, u := range report.GetUsers() {
+		email := u.GetEmail()
+		if email == "" {
+			continue
+		}
+		userID, credentialNodeID, err := s.st.CredentialOwner(email)
+		if err != nil {
+			if !store.IsNotFound(err) {
+				lookupFailures++
+			}
+			continue
+		}
+		if credentialNodeID != nodeID {
+			forged++
+			continue
+		}
+
+		index, exists := byUser[userID]
+		if !exists {
+			index = len(observations)
+			byUser[userID] = index
+			seenIPs[userID] = make(map[string]struct{}, len(u.GetIps()))
+			observations = append(observations, online.RecentObservation{UserID: userID})
+		}
+		observations[index].ObservedOnline = observations[index].ObservedOnline || u.GetObservedOnline()
+		for _, rawIP := range u.GetIps() {
+			addr, _ := netip.ParseAddr(rawIP) // validated before any state change
+			ip := addr.Unmap().String()
+			if _, duplicate := seenIPs[userID][ip]; duplicate {
+				continue
+			}
+			seenIPs[userID][ip] = struct{}{}
+			observations[index].IPs = append(observations[index].IPs, ip)
+		}
+	}
+
+	if forged > 0 {
+		s.logger.Warn("agent reported recent observations for credentials that are not its own",
+			"node", nodeID, "entries", forged)
+	}
+	if lookupFailures > 0 {
+		s.logger.Error("resolving recent credential owners failed", "node", nodeID, "entries", lookupFailures)
+		// Do not install a partial mapping after a transient database failure;
+		// retaining the prior sample is safer than turning omitted users into a
+		// reassuring zero-address estimate.
+		return
+	}
+	recent.ReplaceRecent(nodeID, observations, true, retrievedAt)
+}
+
+func validateRecentOnlineReport(report *chiralv1.RecentOnlineReport) (string, bool) {
+	if report == nil {
+		return "nil_report", false
+	}
+	if !report.GetReadOk() && len(report.GetUsers()) != 0 {
+		return "users_without_successful_read", false
+	}
+	if len(report.GetUsers()) > chiralv1.MaxRecentOnlineUsers {
+		return "too_many_users", false
+	}
+	totalIPs := 0
+	emails := make(map[string]struct{}, len(report.GetUsers()))
+	for _, u := range report.GetUsers() {
+		if u == nil {
+			return "nil_user", false
+		}
+		email := u.GetEmail()
+		if email == "" {
+			return "empty_email", false
+		}
+		if len(email) > chiralv1.MaxRecentOnlineEmailBytes {
+			return "email_too_long", false
+		}
+		if !utf8.ValidString(email) {
+			return "invalid_email_encoding", false
+		}
+		if strings.TrimSpace(email) != email {
+			return "email_contains_surrounding_space", false
+		}
+		for _, character := range email {
+			if unicode.IsControl(character) {
+				return "email_contains_control_character", false
+			}
+		}
+		if _, duplicate := emails[email]; duplicate {
+			return "duplicate_email", false
+		}
+		emails[email] = struct{}{}
+		if len(u.GetIps()) > chiralv1.MaxRecentOnlineIPs-totalIPs {
+			return "too_many_addresses", false
+		}
+		totalIPs += len(u.GetIps())
+		for _, rawIP := range u.GetIps() {
+			addr, err := netip.ParseAddr(rawIP)
+			if err != nil {
+				return "invalid_address", false
+			}
+			if addr.Zone() != "" {
+				return "scoped_address", false
+			}
+		}
+	}
+	return "", true
 }
 
 func (s *Service) authenticate(ctx context.Context) (store.Node, error) {
