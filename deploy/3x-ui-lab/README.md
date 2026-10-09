@@ -106,6 +106,22 @@ sudo python3 lab.py stop
 
 ## 本机独立写入与数据面契约测试
 
+### 实际 HTTP Runtime 候选验收
+
+`write_contract.py --suite runtime` 使用全新官方实例执行实际
+`agent/internal/threexui.Runtime`，不只检查 HTTP 封装。它通过正式候选引导入口创建空
+回环 VLESS 入站，再执行新增、修改、临时停用／恢复及保留统计的永久退役，并检查两条
+已建立响应流继续传输、停用窗口的新连接拒绝、持久批次跨重启重发和精确 ACK、近期
+近似缓存读取以及不同配置在写前拒绝。数据客户端仅是隔离探针，不管理 provider 的 Xray。
+
+采用前述相同的 `--image`、`--binary` 和不存在的 `--output` 参数，另加 `--suite runtime`。
+测试必须取得所有专属正向标志、零退出状态、PASS、无 SKIP、探针回收和设置恢复证据。
+容器与计费行停止后保留，不以删除账务尾部记录“清场”。这种验收不启动实际 Core／Agent
+进程，不证明完整 gRPC 端到端、所有协议与配置字段、最终结算或生产订阅等价。
+
+候选 Agent 入口的初始化和使用限制见 [Agent 说明](../../agent/README.md#独立实例的候选执行路径)。
+默认 Compose 仍保持 SHADOW；不得把既有实验状态目录改作候选，或将实验输入指向生产。
+
 `write_contract.py` 可在本机 Docker（包括 Docker Desktop）新建一个独立空实例，不需要
 连接 Turin，也不启动或修改已有 Core、Agent。它仅接受已拉取的官方镜像 digest 和已编译的
 Linux amd64 契约测试二进制。镜像摘要是本次验收输入，不是产品固定版本策略。

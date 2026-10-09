@@ -284,6 +284,66 @@ func (a *Accounting) Ack(deliveryID string) error {
 	return a.persist(state)
 }
 
+// PendingBatch returns the immutable durable delivery without sampling a new
+// provider snapshot. A temporarily unavailable provider must not prevent replay
+// of bytes already retained in the outbox.
+func (a *Accounting) PendingBatch() (*AccountingBatch, error) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.failure != nil {
+		return nil, a.failure
+	}
+	return cloneAccountingBatch(a.state.Pending), nil
+}
+
+// BoundProviderIdentity exposes the journal binding so a provider with a
+// stricter no-adoption policy can reject a journal restored from another node
+// before replaying its pending deliveries. It contains no proxy credential.
+func (a *Accounting) BoundProviderIdentity() (string, error) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.failure != nil {
+		return "", a.failure
+	}
+	return a.state.ProviderIdentity, nil
+}
+
+// CheckDurableState rejects a lost or externally changed journal before its
+// owner samples or acknowledges again. It never repairs or recreates the file.
+// The caller still owns the directory lock; this is not a transaction against
+// an unrelated writer modifying the path after this check.
+func (a *Accounting) CheckDurableState() error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.failure != nil {
+		return a.failure
+	}
+	changed := func() error {
+		a.failure = fmt.Errorf("accounting journal changed; reopen and operator review required")
+		return a.failure
+	}
+	info, err := os.Lstat(a.path)
+	if err != nil || !info.Mode().IsRegular() || info.Mode().Perm()&0o077 != 0 || info.Size() > maxAccountingBytes {
+		return changed()
+	}
+	file, err := os.Open(a.path)
+	if err != nil {
+		return changed()
+	}
+	defer file.Close()
+	opened, err := file.Stat()
+	if err != nil || !os.SameFile(info, opened) {
+		return changed()
+	}
+	raw, err := io.ReadAll(io.LimitReader(file, maxAccountingBytes+1))
+	current, statErr := os.Lstat(a.path)
+	expected, encodeErr := json.Marshal(a.state)
+	if err != nil || statErr != nil || encodeErr != nil || !os.SameFile(info, current) || !bytes.Equal(raw, expected) {
+		return changed()
+	}
+	return nil
+}
+
 func (a *Accounting) persist(state accountingState) error {
 	raw, err := json.Marshal(state)
 	if err == nil && len(raw) > maxAccountingBytes {

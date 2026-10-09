@@ -105,6 +105,13 @@ func (c *Client) localInboundTraffic(ctx context.Context) ([]ClientTraffic, []Ta
 	if err := c.getTrafficArray(ctx, inboundTrafficEndpoint, &rows); err != nil {
 		return nil, nil, err
 	}
+	return decodeLocalInboundTrafficRows(rows)
+}
+
+// decodeLocalInboundTrafficRows is shared by standalone traffic reads and the
+// runtime ownership reader, which derives identity and statistics from the
+// same verified inbound response instead of issuing a second inventory read.
+func decodeLocalInboundTrafficRows(rows []inboundTrafficWire) ([]ClientTraffic, []TaggedTraffic, error) {
 	if len(rows) > maxTrafficRows {
 		return nil, nil, trafficContractError()
 	}
@@ -181,8 +188,8 @@ func (c *Client) getTrafficArray(ctx context.Context, endpoint string, dst any) 
 	if err != nil {
 		return err
 	}
-	var response envelope
-	if json.Unmarshal(body, &response) != nil || response.Success == nil {
+	response, err := decodeSensitiveEnvelope(body)
+	if err != nil {
 		return trafficContractError()
 	}
 	if !*response.Success {

@@ -5,10 +5,22 @@ package runtimeprovider
 
 import (
 	"context"
+	"errors"
 	"strings"
 
 	chiralv1 "github.com/SayukiOvO/chiral/proto/chiral/v1"
 )
+
+// ErrOperationNotExecuted is reserved for a refusal before any external
+// mutation. A remote error or timeout cannot establish this guarantee.
+var ErrOperationNotExecuted = errors.New("runtime operation was not executed")
+
+// CredentialRetirer distinguishes permanent credential deletion from a
+// temporary quota/expiry disable. HTTP providers retain the latter's account
+// and statistic identities so re-enabling does not change subscriptions.
+type CredentialRetirer interface {
+	RetireUser(ctx context.Context, inboundTag, email string) error
+}
 
 // Runtime is the part of a node runtime the Core client needs for ordinary
 // operation. Kernel installation is deliberately not part of this contract:

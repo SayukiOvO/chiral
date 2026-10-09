@@ -159,11 +159,36 @@ func (s *Server) changeGroupProfile(w http.ResponseWriter, r *http.Request, gran
 	if grant {
 		err = s.st.BindGroupProfile(groupID, profileID)
 	} else {
-		err = s.st.UnbindGroupProfile(groupID, profileID)
+		retiring := make([]string, 0, len(members))
+		for _, uid := range members {
+			retains, err := s.st.UserHoldsProfileWithoutGroup(uid, profileID, groupID)
+			if err != nil {
+				s.internalErr(w, "resolve profile access before group revocation", err)
+				return
+			}
+			if !retains {
+				retiring = append(retiring, uid)
+			}
+		}
+		// Record the authorized withdrawal first: a partially completed group
+		// operation must not let background synchronization grant access back.
+		// Retain credential context until every retirement is confirmed.
+		if err := s.st.UnbindGroupProfile(groupID, profileID); err != nil {
+			s.internalErr(w, "revoke group profile", err)
+			return
+		}
+		for _, uid := range retiring {
+			if err := s.removeUserFromNodes(r.Context(), uid, profileID); err != nil {
+				s.audit(r, "group.profile.revoke.pending", "group", groupID, g.Name, profileID)
+				s.reassemble(r.Context(), nodeIDs)
+				writeErr(w, http.StatusConflict, "用户组授予已撤销，但节点未全部确认凭证退役；已保留凭证记录，请核对节点状态后处理")
+				return
+			}
+		}
 		// The credentials that grant reached are per (subscriber, profile),
 		// and they have to go before the configs are rewritten, or a reconnect
 		// would restore what was just withdrawn.
-		for _, uid := range members {
+		for _, uid := range retiring {
 			if e := s.st.DeleteCredentialsForBinding(uid, profileID); e != nil && err == nil {
 				err = e
 			}
@@ -367,6 +392,15 @@ func (s *Server) setUserGroup(w http.ResponseWriter, r *http.Request) {
 	nodeIDs = append(nodeIDs, s.userCredentialNodes(u.ID)...)
 	// Credentials for a binding the subscriber no longer holds must go, or a
 	// reconnect would restore access the move withdrew.
+	if s.profiles != nil {
+		if err := s.profiles.RetireUserCredentialsNotEntitled(r.Context(), u.ID); err != nil {
+			s.logger.Warn("credential retirement after a group change was not confirmed", "user", u.ID, "err", err)
+			s.audit(r, "user.group.pending", "user", u.ID, u.Name, name)
+			s.reassemble(r.Context(), nodeIDs)
+			writeErr(w, http.StatusConflict, "用户组归属已变更，但节点未确认旧凭证退役；已保留凭证记录，请核对节点状态后处理")
+			return
+		}
+	}
 	if err := s.st.DeleteCredentialsNotEntitled(u.ID); err != nil {
 		s.logger.Error("dropping credentials after a group change failed", "user", u.ID, "err", err)
 	}
@@ -437,14 +471,18 @@ func (s *Server) setUserProfileAccess(w http.ResponseWriter, r *http.Request) {
 		s.internalErr(w, "list profile nodes", err)
 		return
 	}
-	held := s.holdsProfile(userID, profileID)
 	if err := s.st.SetUserProfileAccess(userID, profileID, grant, clear); err != nil {
 		s.internalErr(w, "set profile access", err)
 		return
 	}
 	nowHeld := s.holdsProfile(userID, profileID)
-	if held && !nowHeld {
-		s.removeUserFromNodes(r.Context(), userID, profileID)
+	if !nowHeld {
+		if err := s.removeUserFromNodes(r.Context(), userID, profileID); err != nil {
+			s.audit(r, "user.profile."+req.State+".pending", "user", userID, "", profileID)
+			s.reassemble(r.Context(), nodeIDs)
+			writeErr(w, http.StatusConflict, "访问策略已撤销，但节点未确认凭证退役；已保留凭证记录，请核对节点状态后处理")
+			return
+		}
 		if err := s.st.DeleteCredentialsForBinding(userID, profileID); err != nil {
 			s.internalErr(w, "drop credentials", err)
 			return

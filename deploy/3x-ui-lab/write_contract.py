@@ -33,8 +33,24 @@ SUITES = {
     "shadow-observation": "TestLive3XUIReadOnlyContract",
     "recent-online": "TestLive3XUIRecentOnlineContract",
     "tail-accounting": "TestLive3XUITailAccountingContract",
+    "runtime": "TestLive3XUIRuntimeContract",
 }
 EVIDENCE_MARKERS = {
+    "runtime": (
+        "runtime_http_mutations_verified",
+        "runtime_modification_verified",
+        "runtime_exact_configuration_confirmation_verified",
+        "runtime_stats_receipts_verified",
+        "retained_batch_restart_verified",
+        "runtime_recent_online_verified",
+        "runtime_configuration_refusal_verified",
+        "existing_streams_survived",
+        "temporary_disable_new_connections_denied",
+        "runtime_candidate_only",
+        "http_only_provider_control",
+        "tail_settings_restored_verified",
+        "fixture_reaped",
+    ),
     # PASS means this bounded experiment finished, NOT final settlement or
     # production integration. The original accounting rows remain in the
     # stopped, retained lab; no empty-object cleanup marker is appropriate.

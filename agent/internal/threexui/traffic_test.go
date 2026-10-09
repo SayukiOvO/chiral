@@ -137,3 +137,40 @@ func TestTrafficProviderFailuresCannotEchoArbitrarySecrets(t *testing.T) {
 		}
 	}
 }
+
+func TestTrafficRejectsAmbiguousOuterJSON(t *testing.T) {
+	for name, body := range map[string]string{
+		"duplicate success":      `{"success":false,"success":true,"obj":[]}`,
+		"duplicate same success": `{"success":true,"success":true,"obj":[]}`,
+		"duplicate object":       `{"success":true,"obj":[{"id":1,"tag":"private-envelope-secret","up":1,"down":0}],"obj":[]}`,
+		"duplicate null object":  `{"success":true,"obj":[],"obj":null}`,
+		"escaped object alias":   `{"success":true,"obj":[],"o\u0062j":[]}`,
+		"case success alias":     `{"success":true,"Success":false,"obj":[]}`,
+		"case object alias":      `{"success":true,"obj":[],"OBJ":null}`,
+		"null success":           `{"success":null,"obj":[]}`,
+		"missing object":         `{"success":true}`,
+		"multiple documents":     `{"success":true,"obj":[]} {"success":true,"obj":[]}`,
+		"nonobject outer":        `[{"success":true,"obj":[]}]`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			client, err := New(Config{BaseURL: "http://127.0.0.1:2053/private/", Token: testToken,
+				HTTPClient: &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+					return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(body))}, nil
+				})}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			clients, inboundErr := client.ClientTraffics(context.Background())
+			outbounds, outboundErr := client.OutboundTraffics(context.Background())
+			if clients != nil || outbounds != nil {
+				t.Fatal("ambiguous envelope returned traffic counters")
+			}
+			for _, err := range []error{inboundErr, outboundErr} {
+				var contract *ContractError
+				if !errors.As(err, &contract) || strings.Contains(err.Error(), "private-envelope-secret") || strings.Contains(err.Error(), testToken) {
+					t.Fatalf("ambiguous envelope accepted or exposed remote content: %v", err)
+				}
+			}
+		})
+	}
+}

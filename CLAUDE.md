@@ -2,6 +2,15 @@
 
 本文件是 Chiral 项目的权威上下文，供 Claude 在后续会话中快速对齐。人类协作者也应先读本文件。改动重大决策时，请同步更新本文件。
 
+**2026-10-09 同步**：3x-ui 集成的当前授权与验收口径以同仓库 `AGENTS.md` §4、
+`docs/3x-ui-integration.md` 为准。仅使用官方未修改的 HTTP API；增强 fork 与兼容服务授权
+均已撤回，预安装不激活和离线内核回滚暂缓。近似在线及原版首批累计计费缺口已明确接受，
+全字段保真、日常用户操作无额外中断与失败配置保护旧运行态的目标未降低。
+已实现显式隔离的 `3x-ui-candidate` Agent 执行链：用户操作确认、持久化累计账本与近期观测，
+不创建原生 Xray manager／installer。未知执行保留跨重启屏障和凭证上下文；不同的任意配置
+仍在写入前拒绝。CANDIDATE 不等于 ACTIVE，生产仍为 direct-Xray；不得操作 Turin、修改
+上游或因候选测试通过开启接管。完整配置调和、最终结算、普通更新调度和端到端验收未完成。
+
 ## 1. 项目是什么
 
 Chiral 是一个 Xray 管理面板，定位类似 Remnawave：采用 **Panel + Agent** 分布式架构，集中管理多台节点主机上的 Xray-core 及其 `config.json`，提供节点监控、模板化配置下发、用户与流量管理、多客户端订阅。必须支持 Docker / docker-compose 部署。
@@ -94,7 +103,7 @@ Chiral 是一个 Xray 管理面板，定位类似 Remnawave：采用 **Panel + A
 
 ## 8. 开发里程碑
 
-见 `docs/roadmap.md`。M1–M7 已完成；M8（3x-ui 节点执行后端迁移）正在进行，当前仅交付只读 SHADOW 基础设施；3x-ui 接管保持关闭，生产执行仍为 `direct-xray`。
+见 `docs/roadmap.md`。M1–M7 已完成；M8（3x-ui 节点执行后端迁移）正在进行，已有只读 SHADOW 与显式隔离的 CANDIDATE HTTP 用户／报告执行链；3x-ui 接管保持关闭，生产执行仍为 `direct-xray`。
 
 ## 9. 协作方式
 

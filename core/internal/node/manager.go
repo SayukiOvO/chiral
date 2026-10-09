@@ -3,11 +3,13 @@
 package node
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"sync"
 	"time"
 
+	"github.com/SayukiOvO/chiral/core/internal/store"
 	chiralv1 "github.com/SayukiOvO/chiral/proto/chiral/v1"
 )
 
@@ -31,6 +33,9 @@ type Session struct {
 	// reconciliation so a slow agent is not flooded with duplicate pushes.
 	lastPushVersion int64
 	lastPushAt      time.Time
+	opMu            sync.Mutex
+	userOps         map[string]*pendingUserOperation
+	userOpSequence  uint64
 }
 
 func (s *Session) close() { s.doneOnce.Do(func() { close(s.done) }) }
@@ -55,8 +60,9 @@ type Manager struct {
 	hbTimeout time.Duration
 	// probeURL is where agents fetch from to prove traffic flows. Set once at
 	// startup, before any session exists, so it needs no lock.
-	probeURL string
-	logger   *slog.Logger
+	probeURL    string
+	logger      *slog.Logger
+	userOpStore *store.Store
 }
 
 func NewManager(hbTimeout time.Duration, logger *slog.Logger) *Manager {
@@ -143,12 +149,10 @@ func (m *Manager) PushConfig(nodeID string, version int64, configJSON, probeOutb
 // Empty leaves the agent's own default in place.
 func (m *Manager) SetProbeURL(u string) { m.probeURL = u }
 
-// SendUserOp queues an online user add/remove to the node's live session.
-// Fails when the node is offline; the caller reconciles on reconnect.
+// SendUserOp keeps the legacy signature while using execution receipts when
+// the node explicitly negotiated them. Legacy nodes still return on enqueue.
 func (m *Manager) SendUserOp(nodeID string, op *chiralv1.UserOp) error {
-	return m.enqueue(nodeID, &chiralv1.CoreFrame{
-		Frame: &chiralv1.CoreFrame_UserOp{UserOp: op},
-	})
+	return m.ExecuteUserOp(context.Background(), nodeID, op)
 }
 
 // SendCommand queues a Command frame to the node's live session.

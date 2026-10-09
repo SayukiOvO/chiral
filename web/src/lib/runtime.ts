@@ -5,6 +5,7 @@ export type RuntimeHealthLabel =
   | "适配不兼容"
   | "契约就绪"
   | "契约不兼容"
+  | "隔离验证"
   | "不可达"
   | "状态未知"
   | "观测已过期";
@@ -31,6 +32,9 @@ export function runtimeHealthPresentation(
     nowUnix - node.runtime_observed_at > STALE_AFTER_SECONDS
   ) {
     return { label: "观测已过期", tone: "danger" };
+  }
+  if (node.runtime_mode === "CANDIDATE" && node.runtime_health !== "UNREACHABLE" && node.runtime_health !== "UNKNOWN") {
+    return { label: "隔离验证", tone: "unknown" };
   }
   switch (node.runtime_health) {
     case "READY":

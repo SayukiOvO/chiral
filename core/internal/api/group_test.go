@@ -68,28 +68,14 @@ func TestAGroupGrantReachesItsMembers(t *testing.T) {
 // cover every object and the group would decide nothing. The console warns
 // about it; this asserts the endpoint really does it.
 func TestJoiningAGroupThroughTheAPIClearsPersonalRows(t *testing.T) {
-	srv, st, admin := egressFixture(t)
+	srv, st, admin, u, _, original := offlineRetirementFixture(t)
 	h := srv.Handler()
-	node, _ := st.CreateNode("hk-1", "hash-hk")
-	prof, _ := st.CreateProfile("reality-vision")
-	st.BindProfileNode(prof.ID, node.ID)
-	u, _ := st.CreateUser(store.User{Name: "alice", Enabled: true}, "hash-a")
-	st.BindUserProfile(u.ID, prof.ID)
-
-	// A credential minted under that grant, so the assertion below that they
-	// are gone does not hold vacuously.
-	if _, err := st.PutCredential(store.Credential{
-		UserID: u.ID, ProfileID: prof.ID, NodeID: node.ID,
-		Email: "alice@chiral", Secret: "a-uuid",
-	}); err != nil {
-		t.Fatal(err)
-	}
 
 	w := do(t, h, "POST", "/api/groups", admin, map[string]string{"name": "staff"})
 	var g groupView
 	json.Unmarshal(w.Body.Bytes(), &g)
 	if w = do(t, h, "PUT", "/api/users/"+u.ID+"/group", admin,
-		map[string]string{"group_id": g.ID}); w.Code != http.StatusNoContent {
+		map[string]string{"group_id": g.ID}); w.Code != http.StatusConflict {
 		t.Fatalf("join: status %d: %s", w.Code, w.Body)
 	}
 
@@ -100,14 +86,15 @@ func TestJoiningAGroupThroughTheAPIClearsPersonalRows(t *testing.T) {
 	if len(own.Profiles) != 0 || len(own.NodeDenies) != 0 {
 		t.Errorf("personal rows survived the join: %+v", own)
 	}
-	// And the credentials minted under the grant they no longer hold are gone,
-	// or a client that already has one reconnects straight through the change.
+	// The authorized membership move removes personal access rows, but an
+	// offline node cannot confirm retirement. Preserve the exact credential
+	// for reconciliation instead of losing its identity and reporting success.
 	creds, err := st.UserCredentials(u.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(creds) != 0 {
-		t.Errorf("credentials survived a grant the subscriber no longer holds: %+v", creds)
+	if len(creds) != 1 || creds[0] != original {
+		t.Error("unconfirmed retirement lost or replaced the original credential")
 	}
 }
 

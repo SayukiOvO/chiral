@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"reflect"
 	"sort"
 	"sync"
@@ -64,6 +65,7 @@ type ownershipStoreState struct {
 	checkpoint OwnershipCheckpoint
 	pending    *OwnershipIntent
 	history    []ownershipHistoryRecord
+	reporting  *ownershipReportingState
 }
 
 // OwnershipStore persists one candidate provider's ownership checkpoint and
@@ -71,14 +73,16 @@ type ownershipStoreState struct {
 // this component and directory; it does not exclude the update journal,
 // external 3x-ui writers, or any future provider implementation.
 type OwnershipStore struct {
-	mu        sync.Mutex
-	dir       *os.File
-	identity  ownershipFileIdentity
-	fileHash  string
-	state     ownershipStoreState
-	writeFile func(*os.File, ownershipFileIdentity, string, []byte) (ownershipFileIdentity, error)
-	poisoned  bool
-	closed    bool
+	mu              sync.Mutex
+	dir             *os.File
+	path            string
+	identity        ownershipFileIdentity
+	fileHash        string
+	state           ownershipStoreState
+	writeFile       func(*os.File, ownershipFileIdentity, string, []byte) (ownershipFileIdentity, error)
+	poisoned        bool
+	closed          bool
+	reportingActive bool
 }
 
 type ownershipFileIdentity struct {
@@ -123,14 +127,15 @@ type ownershipHistoryDisk struct {
 }
 
 type ownershipStateDisk struct {
-	Schema     int                     `json:"schema"`
-	Binding    ownershipBindingDisk    `json:"binding"`
-	Generation uint64                  `json:"generation"`
-	OwnerID    string                  `json:"owner_id"`
-	MACKey     string                  `json:"mac_key"`
-	Checkpoint ownershipCheckpointDisk `json:"checkpoint"`
-	Pending    *ownershipIntentDisk    `json:"pending,omitempty"`
-	History    []ownershipHistoryDisk  `json:"history"`
+	Schema     int                      `json:"schema"`
+	Binding    ownershipBindingDisk     `json:"binding"`
+	Generation uint64                   `json:"generation"`
+	OwnerID    string                   `json:"owner_id"`
+	MACKey     string                   `json:"mac_key"`
+	Checkpoint ownershipCheckpointDisk  `json:"checkpoint"`
+	Pending    *ownershipIntentDisk     `json:"pending,omitempty"`
+	History    []ownershipHistoryDisk   `json:"history"`
+	Reporting  *ownershipReportingState `json:"reporting,omitempty"`
 }
 
 // CreateOwnershipStore creates the first private state file. Initial ownership
@@ -144,11 +149,15 @@ func CreateOwnershipStore(dir string, binding OwnershipStoreBinding, initial Own
 	if err != nil || len(checkpoint.Keys.InboundTags) != 0 || len(checkpoint.Keys.Clients) != 0 {
 		return nil, ownershipStoreError("invalid_initial_checkpoint")
 	}
-	directory, err := openOwnershipStoreDirectory(dir, true)
+	absolute, err := filepath.Abs(dir)
 	if err != nil {
 		return nil, ownershipStoreError("directory_unavailable")
 	}
-	store := &OwnershipStore{dir: directory, writeFile: writeOwnershipStateFile}
+	directory, err := openOwnershipStoreDirectory(absolute, true)
+	if err != nil {
+		return nil, ownershipStoreError("directory_unavailable")
+	}
+	store := &OwnershipStore{dir: directory, path: absolute, writeFile: writeOwnershipStateFile}
 	store.state.binding = binding
 	store.state.checkpoint = checkpoint
 	store.state.history = make([]ownershipHistoryRecord, 0)
@@ -185,7 +194,11 @@ func OpenOwnershipStore(dir string, binding OwnershipStoreBinding) (*OwnershipSt
 	if !validOwnershipBinding(binding) {
 		return nil, ownershipStoreError("invalid_binding")
 	}
-	directory, err := openOwnershipStoreDirectory(dir, false)
+	absolute, err := filepath.Abs(dir)
+	if err != nil {
+		return nil, ownershipStoreError("directory_unavailable")
+	}
+	directory, err := openOwnershipStoreDirectory(absolute, false)
 	if err != nil {
 		return nil, ownershipStoreError("directory_unavailable")
 	}
@@ -204,7 +217,7 @@ func OpenOwnershipStore(dir string, binding OwnershipStoreBinding) (*OwnershipSt
 		_ = directory.Close()
 		return nil, ownershipStoreError("binding_changed")
 	}
-	return &OwnershipStore{dir: directory, identity: identity, fileHash: updateDigest(string(raw)), state: state, writeFile: writeOwnershipStateFile}, nil
+	return &OwnershipStore{dir: directory, path: absolute, identity: identity, fileHash: updateDigest(string(raw)), state: state, writeFile: writeOwnershipStateFile}, nil
 }
 
 // Binding returns a value copy suitable for binding an explicit candidate
@@ -448,6 +461,7 @@ func cloneOwnershipState(state ownershipStoreState) ownershipStoreState {
 	result.checkpoint = cloneOwnershipCheckpoint(state.checkpoint)
 	result.pending = cloneOwnershipIntent(state.pending)
 	result.history = append([]ownershipHistoryRecord{}, state.history...)
+	result.reporting = cloneOwnershipReporting(state.reporting)
 	return result
 }
 
@@ -532,6 +546,9 @@ func validateOwnershipState(state ownershipStoreState) error {
 			return ownershipStoreError("state_invalid")
 		}
 	}
+	if err := validateOwnershipReporting(state.binding, state.reporting); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -544,6 +561,7 @@ func stateToDisk(state ownershipStoreState) ownershipStateDisk {
 		MACKey:     hex.EncodeToString(state.macKey[:]),
 		Checkpoint: checkpointToDisk(state.checkpoint),
 		History:    make([]ownershipHistoryDisk, 0, len(state.history)),
+		Reporting:  cloneOwnershipReporting(state.reporting),
 	}
 	if state.pending != nil {
 		disk.Pending = &ownershipIntentDisk{OperationIDHash: state.pending.OperationIDHash, RequestHash: state.pending.RequestHash,
@@ -566,6 +584,7 @@ func stateFromDisk(disk ownershipStateDisk) (ownershipStoreState, error) {
 		ownerID:    disk.OwnerID,
 		checkpoint: checkpointFromDisk(disk.Checkpoint),
 		history:    make([]ownershipHistoryRecord, 0, len(disk.History)),
+		reporting:  cloneOwnershipReporting(disk.Reporting),
 	}
 	copy(state.macKey[:], key)
 	if disk.Pending != nil {
@@ -611,6 +630,7 @@ func zeroOwnershipState(state *ownershipStoreState) {
 	state.pending = nil
 	state.history = nil
 	state.checkpoint = OwnershipCheckpoint{}
+	state.reporting = nil
 }
 
 func ownershipStoreError(reason string) error {

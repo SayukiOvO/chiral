@@ -51,6 +51,9 @@ type Config struct {
 	// resets the kernel's counters, so this is also the accounting
 	// granularity — and the window of traffic lost if the agent dies.
 	StatsInterval time.Duration
+	// UserOperationReceipts is enabled only by runtimes with exact execution
+	// confirmation. Direct-Xray and SHADOW keep their existing legacy path.
+	UserOperationReceipts bool
 	// RuntimeStatusSnapshot returns an immutable, already-cached observation
 	// and MUST NOT perform I/O. Heartbeats and report-now frames call it on
 	// latency-sensitive goroutines. New supplies direct-Xray status; other
@@ -87,6 +90,9 @@ type Client struct {
 	// sample. A cancelled stream's poll may still be finishing when a new
 	// stream starts; overlapping snapshots can otherwise resemble a reset.
 	statsPollMu sync.Mutex
+	// Serializes mutations even while an old cancelled stream is finishing a
+	// provider call. The receiver remains free to deliver receipts and chunks.
+	mutationMu sync.Mutex
 
 	// directUpgrade is present only for the legacy direct-Xray runtime;
 	// installs serialises upgrades and routes relay chunks to the active one.
@@ -336,7 +342,8 @@ func (c *Client) runStream(ctx context.Context, svc chiralv1.AgentServiceClient)
 		// agent is the only thing that knows it, and guessing from the node's
 		// hostname or its uname string is how a node ends up being told to
 		// install a binary for the wrong architecture.
-		Platform: runtime.GOOS + "/" + runtime.GOARCH,
+		Platform:       runtime.GOOS + "/" + runtime.GOARCH,
+		UserOpReceipts: c.cfg.UserOperationReceipts,
 		// PublicIp left empty: Core records the connection's peer address.
 	}}}
 	if err := stream.Send(hello); err != nil {
@@ -350,6 +357,7 @@ func (c *Client) runStream(ctx context.Context, svc chiralv1.AgentServiceClient)
 	recentCh := make(chan queuedRecentOnline, 1)
 	writerDone := make(chan error, 1)
 	go func() {
+		defer cancel()
 		for {
 			select {
 			case f := <-sendCh:
@@ -450,6 +458,15 @@ func (c *Client) runStream(ctx context.Context, svc chiralv1.AgentServiceClient)
 		}
 	}()
 
+	// Only the negotiated HTTP candidate needs a separate mutation worker:
+	// accounting receipts must remain readable while a write awaits settlement.
+	// Native/SHADOW streams retain their original synchronous dispatch order,
+	// notably applying a configuration before starting a following install.
+	var work chan queuedMutation
+	if c.cfg.UserOperationReceipts {
+		work = make(chan queuedMutation, 16)
+		go c.runMutationWorker(streamCtx, sendCh, work)
+	}
 	// Reader loop: dispatch frames from Core.
 	for {
 		frame, err := stream.Recv()
@@ -463,7 +480,31 @@ func (c *Client) runStream(ctx context.Context, svc chiralv1.AgentServiceClient)
 			}
 			return err
 		}
-		c.handleFrame(streamCtx, sendCh, frame)
+		if op := frame.GetUserOp(); op != nil && op.GetOperationId() != "" && !c.cfg.UserOperationReceipts {
+			return fmt.Errorf("execution-receipt operation received without negotiation")
+		}
+		if work != nil && isMutationFrame(frame) {
+			select {
+			case work <- queuedMutation{frame: frame, receivedAt: time.Now()}:
+			case <-streamCtx.Done():
+				return streamCtx.Err()
+			default:
+				// The bounded queue does not block StatsAck/relay reception.
+				// Closing the stream preserves Core's uncertain-result barrier;
+				// a caller must never infer that a disconnected write was absent.
+				if op := frame.GetUserOp(); op != nil && op.GetOperationId() != "" {
+					select {
+					case sendCh <- userOperationAck(op.GetOperationId(), chiralv1.UserOpResult_USER_OP_RESULT_NOT_EXECUTED, "Agent operation queue is full."):
+					default:
+						return fmt.Errorf("operation queue is full")
+					}
+				} else {
+					return fmt.Errorf("operation queue is full")
+				}
+			}
+		} else {
+			c.handleFrame(streamCtx, sendCh, frame)
+		}
 	}
 }
 
@@ -523,24 +564,7 @@ func (c *Client) handleFrame(ctx context.Context, sendCh chan<- *chiralv1.AgentF
 	case *chiralv1.CoreFrame_XrayChunk:
 		c.installs.deliver(fr.XrayChunk)
 	case *chiralv1.CoreFrame_UserOp:
-		// Applied against the live kernel so a ban or a new subscriber takes
-		// effect without dropping everyone else's connections.
-		op := fr.UserOp
-		var err error
-		switch op.GetKind() {
-		case chiralv1.UserOpKind_USER_OP_KIND_ADD:
-			err = c.rt.AddUser(ctx, op.GetInboundTag(), op.GetEmail(), op.GetAccountJson())
-		case chiralv1.UserOpKind_USER_OP_KIND_REMOVE:
-			err = c.rt.RemoveUser(ctx, op.GetInboundTag(), op.GetEmail())
-		default:
-			err = fmt.Errorf("unknown user op kind %v", op.GetKind())
-		}
-		if err != nil {
-			// Core must hear about this: it believes the operation landed.
-			c.logger.Error("user op failed", "kind", op.GetKind(), "email", op.GetEmail(), "err", err)
-			c.QueueEvent(chiralv1.EventKind_EVENT_KIND_ERROR,
-				fmt.Sprintf("user op %v for %s failed: %v", op.GetKind(), op.GetEmail(), err))
-		}
+		c.handleUserOperation(ctx, sendCh, fr.UserOp)
 	}
 }
 

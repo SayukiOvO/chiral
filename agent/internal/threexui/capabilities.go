@@ -19,6 +19,7 @@ const (
 	CapabilityInboundsAdd         Capability = "inbounds_add"
 	CapabilityInboundsUpdate      Capability = "inbounds_update"
 	CapabilityInboundsDelete      Capability = "inbounds_delete"
+	CapabilityInboundsSetEnable   Capability = "inbounds_set_enable"
 	CapabilityClientsList         Capability = "clients_list"
 	CapabilityClientsAdd          Capability = "clients_add"
 	CapabilityClientsUpdate       Capability = "clients_update"
@@ -74,6 +75,7 @@ var optionalOperations = []struct {
 	capability Capability
 	operation  operation
 }{
+	{CapabilityInboundsSetEnable, operation{method: "post", path: "/panel/api/inbounds/setEnable/{id}"}},
 	{CapabilityOutboundProbe, operation{method: "post", path: "/panel/api/xray/testOutbound"}},
 	{CapabilityXrayTemplateRead, operation{method: "post", path: "/panel/api/xray/"}},
 	{CapabilityClientsAttach, operation{method: "post", path: "/panel/api/clients/{email}/attach"}},

@@ -36,8 +36,8 @@ TLS 两种方式任选：
 curl -fsSL .../install.sh | sudo sh -s -- --agent --panel-url ... --token ...
 ```
 
-节点自动注册并接管本机 Xray。M8 正在把节点执行后端迁移到独立 3x-ui；当前仅提供只读
-SHADOW 契约观测，生产写入仍由 direct-Xray 执行。
+节点自动注册并接管本机 Xray。M8 正在把节点执行后端迁移到独立 3x-ui；已有只读 SHADOW
+契约观测和显式隔离的 CANDIDATE HTTP 用户／报告执行链，生产写入仍由 direct-Xray 执行。
 
 ### Docker
 
@@ -128,7 +128,7 @@ docker compose up -d
 
 ## 状态
 
-当前 v0.13.x。M1–M7 已完成；M8 的 3x-ui 迁移处于只读 SHADOW 第一阶段，尚未接管生产流量。
+当前 v0.13.x。M1–M7 已完成；M8 已有 SHADOW 与隔离 CANDIDATE，完整迁移未完成，尚未接管生产流量。
 
 主版本号为 0 表示接口与数据库结构仍可能变更，升级前请查阅对应 release 说明。
 

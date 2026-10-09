@@ -32,6 +32,54 @@ func mutationClient(t *testing.T, handler http.HandlerFunc) (*Client, *httptest.
 	return client, server
 }
 
+func TestSensitiveEnvelopeRejectsAmbiguousOuterJSON(t *testing.T) {
+	for name, body := range map[string]string{
+		"duplicate success":       `{"success":false,"success":true,"obj":{},"msg":"private-envelope-secret"}`,
+		"duplicate same success":  `{"success":true,"success":true,"obj":{}}`,
+		"escaped success alias":   `{"success":false,"su\u0063cess":true,"obj":{}}`,
+		"duplicate object":        `{"success":true,"obj":{"password":"private-envelope-secret"},"obj":{}}`,
+		"duplicate same object":   `{"success":true,"obj":{},"obj":{}}`,
+		"duplicate metadata":      `{"success":true,"obj":{},"future":1,"future":2}`,
+		"case success alias":      `{"success":true,"Success":false,"obj":{}}`,
+		"case object alias":       `{"success":true,"obj":{},"OBJ":{"secret":"private-envelope-secret"}}`,
+		"case message alias":      `{"success":true,"obj":{},"Msg":"private-envelope-secret"}`,
+		"nonboolean success":      `{"success":"true","obj":{}}`,
+		"null success":            `{"success":null,"obj":{}}`,
+		"missing success":         `{"obj":{}}`,
+		"array outer":             `[{"success":true,"obj":{}}]`,
+		"null outer":              `null`,
+		"trailing second object":  `{"success":true,"obj":{}} {"success":false}`,
+		"trailing malformed JSON": `{"success":true,"obj":{}} private-envelope-secret`,
+		"malformed object":        `{"success":true,"obj":{"secret":"private-envelope-secret",}}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			client, _ := mutationClient(t, func(w http.ResponseWriter, r *http.Request) {
+				fmt.Fprint(w, body)
+			})
+			// Both secret-bearing reads and writes without a response object
+			// must reject an ambiguous outer contract.
+			_, readErr := client.ReadAssembledConfig(context.Background())
+			writeErr := client.SetInboundEnabled(context.Background(), 1, true)
+			for _, err := range []error{readErr, writeErr} {
+				var contract *ContractError
+				if !errors.As(err, &contract) || strings.Contains(err.Error(), "private-envelope-secret") || strings.Contains(err.Error(), testToken) {
+					t.Fatalf("ambiguous envelope accepted or exposed remote content: %v", err)
+				}
+			}
+		})
+	}
+}
+
+func TestSensitiveEnvelopeAllowsUnrelatedMetadataWithoutExposingIt(t *testing.T) {
+	client, _ := mutationClient(t, func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, `{"obj":{"inbounds":[]},"future":{"secret":"private-envelope-secret"},"msg":"private-envelope-secret","success":true}`)
+	})
+	config, err := client.ReadAssembledConfig(context.Background())
+	if err != nil || string(config) != `{"inbounds":[]}` {
+		t.Fatalf("valid reordered envelope with future metadata rejected: %v", err)
+	}
+}
+
 func TestXrayTemplateUsesEncodedReadAndFormWrite(t *testing.T) {
 	const raw = `{"inbounds":[{"tag":"owned","settings":{"clients":[{"id":"secret","extra":{"field":1}}]}}],"outbounds":[]}`
 	const probeURL = "https://probe.example.test/check?a=1&b=2"
@@ -254,6 +302,57 @@ func TestClientMutationsEncodeIdentityAndKeepTraffic(t *testing.T) {
 	}
 }
 
+func TestSetInboundEnabledUsesDedicatedEndpointAndExplicitState(t *testing.T) {
+	var requests atomic.Int32
+	client, _ := mutationClient(t, func(w http.ResponseWriter, r *http.Request) {
+		request := requests.Add(1)
+		if r.Method != http.MethodPost || r.URL.Path != "/base/panel/api/inbounds/setEnable/7" || r.URL.RawQuery != "" {
+			t.Error("unexpected inbound enable request")
+		}
+		if r.Header.Get("Content-Type") != "application/json" {
+			t.Error("inbound enable must use JSON")
+		}
+		var fields map[string]json.RawMessage
+		if err := json.NewDecoder(r.Body).Decode(&fields); err != nil {
+			t.Error(err)
+			return
+		}
+		want := "true"
+		if request == 2 {
+			want = "false"
+		}
+		if len(fields) != 1 || string(fields["enable"]) != want {
+			t.Error("inbound enable payload must contain only its explicit boolean state")
+		}
+		fmt.Fprint(w, `{"success":true}`)
+	})
+	for _, enabled := range []bool{true, false} {
+		if err := client.SetInboundEnabled(context.Background(), 7, enabled); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if requests.Load() != 2 {
+		t.Fatalf("enable request count = %d, want 2", requests.Load())
+	}
+}
+
+func TestSetInboundEnabledErrorsDoNotLeakProviderSecrets(t *testing.T) {
+	const secret = "private-setting-value"
+	for _, response := range []string{
+		`{"success":false,"msg":"` + secret + `"}`,
+		`{"success":"` + secret + `"}`,
+		`{"success":null,"msg":"` + secret + `"}`,
+	} {
+		client, _ := mutationClient(t, func(w http.ResponseWriter, _ *http.Request) {
+			fmt.Fprint(w, response)
+		})
+		err := client.SetInboundEnabled(context.Background(), 7, false)
+		if err == nil || strings.Contains(err.Error(), secret) || strings.Contains(err.Error(), testToken) {
+			t.Fatal("enable response was accepted or leaked a secret")
+		}
+	}
+}
+
 func checkClientAttachmentRequest(t *testing.T, r *http.Request, email string, wantIDs []int64) {
 	t.Helper()
 	if r.URL.RawQuery != "" || r.URL.Fragment != "" {
@@ -287,6 +386,8 @@ func TestMutationValidationFailsBeforeHTTP(t *testing.T) {
 	valid := json.RawMessage(`{"email":"alice@node","enable":false,"id":"private-id"}`)
 	checks := []func() error{
 		func() error { return client.DeleteInbound(ctx, 0) },
+		func() error { return client.SetInboundEnabled(ctx, 0, false) },
+		func() error { return client.SetInboundEnabled(ctx, -1, true) },
 		func() error { _, err := client.UpdateInbound(ctx, -1, Inbound{}); return err },
 		func() error { _, err := client.UpdateInbound(ctx, 4, Inbound{ID: 5}); return err },
 		func() error { _, err := client.AddInbound(ctx, Inbound{ID: 1}); return err },

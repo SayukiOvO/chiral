@@ -44,6 +44,7 @@ message AgentFrame {
     XrayStatus xray_status = 7;
     XrayRelayRequest xray_relay_request = 8;
     RecentOnlineReport recent_online = 9;
+    UserOpAck user_op_ack = 10;
   }
 }
 
@@ -61,6 +62,9 @@ message Hello {
   // operator's memory — is how a node gets told to install a binary for the
   // wrong architecture, which fails at exec time with nothing useful to say.
   string platform = 5;
+  // Opts this connection into exact execution receipts for UserOp. Core must
+  // continue the legacy enqueue-only path when an older agent omits it.
+  bool user_op_receipts = 6;
 }
 
 // Heartbeat carries lightweight system metrics and liveness.
@@ -432,6 +436,18 @@ message UserOp {
   string email = 3;
   // JSON-encoded account object (uuid/password/flow...), draft until M3.
   bytes account_json = 4;
+  // Set only when Hello.user_op_receipts is true. Omitted by older Cores.
+  // Never replay an uncertain operation under a new ID.
+  string operation_id = 5;
+  // Permanent credential retirement, distinct from temporary quota/expiry
+  // disable. API runtimes retain disabled credentials for later re-enabling.
+  bool retire_credential = 6;
+  // Relative execution budget, measured on the Agent's monotonic clock from
+  // receipt. Queue waiting consumes it. Zero keeps the legacy 30s default.
+  uint32 execution_timeout_millis = 7;
+  // Strictly increasing on this stream. Allows bounded receipt retention:
+  // an evicted old sequence is rejected without invoking the runtime again.
+  uint64 execution_sequence = 8;
 }
 
 enum UserOpKind {
@@ -496,6 +512,8 @@ enum RuntimeMode {
   RUNTIME_MODE_UNSPECIFIED = 0;
   RUNTIME_MODE_ACTIVE = 1;
   RUNTIME_MODE_SHADOW = 2;
+  // Explicit isolated execution candidate, never production takeover.
+  RUNTIME_MODE_CANDIDATE = 3;
 }
 
 enum RuntimeHealth {
@@ -507,4 +525,21 @@ enum RuntimeHealth {
   RUNTIME_HEALTH_INCOMPATIBLE = 2;
   // The provider or its live contract could not be observed.
   RUNTIME_HEALTH_UNREACHABLE = 3;
+}
+
+// UserOpAck belongs to one stream and one exact operation ID. A runtime error
+// may follow a partial write; UNKNOWN must never be treated as unapplied or
+// automatically retried. NOT_EXECUTED proves no runtime mutation was attempted.
+message UserOpAck {
+  string operation_id = 1;
+  UserOpResult result = 2;
+  // Bounded, operator-safe detail; raw provider errors stay in the Agent log.
+  string error = 3;
+}
+
+enum UserOpResult {
+  USER_OP_RESULT_UNSPECIFIED = 0;
+  USER_OP_RESULT_APPLIED = 1;
+  USER_OP_RESULT_NOT_EXECUTED = 2;
+  USER_OP_RESULT_UNKNOWN = 3;
 }

@@ -5,6 +5,7 @@ describe("runtimeHealthPresentation", () => {
   it.each([
     ["ACTIVE", "READY", "适配就绪", "ready"],
     ["SHADOW", "READY", "契约就绪", "ready"],
+    ["CANDIDATE", "INCOMPATIBLE", "隔离验证", "unknown"],
     ["ACTIVE", "INCOMPATIBLE", "适配不兼容", "danger"],
     ["SHADOW", "INCOMPATIBLE", "契约不兼容", "danger"],
     ["ACTIVE", "UNREACHABLE", "不可达", "danger"],

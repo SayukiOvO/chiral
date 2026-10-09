@@ -98,6 +98,9 @@ func TestDisablingAUserRemovesThemOnline(t *testing.T) {
 	if last.GetKind() != chiralv1.UserOpKind_USER_OP_KIND_REMOVE {
 		t.Errorf("expected a REMOVE, got %v", last.GetKind())
 	}
+	if last.GetRetireCredential() {
+		t.Fatal("temporary disable retired a reusable credential")
+	}
 	got, _ := st.GetUser(u.ID)
 	if got.Active {
 		t.Error("user should no longer be recorded as active")
@@ -416,6 +419,9 @@ func TestRemoveUserFromProfileTargetsOnlyThatProfile(t *testing.T) {
 	ops := push.opsFor(creds[0].Email)
 	if len(ops) != 1 || ops[0].GetKind() != chiralv1.UserOpKind_USER_OP_KIND_REMOVE {
 		t.Fatalf("expected one REMOVE, got %+v", ops)
+	}
+	if !ops[0].GetRetireCredential() {
+		t.Fatal("permanent profile withdrawal omitted retirement")
 	}
 
 	// A profile the user is not in yields nothing.

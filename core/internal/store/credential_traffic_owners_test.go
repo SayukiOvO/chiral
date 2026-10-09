@@ -385,7 +385,7 @@ func TestMigration0031PreservesPopulated0030Database(t *testing.T) {
 	if _, err := db.Exec(`CREATE TABLE schema_migrations (name TEXT PRIMARY KEY, applied_at INTEGER NOT NULL)`); err != nil {
 		t.Fatal(err)
 	}
-	applied := applyMigrationsThrough(t, db, "0030_acknowledged_stats.sql")
+	applyMigrationsThrough(t, db, "0030_acknowledged_stats.sql")
 	seedPopulated0030Database(t, db)
 	before := snapshotDatabaseTables(t, db)
 	if err := db.Close(); err != nil {
@@ -424,7 +424,11 @@ func TestMigration0031PreservesPopulated0030Database(t *testing.T) {
 	if err := rows.Close(); err != nil {
 		t.Fatal(err)
 	}
-	wantMigrations := append(append([]string(nil), applied...), "0031_credential_traffic_owners.sql")
+	wantMigrations, err := fs.Glob(migrations.FS, "*.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	sort.Strings(wantMigrations)
 	if !reflect.DeepEqual(migrationNames, wantMigrations) {
 		t.Fatalf("schema migration records = %v, want %v", migrationNames, wantMigrations)
 	}

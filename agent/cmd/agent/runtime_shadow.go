@@ -18,18 +18,20 @@ import (
 )
 
 const (
-	runtimeProviderDirect     = "direct-xray"
-	runtimeProvider3XUIShadow = "3x-ui-shadow"
-	maxTokenFileBytes         = 8 << 10
-	shadowRequestTimeout      = 8 * time.Second
-	shadowObservationInterval = 10 * time.Second
+	runtimeProviderDirect        = "direct-xray"
+	runtimeProvider3XUIShadow    = "3x-ui-shadow"
+	runtimeProvider3XUICandidate = "3x-ui-candidate"
+	maxTokenFileBytes            = 8 << 10
+	shadowRequestTimeout         = 8 * time.Second
+	shadowObservationInterval    = 10 * time.Second
 )
 
 type runtimeConfig struct {
-	Provider    string
-	ThreeXUIURL string
-	TokenFile   string
-	AllowPublic bool
+	Provider            string
+	ThreeXUIURL         string
+	TokenFile           string
+	AllowPublic         bool
+	CandidateUserWrites bool
 }
 
 func runtimeConfigFromEnv() (runtimeConfig, error) {
@@ -38,8 +40,8 @@ func runtimeConfigFromEnv() (runtimeConfig, error) {
 		ThreeXUIURL: os.Getenv("CHIRAL_3XUI_URL"),
 		TokenFile:   os.Getenv("CHIRAL_3XUI_TOKEN_FILE"),
 	}
-	if cfg.Provider != runtimeProviderDirect && cfg.Provider != runtimeProvider3XUIShadow {
-		return runtimeConfig{}, fmt.Errorf("CHIRAL_RUNTIME_PROVIDER must be %q or %q", runtimeProviderDirect, runtimeProvider3XUIShadow)
+	if cfg.Provider != runtimeProviderDirect && cfg.Provider != runtimeProvider3XUIShadow && cfg.Provider != runtimeProvider3XUICandidate {
+		return runtimeConfig{}, fmt.Errorf("CHIRAL_RUNTIME_PROVIDER must be %q, %q or %q", runtimeProviderDirect, runtimeProvider3XUIShadow, runtimeProvider3XUICandidate)
 	}
 	if cfg.Provider == runtimeProviderDirect {
 		return cfg, nil
@@ -50,6 +52,18 @@ func runtimeConfigFromEnv() (runtimeConfig, error) {
 		cfg.AllowPublic = true
 	default:
 		return runtimeConfig{}, fmt.Errorf("CHIRAL_3XUI_ALLOW_PUBLIC must be 0 or 1")
+	}
+	if cfg.Provider == runtimeProvider3XUICandidate {
+		if cfg.AllowPublic || os.Getenv("CHIRAL_3XUI_ISOLATION") != "isolated-instance" {
+			return runtimeConfig{}, fmt.Errorf("3x-ui-candidate requires a private endpoint and CHIRAL_3XUI_ISOLATION=isolated-instance")
+		}
+		switch os.Getenv("CHIRAL_3XUI_CANDIDATE_USER_WRITES") {
+		case "", "0":
+		case "1":
+			cfg.CandidateUserWrites = true
+		default:
+			return runtimeConfig{}, fmt.Errorf("CHIRAL_3XUI_CANDIDATE_USER_WRITES must be 0 or 1")
+		}
 	}
 	return cfg, nil
 }

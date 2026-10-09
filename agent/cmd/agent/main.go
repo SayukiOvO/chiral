@@ -25,12 +25,14 @@ var version = "0.1.0-dev"
 
 func main() {
 	var (
-		panelAddr  = flag.String("panel", envOr("PANEL_URL", ""), "host:port of Core's gRPC endpoint")
-		stateDir   = flag.String("state-dir", envOr("CHIRAL_STATE_DIR", "/var/lib/chiral-agent"), "directory for identity and config.json")
-		xrayBin    = flag.String("xray-bin", envOr("CHIRAL_XRAY_BIN", "xray"), "path to the Xray-core binary")
-		insecureTr = flag.Bool("insecure", os.Getenv("CHIRAL_INSECURE") == "1", "use plaintext gRPC (dev only)")
-		hbInterval = flag.Duration("heartbeat-interval", 10*time.Second, "heartbeat period")
-		showVer    = flag.Bool("version", false, "print the version and exit")
+		panelAddr      = flag.String("panel", envOr("PANEL_URL", ""), "host:port of Core's gRPC endpoint")
+		stateDir       = flag.String("state-dir", envOr("CHIRAL_STATE_DIR", "/var/lib/chiral-agent"), "directory for identity and config.json")
+		xrayBin        = flag.String("xray-bin", envOr("CHIRAL_XRAY_BIN", "xray"), "path to the Xray-core binary")
+		insecureTr     = flag.Bool("insecure", os.Getenv("CHIRAL_INSECURE") == "1", "use plaintext gRPC (dev only)")
+		hbInterval     = flag.Duration("heartbeat-interval", 10*time.Second, "heartbeat period")
+		showVer        = flag.Bool("version", false, "print the version and exit")
+		initialize3XUI = flag.Bool("initialize-3x-ui", false, "initialize ownership and accounting for a new empty isolated 3x-ui candidate")
+		provision3XUI  = flag.String("3x-ui-provision-inbound", "", "private JSON file defining one empty loopback-only candidate bootstrap inbound")
 	)
 	flag.Parse()
 	if *showVer {
@@ -41,6 +43,10 @@ func main() {
 	runtimeCfg, err := runtimeConfigFromEnv()
 	if err != nil {
 		logger.Error("invalid runtime provider configuration", "err", err)
+		os.Exit(2)
+	}
+	if (*initialize3XUI || *provision3XUI != "") && runtimeCfg.Provider != runtimeProvider3XUICandidate {
+		logger.Error("3x-ui initialization and provisioning require the isolated 3x-ui-candidate provider")
 		os.Exit(2)
 	}
 	var shadow *shadowRuntimeMonitor
@@ -69,6 +75,19 @@ func main() {
 		os.Exit(2)
 	}
 	defer unlock()
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+	if runtimeCfg.Provider == runtimeProvider3XUICandidate {
+		err := runCandidate(ctx, runtimeCfg, client.Config{
+			PanelAddr: *panelAddr, JoinToken: joinToken, StateDir: *stateDir, Insecure: *insecureTr,
+			AgentVersion: version, HeartbeatInterval: *hbInterval,
+		}, *initialize3XUI, *provision3XUI, logger)
+		if err != nil {
+			logger.Error("3x-ui candidate stopped", "err", err)
+			os.Exit(1)
+		}
+		return
+	}
 
 	col := collector.New()
 	// The event hook is wired after the client exists; xray only holds the
@@ -101,8 +120,6 @@ func main() {
 	}
 	cl = client.New(clientCfg, xr, col, logger)
 
-	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
-	defer stop()
 	if shadow != nil {
 		go shadow.Run(ctx)
 	}

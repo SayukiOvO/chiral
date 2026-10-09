@@ -44,3 +44,24 @@ go build -o ../bin/chiral-agent ./cmd/agent
 
 [`agent/cmd/3xui-audit`](../docs/3x-ui-compatibility-audit.md) 可对私有本地配置副本做离线字段
 盘点，不连接节点、不输出凭证，也不会因为没有已知发现而批准接管。
+
+## 独立实例的候选执行路径
+
+`CHIRAL_RUNTIME_PROVIDER=3x-ui-candidate` 实际执行官方 HTTP 用户操作，并接入累计账本、
+精确流量 ACK、近期近似观测和用户操作回执。它不创建原生 Xray manager／installer，
+不能用于生产接管。必须显式设置 `CHIRAL_3XUI_ISOLATION=isolated-instance`、私有管理 URL
+与 token 文件，使用新的 Agent 状态目录；目录中已有 direct-Xray `config.json` 时拒绝启动。
+用户写入另须 `CHIRAL_3XUI_CANDIDATE_USER_WRITES=1`。
+
+首次以 `-initialize-3x-ui` 初始化一个受管对象为空的独立实例。之后移除此标志，重开已有
+状态；状态或账本缺失／损坏时不能重新初始化。首次可用
+`-3x-ui-provision-inbound /private/path/inbound.json` 明确引导一个空用户、回环监听的简单
+VLESS TCP 入站，文件须为普通 `0600` 文件。入站采用完整 Xray JSON 的七个字段：
+`tag`、`listen`（仅 `127.0.0.1`）、`port`（1024–65535）、`protocol`（仅 `vless`）、
+`settings`（`decryption=none`、空 `clients`）、`streamSettings`（`network=tcp`、
+`security=none`）、`sniffing`（`enabled=false`）。额外字段拒绝，不静默删除。
+确认引导成功后亦应移除此标志；它不是自动重放或通用配置导入入口。
+
+复杂用户字段和不同的任意配置目前仍在写入前拒绝。真实数据面、元数据保真、失败状态、
+计费去重等按 [候选执行边界](../docs/3x-ui-integration.md#隔离候选执行接线2026-10-09)
+分别验收；不设置 ACTIVE，不操作既有节点，不提供未知意图的强制清除入口。

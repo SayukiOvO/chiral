@@ -117,6 +117,7 @@ func TestDiscoverOptionalCandidateOperationsDoNotWidenShadowGate(t *testing.T) {
 		capability Capability
 		path       string
 	}{
+		{"inbound enable", CapabilityInboundsSetEnable, "/panel/api/inbounds/setEnable/{id}"},
 		{"outbound probe", CapabilityOutboundProbe, "/panel/api/xray/testOutbound"},
 		{"Xray template read", CapabilityXrayTemplateRead, "/panel/api/xray/"},
 		{"client attach", CapabilityClientsAttach, "/panel/api/clients/{email}/attach"},

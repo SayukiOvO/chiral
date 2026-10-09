@@ -96,6 +96,8 @@ const EN: Record<string, string> = {
   适配不兼容: "adapter incompatible",
   契约就绪: "contract ready",
   契约不兼容: "contract incompatible",
+  隔离验证: "isolated validation",
+  候选内核: "Candidate kernel",
   不可达: "unreachable",
   状态未知: "unknown",
   观测已过期: "stale",

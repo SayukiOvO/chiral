@@ -82,6 +82,7 @@ type Service struct {
 }
 
 func NewService(st *store.Store, mgr *Manager, traffic TrafficRecorder, logger *slog.Logger) *Service {
+	mgr.userOpStore = st
 	return &Service{st: st, mgr: mgr, traffic: traffic, logger: logger}
 }
 
@@ -173,8 +174,12 @@ func (s *Service) Channel(stream chiralv1.AgentService_ChannelServer) error {
 		for {
 			select {
 			case f := <-sess.send:
+				if !sess.prepareUserOperationSend(f) {
+					continue
+				}
 				if err := stream.Send(f); err != nil {
-					return // stream broken; read side will notice too
+					sess.close() // unblock exact execution waiters immediately
+					return
 				}
 			case <-sess.done:
 				return
@@ -294,6 +299,9 @@ func (s *Service) handleFrame(nodeID string, sess *Session, f *chiralv1.AgentFra
 			s.logger.Error("persist config ack failed", "node", nodeID, "err", err)
 		}
 		s.logger.Info("config ack", "node", nodeID, "version", ack.GetVersion(), "applied", ack.GetApplied(), "error", ack.GetError())
+	case *chiralv1.AgentFrame_UserOpAck:
+		sess.touch(nil)
+		s.mgr.acknowledgeUserOperation(nodeID, sess, fr.UserOpAck)
 	case *chiralv1.AgentFrame_Event:
 		sess.touch(nil)
 		s.logger.Warn("agent event", "node", nodeID, "kind", fr.Event.GetKind(), "message", fr.Event.GetMessage())

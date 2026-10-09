@@ -355,6 +355,24 @@ func (s *Store) UserOwnAccess(userID string) (UserOwnAccess, error) {
 	return out, nil
 }
 
+// UserHoldsProfileWithoutGroup previews one revoked group grant using the same
+// effective-access formula as UserProfileIDs. It does not mutate membership,
+// restore grants, or infer authorization from a credential's existence.
+func (s *Store) UserHoldsProfileWithoutGroup(userID, profileID, excludedGroupID string) (bool, error) {
+	var held bool
+	err := s.db.QueryRow(`SELECT EXISTS (
+		SELECT profile_id FROM (
+			SELECT profile_id FROM user_profiles WHERE user_id = ?
+			UNION
+			SELECT gp.profile_id FROM group_profiles gp
+				JOIN users u ON u.group_id = gp.group_id AND u.id = ?
+				WHERE gp.group_id <> ?
+		) WHERE profile_id = ? AND profile_id NOT IN (
+			SELECT profile_id FROM user_profile_denies WHERE user_id = ?
+		))`, userID, userID, excludedGroupID, profileID, userID).Scan(&held)
+	return held, err
+}
+
 // SetUserObjectAccess records one subscriber's exception for one object, or
 // clears it. allow=true grants against a group that withholds; allow=false
 // withholds; clearing leaves the group (or the default) to decide.

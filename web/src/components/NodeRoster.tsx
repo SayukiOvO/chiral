@@ -252,8 +252,8 @@ function RuntimeProvider({ node }: { node: Node }) {
         : node.runtime_xray_state === "ERROR"
           ? "异常"
           : "状态未知";
-  const shadowXray = node.runtime_mode === "SHADOW" && node.runtime_xray_state
-    ? `${t("影子内核")} ${t(shadowState)}${node.runtime_xray_version ? ` · ${node.runtime_xray_version}` : ""}`
+  const shadowXray = (node.runtime_mode === "SHADOW" || node.runtime_mode === "CANDIDATE") && node.runtime_xray_state
+    ? `${t(node.runtime_mode === "CANDIDATE" ? "候选内核" : "影子内核")} ${t(shadowState)}${node.runtime_xray_version ? ` · ${node.runtime_xray_version}` : ""}`
     : "";
   const title =
     [node.runtime_error, shadowXray, capabilities, contract, observed].filter(Boolean).join("\n") || undefined;

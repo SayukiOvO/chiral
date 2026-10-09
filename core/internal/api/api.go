@@ -415,6 +415,8 @@ func applyRuntimeStatus(v *nodeView, runtime *chiralv1.RuntimeStatus, receivedAt
 		v.RuntimeMode = "ACTIVE"
 	case chiralv1.RuntimeMode_RUNTIME_MODE_SHADOW:
 		v.RuntimeMode = "SHADOW"
+	case chiralv1.RuntimeMode_RUNTIME_MODE_CANDIDATE:
+		v.RuntimeMode = "CANDIDATE"
 	default:
 		v.RuntimeMode = "UNKNOWN"
 	}
@@ -475,7 +477,7 @@ func applyRuntimeStatus(v *nodeView, runtime *chiralv1.RuntimeStatus, receivedAt
 			v.RuntimeHealth = "UNKNOWN"
 		}
 	case "3x-ui":
-		if v.RuntimeMode != "SHADOW" {
+		if v.RuntimeMode != "SHADOW" && v.RuntimeMode != "CANDIDATE" {
 			v.RuntimeMode = "UNKNOWN"
 			v.RuntimeHealth = "UNKNOWN"
 			v.RuntimeError = "3x-ui ACTIVE is not supported by this Core release"

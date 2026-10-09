@@ -5,11 +5,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"strconv"
 	"strings"
 	"unicode"
+	"unicode/utf8"
 )
 
 const maxMutationRequestBytes = 4 << 20
@@ -164,12 +166,36 @@ func (c *Client) AddInbound(ctx context.Context, inbound Inbound) (Inbound, erro
 	return c.writeInbound(ctx, "panel/api/inbounds/add", inbound)
 }
 
+// UpdateInbound changes the inbound configuration. In 3x-ui v3.9 and later it
+// does not change the client set, client lifecycle fields, or inbound enable
+// state. Call the separate client operations and SetInboundEnabled explicitly;
+// this method never converts those changes into additional HTTP requests.
 func (c *Client) UpdateInbound(ctx context.Context, id int64, inbound Inbound) (Inbound, error) {
 	if id <= 0 || (inbound.ID != 0 && inbound.ID != id) {
 		return Inbound{}, fmt.Errorf("invalid 3x-ui inbound ID")
 	}
 	inbound.ID = id
 	return c.writeInbound(ctx, "panel/api/inbounds/update/"+strconv.FormatInt(id, 10), inbound)
+}
+
+// SetInboundEnabled changes the inbound's enable state through the dedicated
+// upstream endpoint. It can affect live sessions; callers must validate owned
+// identity and application readback independently of the HTTP acknowledgement.
+func (c *Client) SetInboundEnabled(ctx context.Context, id int64, enabled bool) error {
+	if id <= 0 {
+		return fmt.Errorf("invalid 3x-ui inbound ID")
+	}
+	body, err := marshalSensitive(struct {
+		Enable bool `json:"enable"`
+	}{Enable: enabled})
+	if err != nil {
+		return err
+	}
+	u, err := c.endpointURL("panel/api/inbounds/setEnable/" + strconv.FormatInt(id, 10))
+	if err != nil {
+		return err
+	}
+	return c.sensitiveEnvelope(ctx, http.MethodPost, u, body, "application/json", nil)
 }
 
 func (c *Client) DeleteInbound(ctx context.Context, id int64) error {
@@ -434,9 +460,9 @@ func (c *Client) sensitiveEnvelope(ctx context.Context, method string, u *url.UR
 	if err != nil {
 		return err
 	}
-	var response envelope
-	if json.Unmarshal(body, &response) != nil {
-		return &ContractError{Message: "3x-ui returned an invalid response envelope"}
+	response, err := decodeSensitiveEnvelope(body)
+	if err != nil {
+		return err
 	}
 	if response.Success == nil {
 		return &ContractError{Message: "3x-ui response envelope has no boolean success field"}
@@ -455,4 +481,73 @@ func (c *Client) sensitiveEnvelope(ctx context.Context, method string, u *url.UR
 		return &ContractError{Message: "3x-ui returned an invalid response object"}
 	}
 	return nil
+}
+
+// decodeSensitiveEnvelope parses the outer object without encoding/json's
+// last-key-wins or case-insensitive struct-field matching. An ambiguous success
+// or object must never acknowledge a write or advance accounting watermarks.
+// The provider message is intentionally discarded, including on parse errors.
+func decodeSensitiveEnvelope(body []byte) (envelope, error) {
+	invalid := func() (envelope, error) {
+		return envelope{}, &ContractError{Message: "3x-ui returned an invalid response envelope"}
+	}
+	if !utf8.Valid(body) || !comparisonUnicodeEscapesValid(body) {
+		return invalid()
+	}
+	decoder := json.NewDecoder(bytes.NewReader(body))
+	start, err := decoder.Token()
+	if err != nil || start != json.Delim('{') {
+		return invalid()
+	}
+	var response envelope
+	seen := make(map[string]bool)
+	for decoder.More() {
+		token, err := decoder.Token()
+		key, ok := token.(string)
+		if err != nil || !ok || seen[key] {
+			return invalid()
+		}
+		seen[key] = true
+		var value json.RawMessage
+		if err := decoder.Decode(&value); err != nil {
+			return invalid()
+		}
+		switch key {
+		case "success":
+			switch string(bytes.TrimSpace(value)) {
+			case "true":
+				state := true
+				response.Success = &state
+			case "false":
+				state := false
+				response.Success = &state
+			default:
+				return invalid()
+			}
+		case "obj":
+			response.Object = value
+		case "msg":
+			var message string
+			if json.Unmarshal(value, &message) != nil {
+				return invalid()
+			}
+		default:
+			// Reject aliases of contract members, but allow future unrelated
+			// metadata fields without retaining or exposing their contents.
+			if strings.EqualFold(key, "success") || strings.EqualFold(key, "obj") || strings.EqualFold(key, "msg") {
+				return invalid()
+			}
+		}
+	}
+	end, err := decoder.Token()
+	if err != nil || end != json.Delim('}') {
+		return invalid()
+	}
+	if _, err := decoder.Token(); err != io.EOF {
+		return invalid()
+	}
+	if response.Success == nil {
+		return envelope{}, &ContractError{Message: "3x-ui response envelope has no boolean success field"}
+	}
+	return response, nil
 }

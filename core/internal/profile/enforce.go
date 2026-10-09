@@ -3,6 +3,7 @@ package profile
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
@@ -23,6 +24,19 @@ import (
 // node.Manager; declared here so this package stays off the gRPC layer.
 type UserOpPusher interface {
 	SendUserOp(nodeID string, op *chiralv1.UserOp) error
+}
+
+// UserOpExecutor preserves the caller's deadline while awaiting execution.
+// Legacy pusher implementations keep the old enqueue-only contract.
+type UserOpExecutor interface {
+	ExecuteUserOp(ctx context.Context, nodeID string, op *chiralv1.UserOp) error
+}
+
+func (s *Service) sendUserOperation(ctx context.Context, nodeID string, op *chiralv1.UserOp) error {
+	if executor, ok := s.userOps.(UserOpExecutor); ok {
+		return executor.ExecuteUserOp(ctx, nodeID, op)
+	}
+	return s.userOps.SendUserOp(nodeID, op)
 }
 
 // ApplyUserNodes re-assembles and delivers every node listed, so the STORED
@@ -52,9 +66,9 @@ func (s *Service) ApplyUserNodes(ctx context.Context, nodeIDs []string) map[stri
 // serving one profile, without touching their other entitlements.
 //
 // Called before the credentials are dropped, since the email and inbound tag
-// an online removal needs live on those rows. A node that is offline is not an
-// error: the caller rewrites the stored config afterwards, which is what that
-// node will pick up.
+// an online removal needs live on those rows. An uncertain, refused or offline
+// retirement returns an error so the caller retains the credential context.
+// Legacy ONLINE nodes retain their historical enqueue-only confirmation.
 func (s *Service) RemoveUserFromProfile(ctx context.Context, userID, profileID string) error {
 	if s.userOps == nil {
 		return nil
@@ -63,6 +77,7 @@ func (s *Service) RemoveUserFromProfile(ctx context.Context, userID, profileID s
 	if err != nil {
 		return err
 	}
+	var failures []error
 	for _, c := range creds {
 		if c.ProfileID != profileID {
 			continue
@@ -71,15 +86,66 @@ func (s *Service) RemoveUserFromProfile(ctx context.Context, userID, profileID s
 		if err != nil {
 			s.logger.Info("cannot name the inbound to remove from",
 				"user", userID, "node", c.NodeID, "reason", err)
+			failures = append(failures, fmt.Errorf("node %s retirement cannot be named: %w", c.NodeID, err))
 			continue
 		}
-		if err := s.userOps.SendUserOp(c.NodeID, &chiralv1.UserOp{
-			Kind:       chiralv1.UserOpKind_USER_OP_KIND_REMOVE,
-			InboundTag: tag,
-			Email:      c.Email,
+		if err := s.sendUserOperation(ctx, c.NodeID, &chiralv1.UserOp{
+			Kind:             chiralv1.UserOpKind_USER_OP_KIND_REMOVE,
+			InboundTag:       tag,
+			Email:            c.Email,
+			RetireCredential: true,
 		}); err != nil {
 			s.logger.Info("online removal not delivered", "user", userID,
 				"node", c.NodeID, "reason", err)
+			failures = append(failures, fmt.Errorf("node %s credential retirement was not confirmed: %w", c.NodeID, err))
+		}
+	}
+	return errors.Join(failures...)
+}
+
+// RetireUserCredentials is called before a permanent user deletion while the
+// credential rows still provide their exact inbound and accounting identity.
+func (s *Service) RetireUserCredentials(ctx context.Context, userID string) error {
+	creds, err := s.st.UserCredentials(userID)
+	if err != nil {
+		return err
+	}
+	profiles := map[string]bool{}
+	for _, c := range creds {
+		profiles[c.ProfileID] = true
+	}
+	for id := range profiles {
+		if err := s.RemoveUserFromProfile(ctx, userID, id); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// RetireUserCredentialsNotEntitled runs after an authorized entitlement change
+// and before DeleteCredentialsNotEntitled. It never changes access decisions.
+func (s *Service) RetireUserCredentialsNotEntitled(ctx context.Context, userID string) error {
+	ids, err := s.st.UserProfileIDs(userID)
+	if err != nil {
+		return err
+	}
+	held := map[string]bool{}
+	for _, id := range ids {
+		held[id] = true
+	}
+	creds, err := s.st.UserCredentials(userID)
+	if err != nil {
+		return err
+	}
+	removed := map[string]bool{}
+	for _, c := range creds {
+		if !held[c.ProfileID] {
+			removed[c.ProfileID] = true
+		}
+	}
+	for id := range removed {
+		if err := s.RemoveUserFromProfile(ctx, userID, id); err != nil {
+			return err
 		}
 	}
 	return nil
@@ -161,20 +227,9 @@ func (s *Service) InboundTagFor(profileID, nodeID string) (string, error) {
 // SyncUser brings one user's live presence on the nodes in line with their
 // entitlement, and returns whether anything was pushed.
 //
-// The user's `active` flag is only flipped once every node's operation was
-// ENQUEUED without error. A node that is offline stays "not yet done" so the
-// next sweep retries it — better to re-send a redundant removal than to record
-// a ban that only landed on half the fleet.
-//
-// Enqueued, not applied, and the difference is worth naming: SendUserOp hands
-// the frame to the session's send channel and returns. If the kernel then
-// refuses it — its API unreachable, the inbound gone, the user already absent —
-// the agent reports an Event that nothing here consumes, and `active` has
-// already been written as though the change landed. The flag therefore means
-// "Core believes this is installed", which is what the config re-assembly at
-// the end of EnforceQuotas exists to make true regardless: the stored config
-// is the authority, and the next restart converges to it even when the online
-// op was lost.
+// New nodes must explicitly confirm every operation before `active` changes.
+// Unknown outcomes remain blocked by the durable execution journal instead
+// of being replayed by the next sweep. Older nodes retain enqueue semantics.
 func (s *Service) SyncUser(ctx context.Context, userID string) (bool, error) {
 	if s.userOps == nil {
 		return false, nil
@@ -199,7 +254,7 @@ func (s *Service) SyncUser(ctx context.Context, userID string) (bool, error) {
 
 	allOK := true
 	for _, c := range creds {
-		if err := s.pushUserOp(u, c, want); err != nil {
+		if err := s.pushUserOp(ctx, u, c, want); err != nil {
 			// Offline nodes are the common case and not worth an error log:
 			// assembly will include or exclude the user on the next config
 			// push, which happens automatically on reconnect.
@@ -215,7 +270,7 @@ func (s *Service) SyncUser(ctx context.Context, userID string) (bool, error) {
 	return true, s.st.SetUserActive(userID, want)
 }
 
-func (s *Service) pushUserOp(u store.User, c store.Credential, allow bool) error {
+func (s *Service) pushUserOp(ctx context.Context, u store.User, c store.Credential, allow bool) error {
 	tag, err := s.InboundTagFor(c.ProfileID, c.NodeID)
 	if err != nil {
 		return err
@@ -244,7 +299,7 @@ func (s *Service) pushUserOp(u store.User, c store.Credential, allow bool) error
 		op.Kind = chiralv1.UserOpKind_USER_OP_KIND_ADD
 		op.AccountJson = []byte(entry)
 	}
-	return s.userOps.SendUserOp(c.NodeID, op)
+	return s.sendUserOperation(ctx, c.NodeID, op)
 }
 
 // EnforceQuotas is the periodic sweep: renew whoever is due, then push the

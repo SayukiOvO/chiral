@@ -319,6 +319,8 @@ const (
 	RuntimeMode_RUNTIME_MODE_UNSPECIFIED RuntimeMode = 0
 	RuntimeMode_RUNTIME_MODE_ACTIVE      RuntimeMode = 1
 	RuntimeMode_RUNTIME_MODE_SHADOW      RuntimeMode = 2
+	// Explicit isolated execution candidate, never production takeover.
+	RuntimeMode_RUNTIME_MODE_CANDIDATE RuntimeMode = 3
 )
 
 // Enum value maps for RuntimeMode.
@@ -327,11 +329,13 @@ var (
 		0: "RUNTIME_MODE_UNSPECIFIED",
 		1: "RUNTIME_MODE_ACTIVE",
 		2: "RUNTIME_MODE_SHADOW",
+		3: "RUNTIME_MODE_CANDIDATE",
 	}
 	RuntimeMode_value = map[string]int32{
 		"RUNTIME_MODE_UNSPECIFIED": 0,
 		"RUNTIME_MODE_ACTIVE":      1,
 		"RUNTIME_MODE_SHADOW":      2,
+		"RUNTIME_MODE_CANDIDATE":   3,
 	}
 )
 
@@ -416,6 +420,58 @@ func (x RuntimeHealth) Number() protoreflect.EnumNumber {
 // Deprecated: Use RuntimeHealth.Descriptor instead.
 func (RuntimeHealth) EnumDescriptor() ([]byte, []int) {
 	return file_chiral_v1_agent_proto_rawDescGZIP(), []int{6}
+}
+
+type UserOpResult int32
+
+const (
+	UserOpResult_USER_OP_RESULT_UNSPECIFIED  UserOpResult = 0
+	UserOpResult_USER_OP_RESULT_APPLIED      UserOpResult = 1
+	UserOpResult_USER_OP_RESULT_NOT_EXECUTED UserOpResult = 2
+	UserOpResult_USER_OP_RESULT_UNKNOWN      UserOpResult = 3
+)
+
+// Enum value maps for UserOpResult.
+var (
+	UserOpResult_name = map[int32]string{
+		0: "USER_OP_RESULT_UNSPECIFIED",
+		1: "USER_OP_RESULT_APPLIED",
+		2: "USER_OP_RESULT_NOT_EXECUTED",
+		3: "USER_OP_RESULT_UNKNOWN",
+	}
+	UserOpResult_value = map[string]int32{
+		"USER_OP_RESULT_UNSPECIFIED":  0,
+		"USER_OP_RESULT_APPLIED":      1,
+		"USER_OP_RESULT_NOT_EXECUTED": 2,
+		"USER_OP_RESULT_UNKNOWN":      3,
+	}
+)
+
+func (x UserOpResult) Enum() *UserOpResult {
+	p := new(UserOpResult)
+	*p = x
+	return p
+}
+
+func (x UserOpResult) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (UserOpResult) Descriptor() protoreflect.EnumDescriptor {
+	return file_chiral_v1_agent_proto_enumTypes[7].Descriptor()
+}
+
+func (UserOpResult) Type() protoreflect.EnumType {
+	return &file_chiral_v1_agent_proto_enumTypes[7]
+}
+
+func (x UserOpResult) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use UserOpResult.Descriptor instead.
+func (UserOpResult) EnumDescriptor() ([]byte, []int) {
+	return file_chiral_v1_agent_proto_rawDescGZIP(), []int{7}
 }
 
 type RegisterRequest struct {
@@ -545,6 +601,7 @@ type AgentFrame struct {
 	//	*AgentFrame_XrayStatus
 	//	*AgentFrame_XrayRelayRequest
 	//	*AgentFrame_RecentOnline
+	//	*AgentFrame_UserOpAck
 	Frame         isAgentFrame_Frame `protobuf_oneof:"frame"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -668,6 +725,15 @@ func (x *AgentFrame) GetRecentOnline() *RecentOnlineReport {
 	return nil
 }
 
+func (x *AgentFrame) GetUserOpAck() *UserOpAck {
+	if x != nil {
+		if x, ok := x.Frame.(*AgentFrame_UserOpAck); ok {
+			return x.UserOpAck
+		}
+	}
+	return nil
+}
+
 type isAgentFrame_Frame interface {
 	isAgentFrame_Frame()
 }
@@ -708,6 +774,10 @@ type AgentFrame_RecentOnline struct {
 	RecentOnline *RecentOnlineReport `protobuf:"bytes,9,opt,name=recent_online,json=recentOnline,proto3,oneof"`
 }
 
+type AgentFrame_UserOpAck struct {
+	UserOpAck *UserOpAck `protobuf:"bytes,10,opt,name=user_op_ack,json=userOpAck,proto3,oneof"`
+}
+
 func (*AgentFrame_Hello) isAgentFrame_Frame() {}
 
 func (*AgentFrame_Heartbeat) isAgentFrame_Frame() {}
@@ -726,6 +796,8 @@ func (*AgentFrame_XrayRelayRequest) isAgentFrame_Frame() {}
 
 func (*AgentFrame_RecentOnline) isAgentFrame_Frame() {}
 
+func (*AgentFrame_UserOpAck) isAgentFrame_Frame() {}
+
 // Hello is the first frame after the stream is established.
 type Hello struct {
 	state        protoimpl.MessageState `protogen:"open.v1"`
@@ -740,9 +812,12 @@ type Hello struct {
 	// thing that knows it. Inferring it panel-side — from a hostname, a label, an
 	// operator's memory — is how a node gets told to install a binary for the
 	// wrong architecture, which fails at exec time with nothing useful to say.
-	Platform      string `protobuf:"bytes,5,opt,name=platform,proto3" json:"platform,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	Platform string `protobuf:"bytes,5,opt,name=platform,proto3" json:"platform,omitempty"`
+	// Opts this connection into exact execution receipts for UserOp. Core must
+	// continue the legacy enqueue-only path when an older agent omits it.
+	UserOpReceipts bool `protobuf:"varint,6,opt,name=user_op_receipts,json=userOpReceipts,proto3" json:"user_op_receipts,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *Hello) Reset() {
@@ -808,6 +883,13 @@ func (x *Hello) GetPlatform() string {
 		return x.Platform
 	}
 	return ""
+}
+
+func (x *Hello) GetUserOpReceipts() bool {
+	if x != nil {
+		return x.UserOpReceipts
+	}
+	return false
 }
 
 // Heartbeat carries lightweight system metrics and liveness.
@@ -2346,9 +2428,21 @@ type UserOp struct {
 	// Per-credential stats key, e.g. "alice@tokyo-reality".
 	Email string `protobuf:"bytes,3,opt,name=email,proto3" json:"email,omitempty"`
 	// JSON-encoded account object (uuid/password/flow...), draft until M3.
-	AccountJson   []byte `protobuf:"bytes,4,opt,name=account_json,json=accountJson,proto3" json:"account_json,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	AccountJson []byte `protobuf:"bytes,4,opt,name=account_json,json=accountJson,proto3" json:"account_json,omitempty"`
+	// Set only when Hello.user_op_receipts is true. Omitted by older Cores.
+	// Never replay an uncertain operation under a new ID.
+	OperationId string `protobuf:"bytes,5,opt,name=operation_id,json=operationId,proto3" json:"operation_id,omitempty"`
+	// Permanent credential retirement, distinct from temporary quota/expiry
+	// disable. API runtimes retain disabled credentials for later re-enabling.
+	RetireCredential bool `protobuf:"varint,6,opt,name=retire_credential,json=retireCredential,proto3" json:"retire_credential,omitempty"`
+	// Relative execution budget, measured on the Agent's monotonic clock from
+	// receipt. Queue waiting consumes it. Zero keeps the legacy 30s default.
+	ExecutionTimeoutMillis uint32 `protobuf:"varint,7,opt,name=execution_timeout_millis,json=executionTimeoutMillis,proto3" json:"execution_timeout_millis,omitempty"`
+	// Strictly increasing on this stream. Allows bounded receipt retention:
+	// an evicted old sequence is rejected without invoking the runtime again.
+	ExecutionSequence uint64 `protobuf:"varint,8,opt,name=execution_sequence,json=executionSequence,proto3" json:"execution_sequence,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
 }
 
 func (x *UserOp) Reset() {
@@ -2407,6 +2501,34 @@ func (x *UserOp) GetAccountJson() []byte {
 		return x.AccountJson
 	}
 	return nil
+}
+
+func (x *UserOp) GetOperationId() string {
+	if x != nil {
+		return x.OperationId
+	}
+	return ""
+}
+
+func (x *UserOp) GetRetireCredential() bool {
+	if x != nil {
+		return x.RetireCredential
+	}
+	return false
+}
+
+func (x *UserOp) GetExecutionTimeoutMillis() uint32 {
+	if x != nil {
+		return x.ExecutionTimeoutMillis
+	}
+	return 0
+}
+
+func (x *UserOp) GetExecutionSequence() uint64 {
+	if x != nil {
+		return x.ExecutionSequence
+	}
+	return 0
 }
 
 // Command is a small imperative from Core.
@@ -2714,6 +2836,70 @@ func (x *RuntimeStatus) GetObservedAgeSeconds() uint32 {
 	return 0
 }
 
+// UserOpAck belongs to one stream and one exact operation ID. A runtime error
+// may follow a partial write; UNKNOWN must never be treated as unapplied or
+// automatically retried. NOT_EXECUTED proves no runtime mutation was attempted.
+type UserOpAck struct {
+	state       protoimpl.MessageState `protogen:"open.v1"`
+	OperationId string                 `protobuf:"bytes,1,opt,name=operation_id,json=operationId,proto3" json:"operation_id,omitempty"`
+	Result      UserOpResult           `protobuf:"varint,2,opt,name=result,proto3,enum=chiral.v1.UserOpResult" json:"result,omitempty"`
+	// Bounded, operator-safe detail; raw provider errors stay in the Agent log.
+	Error         string `protobuf:"bytes,3,opt,name=error,proto3" json:"error,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *UserOpAck) Reset() {
+	*x = UserOpAck{}
+	mi := &file_chiral_v1_agent_proto_msgTypes[28]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *UserOpAck) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*UserOpAck) ProtoMessage() {}
+
+func (x *UserOpAck) ProtoReflect() protoreflect.Message {
+	mi := &file_chiral_v1_agent_proto_msgTypes[28]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use UserOpAck.ProtoReflect.Descriptor instead.
+func (*UserOpAck) Descriptor() ([]byte, []int) {
+	return file_chiral_v1_agent_proto_rawDescGZIP(), []int{28}
+}
+
+func (x *UserOpAck) GetOperationId() string {
+	if x != nil {
+		return x.OperationId
+	}
+	return ""
+}
+
+func (x *UserOpAck) GetResult() UserOpResult {
+	if x != nil {
+		return x.Result
+	}
+	return UserOpResult_USER_OP_RESULT_UNSPECIFIED
+}
+
+func (x *UserOpAck) GetError() string {
+	if x != nil {
+		return x.Error
+	}
+	return ""
+}
+
 var File_chiral_v1_agent_proto protoreflect.FileDescriptor
 
 const file_chiral_v1_agent_proto_rawDesc = "" +
@@ -2728,7 +2914,7 @@ const file_chiral_v1_agent_proto_rawDesc = "" +
 	"\anode_id\x18\x01 \x01(\tR\x06nodeId\x12\x1e\n" +
 	"\n" +
 	"credential\x18\x02 \x01(\tR\n" +
-	"credential\"\x86\x04\n" +
+	"credential\"\xbe\x04\n" +
 	"\n" +
 	"AgentFrame\x12(\n" +
 	"\x05hello\x18\x01 \x01(\v2\x10.chiral.v1.HelloH\x00R\x05hello\x124\n" +
@@ -2741,14 +2927,17 @@ const file_chiral_v1_agent_proto_rawDesc = "" +
 	"\vxray_status\x18\a \x01(\v2\x15.chiral.v1.XrayStatusH\x00R\n" +
 	"xrayStatus\x12K\n" +
 	"\x12xray_relay_request\x18\b \x01(\v2\x1b.chiral.v1.XrayRelayRequestH\x00R\x10xrayRelayRequest\x12D\n" +
-	"\rrecent_online\x18\t \x01(\v2\x1d.chiral.v1.RecentOnlineReportH\x00R\frecentOnlineB\a\n" +
-	"\x05frame\"\xa1\x01\n" +
+	"\rrecent_online\x18\t \x01(\v2\x1d.chiral.v1.RecentOnlineReportH\x00R\frecentOnline\x126\n" +
+	"\vuser_op_ack\x18\n" +
+	" \x01(\v2\x14.chiral.v1.UserOpAckH\x00R\tuserOpAckB\a\n" +
+	"\x05frame\"\xcb\x01\n" +
 	"\x05Hello\x12\x17\n" +
 	"\anode_id\x18\x01 \x01(\tR\x06nodeId\x12#\n" +
 	"\ragent_version\x18\x02 \x01(\tR\fagentVersion\x12!\n" +
 	"\fxray_version\x18\x03 \x01(\tR\vxrayVersion\x12\x1b\n" +
 	"\tpublic_ip\x18\x04 \x01(\tR\bpublicIp\x12\x1a\n" +
-	"\bplatform\x18\x05 \x01(\tR\bplatform\"\xf1\x03\n" +
+	"\bplatform\x18\x05 \x01(\tR\bplatform\x12(\n" +
+	"\x10user_op_receipts\x18\x06 \x01(\bR\x0euserOpReceipts\"\xf1\x03\n" +
 	"\tHeartbeat\x12\x1f\n" +
 	"\vcpu_percent\x18\x01 \x01(\x01R\n" +
 	"cpuPercent\x12$\n" +
@@ -2856,13 +3045,17 @@ const file_chiral_v1_agent_proto_rawDesc = "" +
 	"\vconfig_json\x18\x02 \x01(\fR\n" +
 	"configJson\x12.\n" +
 	"\x13probe_outbound_json\x18\x03 \x01(\fR\x11probeOutboundJson\x12\x1b\n" +
-	"\tprobe_url\x18\x04 \x01(\tR\bprobeUrl\"\x8d\x01\n" +
+	"\tprobe_url\x18\x04 \x01(\tR\bprobeUrl\"\xc6\x02\n" +
 	"\x06UserOp\x12)\n" +
 	"\x04kind\x18\x01 \x01(\x0e2\x15.chiral.v1.UserOpKindR\x04kind\x12\x1f\n" +
 	"\vinbound_tag\x18\x02 \x01(\tR\n" +
 	"inboundTag\x12\x14\n" +
 	"\x05email\x18\x03 \x01(\tR\x05email\x12!\n" +
-	"\faccount_json\x18\x04 \x01(\fR\vaccountJson\"\x84\x01\n" +
+	"\faccount_json\x18\x04 \x01(\fR\vaccountJson\x12!\n" +
+	"\foperation_id\x18\x05 \x01(\tR\voperationId\x12+\n" +
+	"\x11retire_credential\x18\x06 \x01(\bR\x10retireCredential\x128\n" +
+	"\x18execution_timeout_millis\x18\a \x01(\rR\x16executionTimeoutMillis\x12-\n" +
+	"\x12execution_sequence\x18\b \x01(\x04R\x11executionSequence\"\x84\x01\n" +
 	"\aCommand\x12;\n" +
 	"\frestart_xray\x18\x01 \x01(\v2\x16.chiral.v1.RestartXrayH\x00R\vrestartXray\x125\n" +
 	"\n" +
@@ -2883,7 +3076,11 @@ const file_chiral_v1_agent_proto_rawDesc = "" +
 	"xray_state\x18\t \x01(\x0e2\x14.chiral.v1.XrayStateR\txrayState\x12!\n" +
 	"\fxray_version\x18\n" +
 	" \x01(\tR\vxrayVersion\x120\n" +
-	"\x14observed_age_seconds\x18\v \x01(\rR\x12observedAgeSeconds*m\n" +
+	"\x14observed_age_seconds\x18\v \x01(\rR\x12observedAgeSeconds\"u\n" +
+	"\tUserOpAck\x12!\n" +
+	"\foperation_id\x18\x01 \x01(\tR\voperationId\x12/\n" +
+	"\x06result\x18\x02 \x01(\x0e2\x17.chiral.v1.UserOpResultR\x06result\x12\x14\n" +
+	"\x05error\x18\x03 \x01(\tR\x05error*m\n" +
 	"\tXrayState\x12\x1a\n" +
 	"\x16XRAY_STATE_UNSPECIFIED\x10\x00\x12\x16\n" +
 	"\x12XRAY_STATE_RUNNING\x10\x01\x12\x16\n" +
@@ -2913,16 +3110,22 @@ const file_chiral_v1_agent_proto_rawDesc = "" +
 	"UserOpKind\x12\x1c\n" +
 	"\x18USER_OP_KIND_UNSPECIFIED\x10\x00\x12\x14\n" +
 	"\x10USER_OP_KIND_ADD\x10\x01\x12\x17\n" +
-	"\x13USER_OP_KIND_REMOVE\x10\x02*]\n" +
+	"\x13USER_OP_KIND_REMOVE\x10\x02*y\n" +
 	"\vRuntimeMode\x12\x1c\n" +
 	"\x18RUNTIME_MODE_UNSPECIFIED\x10\x00\x12\x17\n" +
 	"\x13RUNTIME_MODE_ACTIVE\x10\x01\x12\x17\n" +
-	"\x13RUNTIME_MODE_SHADOW\x10\x02*\x8a\x01\n" +
+	"\x13RUNTIME_MODE_SHADOW\x10\x02\x12\x1a\n" +
+	"\x16RUNTIME_MODE_CANDIDATE\x10\x03*\x8a\x01\n" +
 	"\rRuntimeHealth\x12\x1e\n" +
 	"\x1aRUNTIME_HEALTH_UNSPECIFIED\x10\x00\x12\x18\n" +
 	"\x14RUNTIME_HEALTH_READY\x10\x01\x12\x1f\n" +
 	"\x1bRUNTIME_HEALTH_INCOMPATIBLE\x10\x02\x12\x1e\n" +
-	"\x1aRUNTIME_HEALTH_UNREACHABLE\x10\x032\x8f\x01\n" +
+	"\x1aRUNTIME_HEALTH_UNREACHABLE\x10\x03*\x87\x01\n" +
+	"\fUserOpResult\x12\x1e\n" +
+	"\x1aUSER_OP_RESULT_UNSPECIFIED\x10\x00\x12\x1a\n" +
+	"\x16USER_OP_RESULT_APPLIED\x10\x01\x12\x1f\n" +
+	"\x1bUSER_OP_RESULT_NOT_EXECUTED\x10\x02\x12\x1a\n" +
+	"\x16USER_OP_RESULT_UNKNOWN\x10\x032\x8f\x01\n" +
 	"\fAgentService\x12C\n" +
 	"\bRegister\x12\x1a.chiral.v1.RegisterRequest\x1a\x1b.chiral.v1.RegisterResponse\x12:\n" +
 	"\aChannel\x12\x15.chiral.v1.AgentFrame\x1a\x14.chiral.v1.CoreFrame(\x010\x01B6Z4github.com/SayukiOvO/chiral/proto/chiral/v1;chiralv1b\x06proto3"
@@ -2939,8 +3142,8 @@ func file_chiral_v1_agent_proto_rawDescGZIP() []byte {
 	return file_chiral_v1_agent_proto_rawDescData
 }
 
-var file_chiral_v1_agent_proto_enumTypes = make([]protoimpl.EnumInfo, 7)
-var file_chiral_v1_agent_proto_msgTypes = make([]protoimpl.MessageInfo, 28)
+var file_chiral_v1_agent_proto_enumTypes = make([]protoimpl.EnumInfo, 8)
+var file_chiral_v1_agent_proto_msgTypes = make([]protoimpl.MessageInfo, 29)
 var file_chiral_v1_agent_proto_goTypes = []any{
 	(XrayState)(0),             // 0: chiral.v1.XrayState
 	(StatScope)(0),             // 1: chiral.v1.StatScope
@@ -2949,77 +3152,81 @@ var file_chiral_v1_agent_proto_goTypes = []any{
 	(UserOpKind)(0),            // 4: chiral.v1.UserOpKind
 	(RuntimeMode)(0),           // 5: chiral.v1.RuntimeMode
 	(RuntimeHealth)(0),         // 6: chiral.v1.RuntimeHealth
-	(*RegisterRequest)(nil),    // 7: chiral.v1.RegisterRequest
-	(*RegisterResponse)(nil),   // 8: chiral.v1.RegisterResponse
-	(*AgentFrame)(nil),         // 9: chiral.v1.AgentFrame
-	(*Hello)(nil),              // 10: chiral.v1.Hello
-	(*Heartbeat)(nil),          // 11: chiral.v1.Heartbeat
-	(*StatsReport)(nil),        // 12: chiral.v1.StatsReport
-	(*StatsPolicy)(nil),        // 13: chiral.v1.StatsPolicy
-	(*StatsAck)(nil),           // 14: chiral.v1.StatsAck
-	(*StatEntry)(nil),          // 15: chiral.v1.StatEntry
-	(*ConfigAck)(nil),          // 16: chiral.v1.ConfigAck
-	(*OnlineReport)(nil),       // 17: chiral.v1.OnlineReport
-	(*OnlineUser)(nil),         // 18: chiral.v1.OnlineUser
-	(*OnlineIP)(nil),           // 19: chiral.v1.OnlineIP
-	(*RecentOnlineReport)(nil), // 20: chiral.v1.RecentOnlineReport
-	(*RecentOnlineUser)(nil),   // 21: chiral.v1.RecentOnlineUser
-	(*XrayStatus)(nil),         // 22: chiral.v1.XrayStatus
-	(*XrayRelayRequest)(nil),   // 23: chiral.v1.XrayRelayRequest
-	(*Event)(nil),              // 24: chiral.v1.Event
-	(*CoreFrame)(nil),          // 25: chiral.v1.CoreFrame
-	(*XrayInstall)(nil),        // 26: chiral.v1.XrayInstall
-	(*XrayChunk)(nil),          // 27: chiral.v1.XrayChunk
-	(*OnlinePolicy)(nil),       // 28: chiral.v1.OnlinePolicy
-	(*ConfigPush)(nil),         // 29: chiral.v1.ConfigPush
-	(*UserOp)(nil),             // 30: chiral.v1.UserOp
-	(*Command)(nil),            // 31: chiral.v1.Command
-	(*RestartXray)(nil),        // 32: chiral.v1.RestartXray
-	(*ReportNow)(nil),          // 33: chiral.v1.ReportNow
-	(*RuntimeStatus)(nil),      // 34: chiral.v1.RuntimeStatus
+	(UserOpResult)(0),          // 7: chiral.v1.UserOpResult
+	(*RegisterRequest)(nil),    // 8: chiral.v1.RegisterRequest
+	(*RegisterResponse)(nil),   // 9: chiral.v1.RegisterResponse
+	(*AgentFrame)(nil),         // 10: chiral.v1.AgentFrame
+	(*Hello)(nil),              // 11: chiral.v1.Hello
+	(*Heartbeat)(nil),          // 12: chiral.v1.Heartbeat
+	(*StatsReport)(nil),        // 13: chiral.v1.StatsReport
+	(*StatsPolicy)(nil),        // 14: chiral.v1.StatsPolicy
+	(*StatsAck)(nil),           // 15: chiral.v1.StatsAck
+	(*StatEntry)(nil),          // 16: chiral.v1.StatEntry
+	(*ConfigAck)(nil),          // 17: chiral.v1.ConfigAck
+	(*OnlineReport)(nil),       // 18: chiral.v1.OnlineReport
+	(*OnlineUser)(nil),         // 19: chiral.v1.OnlineUser
+	(*OnlineIP)(nil),           // 20: chiral.v1.OnlineIP
+	(*RecentOnlineReport)(nil), // 21: chiral.v1.RecentOnlineReport
+	(*RecentOnlineUser)(nil),   // 22: chiral.v1.RecentOnlineUser
+	(*XrayStatus)(nil),         // 23: chiral.v1.XrayStatus
+	(*XrayRelayRequest)(nil),   // 24: chiral.v1.XrayRelayRequest
+	(*Event)(nil),              // 25: chiral.v1.Event
+	(*CoreFrame)(nil),          // 26: chiral.v1.CoreFrame
+	(*XrayInstall)(nil),        // 27: chiral.v1.XrayInstall
+	(*XrayChunk)(nil),          // 28: chiral.v1.XrayChunk
+	(*OnlinePolicy)(nil),       // 29: chiral.v1.OnlinePolicy
+	(*ConfigPush)(nil),         // 30: chiral.v1.ConfigPush
+	(*UserOp)(nil),             // 31: chiral.v1.UserOp
+	(*Command)(nil),            // 32: chiral.v1.Command
+	(*RestartXray)(nil),        // 33: chiral.v1.RestartXray
+	(*ReportNow)(nil),          // 34: chiral.v1.ReportNow
+	(*RuntimeStatus)(nil),      // 35: chiral.v1.RuntimeStatus
+	(*UserOpAck)(nil),          // 36: chiral.v1.UserOpAck
 }
 var file_chiral_v1_agent_proto_depIdxs = []int32{
-	10, // 0: chiral.v1.AgentFrame.hello:type_name -> chiral.v1.Hello
-	11, // 1: chiral.v1.AgentFrame.heartbeat:type_name -> chiral.v1.Heartbeat
-	12, // 2: chiral.v1.AgentFrame.stats:type_name -> chiral.v1.StatsReport
-	16, // 3: chiral.v1.AgentFrame.config_ack:type_name -> chiral.v1.ConfigAck
-	24, // 4: chiral.v1.AgentFrame.event:type_name -> chiral.v1.Event
-	17, // 5: chiral.v1.AgentFrame.online:type_name -> chiral.v1.OnlineReport
-	22, // 6: chiral.v1.AgentFrame.xray_status:type_name -> chiral.v1.XrayStatus
-	23, // 7: chiral.v1.AgentFrame.xray_relay_request:type_name -> chiral.v1.XrayRelayRequest
-	20, // 8: chiral.v1.AgentFrame.recent_online:type_name -> chiral.v1.RecentOnlineReport
-	0,  // 9: chiral.v1.Heartbeat.xray_state:type_name -> chiral.v1.XrayState
-	34, // 10: chiral.v1.Heartbeat.runtime:type_name -> chiral.v1.RuntimeStatus
-	15, // 11: chiral.v1.StatsReport.entries:type_name -> chiral.v1.StatEntry
-	1,  // 12: chiral.v1.StatEntry.scope:type_name -> chiral.v1.StatScope
-	18, // 13: chiral.v1.OnlineReport.users:type_name -> chiral.v1.OnlineUser
-	19, // 14: chiral.v1.OnlineUser.ips:type_name -> chiral.v1.OnlineIP
-	21, // 15: chiral.v1.RecentOnlineReport.users:type_name -> chiral.v1.RecentOnlineUser
-	2,  // 16: chiral.v1.XrayStatus.phase:type_name -> chiral.v1.XrayInstallPhase
-	3,  // 17: chiral.v1.Event.kind:type_name -> chiral.v1.EventKind
-	29, // 18: chiral.v1.CoreFrame.config_push:type_name -> chiral.v1.ConfigPush
-	30, // 19: chiral.v1.CoreFrame.user_op:type_name -> chiral.v1.UserOp
-	31, // 20: chiral.v1.CoreFrame.command:type_name -> chiral.v1.Command
-	28, // 21: chiral.v1.CoreFrame.online_policy:type_name -> chiral.v1.OnlinePolicy
-	26, // 22: chiral.v1.CoreFrame.xray_install:type_name -> chiral.v1.XrayInstall
-	27, // 23: chiral.v1.CoreFrame.xray_chunk:type_name -> chiral.v1.XrayChunk
-	13, // 24: chiral.v1.CoreFrame.stats_policy:type_name -> chiral.v1.StatsPolicy
-	14, // 25: chiral.v1.CoreFrame.stats_ack:type_name -> chiral.v1.StatsAck
-	4,  // 26: chiral.v1.UserOp.kind:type_name -> chiral.v1.UserOpKind
-	32, // 27: chiral.v1.Command.restart_xray:type_name -> chiral.v1.RestartXray
-	33, // 28: chiral.v1.Command.report_now:type_name -> chiral.v1.ReportNow
-	5,  // 29: chiral.v1.RuntimeStatus.mode:type_name -> chiral.v1.RuntimeMode
-	6,  // 30: chiral.v1.RuntimeStatus.health:type_name -> chiral.v1.RuntimeHealth
-	0,  // 31: chiral.v1.RuntimeStatus.xray_state:type_name -> chiral.v1.XrayState
-	7,  // 32: chiral.v1.AgentService.Register:input_type -> chiral.v1.RegisterRequest
-	9,  // 33: chiral.v1.AgentService.Channel:input_type -> chiral.v1.AgentFrame
-	8,  // 34: chiral.v1.AgentService.Register:output_type -> chiral.v1.RegisterResponse
-	25, // 35: chiral.v1.AgentService.Channel:output_type -> chiral.v1.CoreFrame
-	34, // [34:36] is the sub-list for method output_type
-	32, // [32:34] is the sub-list for method input_type
-	32, // [32:32] is the sub-list for extension type_name
-	32, // [32:32] is the sub-list for extension extendee
-	0,  // [0:32] is the sub-list for field type_name
+	11, // 0: chiral.v1.AgentFrame.hello:type_name -> chiral.v1.Hello
+	12, // 1: chiral.v1.AgentFrame.heartbeat:type_name -> chiral.v1.Heartbeat
+	13, // 2: chiral.v1.AgentFrame.stats:type_name -> chiral.v1.StatsReport
+	17, // 3: chiral.v1.AgentFrame.config_ack:type_name -> chiral.v1.ConfigAck
+	25, // 4: chiral.v1.AgentFrame.event:type_name -> chiral.v1.Event
+	18, // 5: chiral.v1.AgentFrame.online:type_name -> chiral.v1.OnlineReport
+	23, // 6: chiral.v1.AgentFrame.xray_status:type_name -> chiral.v1.XrayStatus
+	24, // 7: chiral.v1.AgentFrame.xray_relay_request:type_name -> chiral.v1.XrayRelayRequest
+	21, // 8: chiral.v1.AgentFrame.recent_online:type_name -> chiral.v1.RecentOnlineReport
+	36, // 9: chiral.v1.AgentFrame.user_op_ack:type_name -> chiral.v1.UserOpAck
+	0,  // 10: chiral.v1.Heartbeat.xray_state:type_name -> chiral.v1.XrayState
+	35, // 11: chiral.v1.Heartbeat.runtime:type_name -> chiral.v1.RuntimeStatus
+	16, // 12: chiral.v1.StatsReport.entries:type_name -> chiral.v1.StatEntry
+	1,  // 13: chiral.v1.StatEntry.scope:type_name -> chiral.v1.StatScope
+	19, // 14: chiral.v1.OnlineReport.users:type_name -> chiral.v1.OnlineUser
+	20, // 15: chiral.v1.OnlineUser.ips:type_name -> chiral.v1.OnlineIP
+	22, // 16: chiral.v1.RecentOnlineReport.users:type_name -> chiral.v1.RecentOnlineUser
+	2,  // 17: chiral.v1.XrayStatus.phase:type_name -> chiral.v1.XrayInstallPhase
+	3,  // 18: chiral.v1.Event.kind:type_name -> chiral.v1.EventKind
+	30, // 19: chiral.v1.CoreFrame.config_push:type_name -> chiral.v1.ConfigPush
+	31, // 20: chiral.v1.CoreFrame.user_op:type_name -> chiral.v1.UserOp
+	32, // 21: chiral.v1.CoreFrame.command:type_name -> chiral.v1.Command
+	29, // 22: chiral.v1.CoreFrame.online_policy:type_name -> chiral.v1.OnlinePolicy
+	27, // 23: chiral.v1.CoreFrame.xray_install:type_name -> chiral.v1.XrayInstall
+	28, // 24: chiral.v1.CoreFrame.xray_chunk:type_name -> chiral.v1.XrayChunk
+	14, // 25: chiral.v1.CoreFrame.stats_policy:type_name -> chiral.v1.StatsPolicy
+	15, // 26: chiral.v1.CoreFrame.stats_ack:type_name -> chiral.v1.StatsAck
+	4,  // 27: chiral.v1.UserOp.kind:type_name -> chiral.v1.UserOpKind
+	33, // 28: chiral.v1.Command.restart_xray:type_name -> chiral.v1.RestartXray
+	34, // 29: chiral.v1.Command.report_now:type_name -> chiral.v1.ReportNow
+	5,  // 30: chiral.v1.RuntimeStatus.mode:type_name -> chiral.v1.RuntimeMode
+	6,  // 31: chiral.v1.RuntimeStatus.health:type_name -> chiral.v1.RuntimeHealth
+	0,  // 32: chiral.v1.RuntimeStatus.xray_state:type_name -> chiral.v1.XrayState
+	7,  // 33: chiral.v1.UserOpAck.result:type_name -> chiral.v1.UserOpResult
+	8,  // 34: chiral.v1.AgentService.Register:input_type -> chiral.v1.RegisterRequest
+	10, // 35: chiral.v1.AgentService.Channel:input_type -> chiral.v1.AgentFrame
+	9,  // 36: chiral.v1.AgentService.Register:output_type -> chiral.v1.RegisterResponse
+	26, // 37: chiral.v1.AgentService.Channel:output_type -> chiral.v1.CoreFrame
+	36, // [36:38] is the sub-list for method output_type
+	34, // [34:36] is the sub-list for method input_type
+	34, // [34:34] is the sub-list for extension type_name
+	34, // [34:34] is the sub-list for extension extendee
+	0,  // [0:34] is the sub-list for field type_name
 }
 
 func init() { file_chiral_v1_agent_proto_init() }
@@ -3037,6 +3244,7 @@ func file_chiral_v1_agent_proto_init() {
 		(*AgentFrame_XrayStatus)(nil),
 		(*AgentFrame_XrayRelayRequest)(nil),
 		(*AgentFrame_RecentOnline)(nil),
+		(*AgentFrame_UserOpAck)(nil),
 	}
 	file_chiral_v1_agent_proto_msgTypes[18].OneofWrappers = []any{
 		(*CoreFrame_ConfigPush)(nil),
@@ -3057,8 +3265,8 @@ func file_chiral_v1_agent_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_chiral_v1_agent_proto_rawDesc), len(file_chiral_v1_agent_proto_rawDesc)),
-			NumEnums:      7,
-			NumMessages:   28,
+			NumEnums:      8,
+			NumMessages:   29,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
