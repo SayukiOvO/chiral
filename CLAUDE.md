@@ -11,6 +11,13 @@
 仍在写入前拒绝。CANDIDATE 不等于 ACTIVE，生产仍为 direct-Xray；不得操作 Turin、修改
 上游或因候选测试通过开启接管。完整配置调和、最终结算、普通更新调度和端到端验收未完成。
 
+**HK 测试部署补充（2026-10-09）**：Mai 随后明确授权 Turin 在线备份及只读核查，并将数据
+副本部署到 `ssh hk` 的 `https://chiral-test.060042.xyz`，仅在测试副本删除自有节点。
+清理前 302 项配置、四种订阅和规则缓存完整逐字节一致，退出 0。测试面板部署 `14b91b5`，
+保留 8 位用户与 3 个 Profile，自有节点为 0；独立密钥、会话清理与禁出网均已验证。
+该授权不允许改动 Turin 生产服务、扩大访问权、修改上游或启用 ACTIVE。详见同仓库
+`AGENTS.md` §4 与 `deploy/3x-ui-lab/validation-hk-panel-20261009.md`。
+
 ## 1. 项目是什么
 
 Chiral 是一个 Xray 管理面板，定位类似 Remnawave：采用 **Panel + Agent** 分布式架构，集中管理多台节点主机上的 Xray-core 及其 `config.json`，提供节点监控、模板化配置下发、用户与流量管理、多客户端订阅。必须支持 Docker / docker-compose 部署。
